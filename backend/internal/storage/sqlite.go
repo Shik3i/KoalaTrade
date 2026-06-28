@@ -47,6 +47,17 @@ func (s *SQLite) PingContext(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
 
+func (s *SQLite) TableExists(ctx context.Context, name string) (bool, error) {
+	var exists bool
+	err := s.db.GetContext(ctx, &exists, `SELECT EXISTS (
+		SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?
+	)`, name)
+	if err != nil {
+		return false, fmt.Errorf("check table exists: %w", err)
+	}
+	return exists, nil
+}
+
 func (s *SQLite) configure() error {
 	statements := []string{
 		"PRAGMA journal_mode = WAL;",
@@ -57,6 +68,39 @@ func (s *SQLite) configure() error {
 			value TEXT NOT NULL,
 			updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 		);`,
+		`CREATE TABLE IF NOT EXISTS user_profiles (
+			id TEXT PRIMARY KEY,
+			username TEXT UNIQUE,
+			password_hash TEXT,
+			created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+			updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+		);`,
+		`CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+			id TEXT PRIMARY KEY,
+			user_id TEXT REFERENCES user_profiles(id) ON DELETE CASCADE,
+			client_id TEXT NOT NULL,
+			starting_cash_cents INTEGER NOT NULL,
+			cash_cents INTEGER NOT NULL,
+			positions_json TEXT NOT NULL,
+			transactions_json TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_user_updated
+			ON portfolio_snapshots(user_id, updated_at DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_client_updated
+			ON portfolio_snapshots(client_id, updated_at DESC);`,
+		`CREATE TABLE IF NOT EXISTS leaderboard_snapshots (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES user_profiles(id) ON DELETE CASCADE,
+			display_name TEXT NOT NULL,
+			total_equity_cents INTEGER NOT NULL,
+			total_return_bps INTEGER NOT NULL,
+			period TEXT NOT NULL,
+			recorded_at TEXT NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_leaderboard_snapshots_period_rank
+			ON leaderboard_snapshots(period, total_return_bps DESC, recorded_at DESC);`,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
