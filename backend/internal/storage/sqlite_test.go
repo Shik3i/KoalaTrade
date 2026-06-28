@@ -23,6 +23,9 @@ func TestOpenSQLiteCreatesFoundationTables(t *testing.T) {
 		"user_profiles",
 		"assets",
 		"asset_quotes",
+		"portfolios",
+		"portfolio_positions",
+		"portfolio_transactions",
 		"portfolio_snapshots",
 		"leaderboard_snapshots",
 	} {
@@ -93,5 +96,64 @@ func TestSQLiteStoresFreshMarketQuotes(t *testing.T) {
 	}
 	if len(stale) != 0 {
 		t.Fatalf("expected stale quote to be filtered, got %d", len(stale))
+	}
+}
+
+func TestSQLitePortfolioTablesAcceptNormalizedHoldings(t *testing.T) {
+	store, err := OpenSQLite(t.TempDir() + "/koalatrade.db")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+
+	ctx := context.Background()
+	now := time.Date(2026, 6, 29, 13, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
+	_, err = store.db.ExecContext(ctx, `INSERT INTO assets (
+		id, kind, symbol, name, provider, provider_ref, updated_at
+	) VALUES ('crypto:btc', 'crypto', 'BTC', 'Bitcoin', 'mock', 'crypto:btc', ?)`, now)
+	if err != nil {
+		t.Fatalf("insert asset: %v", err)
+	}
+
+	_, err = store.db.ExecContext(ctx, `INSERT INTO portfolios (
+		id, client_id, client_portfolio_id, schema_version,
+		starting_cash_cents, cash_cents, created_at, updated_at
+	) VALUES ('portfolio-1', 'client-1', 'local-default', 1, 1000000, 750000, ?, ?)`, now, now)
+	if err != nil {
+		t.Fatalf("insert portfolio: %v", err)
+	}
+
+	_, err = store.db.ExecContext(ctx, `INSERT INTO portfolio_positions (
+		portfolio_id, asset_id, symbol, name, kind, quantity_micro,
+		average_cost_cents, last_price_cents, updated_at
+	) VALUES ('portfolio-1', 'crypto:btc', 'BTC', 'Bitcoin', 'crypto', 250000, 6000000, 6200000, ?)`, now)
+	if err != nil {
+		t.Fatalf("insert position: %v", err)
+	}
+
+	_, err = store.db.ExecContext(ctx, `INSERT INTO portfolio_transactions (
+		id, portfolio_id, asset_id, symbol, side, quantity_micro, price_cents,
+		fee_cents, status, created_at
+	) VALUES ('tx-1', 'portfolio-1', 'crypto:btc', 'BTC', 'buy', 250000, 6000000, 0, 'local', ?)`, now)
+	if err != nil {
+		t.Fatalf("insert transaction: %v", err)
+	}
+
+	var positionCount int
+	if err := store.db.GetContext(ctx, &positionCount, `SELECT COUNT(*) FROM portfolio_positions WHERE portfolio_id = ?`, "portfolio-1"); err != nil {
+		t.Fatalf("count positions: %v", err)
+	}
+	if positionCount != 1 {
+		t.Fatalf("expected 1 position, got %d", positionCount)
+	}
+
+	_, err = store.db.ExecContext(ctx, `INSERT INTO portfolio_transactions (
+		id, portfolio_id, asset_id, symbol, side, quantity_micro, price_cents,
+		fee_cents, status, created_at
+	) VALUES ('tx-bad', 'portfolio-1', 'crypto:btc', 'BTC', 'hold', 250000, 6000000, 0, 'local', ?)`, now)
+	if err == nil {
+		t.Fatal("expected invalid transaction side to fail")
 	}
 }

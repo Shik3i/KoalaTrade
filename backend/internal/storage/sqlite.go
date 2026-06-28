@@ -100,6 +100,52 @@ func (s *SQLite) configure() error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_asset_quotes_cached_until
 			ON asset_quotes(cached_until);`,
+		`CREATE TABLE IF NOT EXISTS portfolios (
+			id TEXT PRIMARY KEY,
+			user_id TEXT REFERENCES user_profiles(id) ON DELETE CASCADE,
+			client_id TEXT NOT NULL,
+			client_portfolio_id TEXT NOT NULL,
+			schema_version INTEGER NOT NULL DEFAULT 1,
+			starting_cash_cents INTEGER NOT NULL CHECK (starting_cash_cents >= 0),
+			cash_cents INTEGER NOT NULL CHECK (cash_cents >= 0),
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			UNIQUE(client_id, client_portfolio_id)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_portfolios_user_updated
+			ON portfolios(user_id, updated_at DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_portfolios_client_updated
+			ON portfolios(client_id, updated_at DESC);`,
+		`CREATE TABLE IF NOT EXISTS portfolio_positions (
+			portfolio_id TEXT NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+			asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE RESTRICT,
+			symbol TEXT NOT NULL,
+			name TEXT NOT NULL,
+			kind TEXT NOT NULL CHECK (kind IN ('stock', 'etf', 'crypto', 'commodity', 'event')),
+			quantity_micro INTEGER NOT NULL CHECK (quantity_micro > 0),
+			average_cost_cents INTEGER NOT NULL CHECK (average_cost_cents >= 0),
+			last_price_cents INTEGER NOT NULL CHECK (last_price_cents >= 0),
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (portfolio_id, asset_id)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_portfolio_positions_asset
+			ON portfolio_positions(asset_id);`,
+		`CREATE TABLE IF NOT EXISTS portfolio_transactions (
+			id TEXT PRIMARY KEY,
+			portfolio_id TEXT NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+			asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE RESTRICT,
+			symbol TEXT NOT NULL,
+			side TEXT NOT NULL CHECK (side IN ('buy', 'sell')),
+			quantity_micro INTEGER NOT NULL CHECK (quantity_micro > 0),
+			price_cents INTEGER NOT NULL CHECK (price_cents > 0),
+			fee_cents INTEGER NOT NULL CHECK (fee_cents >= 0),
+			status TEXT NOT NULL CHECK (status IN ('local', 'synced')),
+			created_at TEXT NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_portfolio_transactions_portfolio_created
+			ON portfolio_transactions(portfolio_id, created_at DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_portfolio_transactions_asset_created
+			ON portfolio_transactions(asset_id, created_at DESC);`,
 		`CREATE TABLE IF NOT EXISTS portfolio_snapshots (
 			id TEXT PRIMARY KEY,
 			user_id TEXT REFERENCES user_profiles(id) ON DELETE CASCADE,
