@@ -3,6 +3,7 @@
     Activity,
     Bell,
     CandlestickChart,
+    CloudUpload,
     Layers3,
     LineChart,
     RotateCcw,
@@ -12,8 +13,8 @@
     WalletCards
   } from '@lucide/svelte';
   import { onMount } from 'svelte';
-  import { fetchMarkets, fetchPublicConfig, type Market, type PublicConfig } from './lib/api';
-  import { loadPortfolio, resetPortfolio, savePortfolio } from './lib/portfolio-db';
+  import { fetchMarkets, fetchPublicConfig, syncPortfolio, type Market, type PublicConfig } from './lib/api';
+  import { loadClientId, loadPortfolio, resetPortfolio, savePortfolio } from './lib/portfolio-db';
   import {
     applyTrade,
     createInitialPortfolio,
@@ -40,6 +41,9 @@
   let orderSide: 'buy' | 'sell' = 'buy';
   let orderQuantity = 1;
   let orderError = '';
+  let isSyncing = false;
+  let syncError = '';
+  let syncMessage = 'Sync is off until you choose it';
 
   onMount(async () => {
     try {
@@ -70,7 +74,7 @@
   $: summary = summarizePortfolio(portfolio ?? createInitialPortfolio(config?.startingCashCents ?? 1_000_000));
   $: equityLabel = formatMoney(summary.totalEquityCents);
   $: returnLabel = formatPercentFromBps(summary.totalReturnBps);
-  $: syncLabel = portfolioError ? 'Fallback' : summary.localTransactionCount > 0 ? 'Queued' : 'Local';
+  $: syncLabel = portfolioError ? 'Fallback' : isSyncing ? 'Syncing' : summary.localTransactionCount > 0 ? 'Queued' : 'Synced';
   $: selectedMarket = markets.find((item) => item.assetId === selectedAssetId) ?? markets[0] ?? fallbackMarkets[0];
   $: normalizedOrderQuantity = Number.isFinite(Number(orderQuantity)) ? Number(orderQuantity) : 0;
   $: estimatedOrderValue = Math.round(normalizedOrderQuantity * selectedMarket.priceCents);
@@ -91,7 +95,7 @@
       market: 'Pending sync',
       exposure: `${summary.localTransactionCount} local`,
       allocation: 'Opt-in',
-      state: 'Private'
+      state: summary.localTransactionCount > 0 ? 'Ready' : 'Clear'
     }
   ];
   $: activity = [
@@ -99,6 +103,7 @@
     portfolio?.transactions[0]
       ? `${portfolio.transactions[0].side.toUpperCase()} ${portfolio.transactions[0].quantity} ${portfolio.transactions[0].symbol} stored locally`
       : 'No simulated trades yet',
+    syncMessage,
     marketsError ? 'Using local fallback market data' : `Market data source: ${config?.marketDataSource ?? selectedMarket.source}`,
     config ? 'Backend config endpoint connected' : 'Running with local defaults'
   ];
@@ -108,6 +113,8 @@
     portfolio = await resetPortfolio(startingCashCents);
     portfolioError = '';
     orderError = '';
+    syncError = '';
+    syncMessage = 'Local portfolio reset';
   }
 
   async function handleSubmitOrder() {
@@ -130,8 +137,32 @@
       });
       await savePortfolio(nextPortfolio);
       portfolio = nextPortfolio;
+      syncError = '';
+      syncMessage = 'Local trade queued for optional sync';
     } catch (error) {
       orderError = error instanceof Error ? error.message : 'Unable to place simulated order';
+    }
+  }
+
+  async function handleSyncPortfolio() {
+    syncError = '';
+    if (!portfolio) {
+      syncError = 'Portfolio is still opening';
+      return;
+    }
+
+    isSyncing = true;
+    try {
+      const clientId = await loadClientId();
+      const synced = await syncPortfolio(clientId, portfolio);
+      await savePortfolio(synced);
+      portfolio = synced;
+      syncMessage = `Synced ${formatUpdatedAt(synced.updatedAt)}`;
+    } catch (error) {
+      syncError = error instanceof Error ? error.message : 'Portfolio sync failed';
+      syncMessage = 'Sync failed; local state is unchanged';
+    } finally {
+      isSyncing = false;
     }
   }
 
@@ -308,9 +339,14 @@
             <p class="eyebrow">Portfolio</p>
             <h2>Local state</h2>
           </div>
-          <button class="icon-button" type="button" aria-label="Reset portfolio" title="Reset portfolio" on:click={handleResetPortfolio}>
-            <RotateCcw size={18} />
-          </button>
+          <div class="panel-actions">
+            <button class="icon-button" type="button" aria-label="Sync portfolio" title="Sync portfolio" disabled={isSyncing || !portfolio || !!configError} on:click={handleSyncPortfolio}>
+              <CloudUpload size={18} />
+            </button>
+            <button class="icon-button" type="button" aria-label="Reset portfolio" title="Reset portfolio" on:click={handleResetPortfolio}>
+              <RotateCcw size={18} />
+            </button>
+          </div>
         </div>
 
         <div class="position-table">
@@ -323,6 +359,9 @@
             </div>
           {/each}
         </div>
+        {#if syncError}
+          <p class="form-error">{syncError}</p>
+        {/if}
       </section>
 
       <section class="activity-panel panel" aria-label="Activity">

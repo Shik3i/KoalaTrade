@@ -1,8 +1,10 @@
 import { createInitialPortfolio, PORTFOLIO_ID, type PortfolioSnapshot } from './portfolio';
 
 const DB_NAME = 'koalatrade';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const PORTFOLIO_STORE = 'portfolios';
+const META_STORE = 'meta';
+const CLIENT_ID_KEY = 'client-id';
 
 export async function loadPortfolio(startingCashCents: number): Promise<PortfolioSnapshot> {
   const db = await openDatabase();
@@ -33,6 +35,20 @@ export async function resetPortfolio(startingCashCents: number): Promise<Portfol
   return snapshot;
 }
 
+export async function loadClientId(): Promise<string> {
+  const db = await openDatabase();
+  const existing = await readMeta(db, CLIENT_ID_KEY);
+  if (existing) {
+    db.close();
+    return existing;
+  }
+
+  const clientId = crypto.randomUUID();
+  await writeMeta(db, CLIENT_ID_KEY, clientId);
+  db.close();
+  return clientId;
+}
+
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -42,10 +58,35 @@ function openDatabase(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(PORTFOLIO_STORE)) {
         db.createObjectStore(PORTFOLIO_STORE, { keyPath: 'id' });
       }
+      if (!db.objectStoreNames.contains(META_STORE)) {
+        db.createObjectStore(META_STORE, { keyPath: 'key' });
+      }
     };
 
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error('Unable to open portfolio database'));
+  });
+}
+
+function readMeta(db: IDBDatabase, key: string): Promise<string | undefined> {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(META_STORE, 'readonly');
+    const store = transaction.objectStore(META_STORE);
+    const request = store.get(key);
+
+    request.onsuccess = () => resolve((request.result as { value?: string } | undefined)?.value);
+    request.onerror = () => reject(request.error ?? new Error('Unable to read local metadata'));
+  });
+}
+
+function writeMeta(db: IDBDatabase, key: string, value: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(META_STORE, 'readwrite');
+    const store = transaction.objectStore(META_STORE);
+    store.put({ key, value });
+
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? new Error('Unable to write local metadata'));
   });
 }
 
