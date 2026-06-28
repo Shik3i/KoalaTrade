@@ -2,7 +2,7 @@
 
 Privacy-first paper trading for event markets, stocks, ETFs, crypto, and gold. KoalaTrade is a no-real-money trading playground: users start with virtual cash, build a portfolio, and can later opt in to sync and leaderboards.
 
-The repository is currently in early MVP stage: backend, frontend, Docker, CI, local portfolio state, simulated trades, mock server-side market data, and an optional CoinGecko crypto provider are in place.
+The repository is currently in MVP stage: backend, frontend, Docker, CI, local portfolio state, simulated trades, mock server-side market data, optional CoinGecko crypto overlay, and opt-in device-scoped portfolio sync are in place.
 
 ## Tech Stack
 
@@ -14,7 +14,7 @@ The repository is currently in early MVP stage: backend, frontend, Docker, CI, l
 | Backend | Go 1.26 + Chi Router |
 | Database | SQLite with pure-Go driver, WAL enabled |
 | Client storage | IndexedDB local portfolio and transaction state |
-| Auth | Optional account sync planned, cookie-based sessions preferred |
+| Auth | No account required for MVP; future sessions should use secure HTTP-only cookies |
 | Market data | Mock provider by default, optional CoinGecko crypto overlay, Finnhub/Polymarket planned |
 | Hosting | Hetzner VPS + Caddy + Docker/Compose planned |
 
@@ -26,6 +26,7 @@ The repository is currently in early MVP stage: backend, frontend, Docker, CI, l
 - Svelte dashboard shell with local-first/privacy status
 - IndexedDB local portfolio state with reset support
 - Simulated buy/sell flow against local cash and positions
+- Opt-in portfolio sync using a local IndexedDB device id
 - Server-owned market data service with cached quote endpoint
 - Mock market provider by default, optional CoinGecko overlay for BTC
 - Local PWA manifest, service worker, and SVG icon
@@ -43,6 +44,8 @@ The repository is currently in early MVP stage: backend, frontend, Docker, CI, l
 - [x] Simulated buy/sell flow for stocks, ETFs, crypto, gold, and event markets
 - [x] Server-side mock price provider and cache shape
 - [x] Optional CoinGecko crypto provider behind the server cache
+- [x] Opt-in device-scoped portfolio sync
+- [x] Dockerized MVP smoke-tested through the frontend proxy
 - [ ] External Finnhub stock/ETF/commodity provider behind the server cache
 - [ ] Polymarket CLOB read-only market integration
 - [ ] Leaderboard with opt-in sync
@@ -132,6 +135,10 @@ Useful API endpoints:
 - `GET /api/config`
 - `GET /api/markets`
 - `GET /api/quotes?ids=crypto:btc,etf:spy`
+- `PUT /api/sync/portfolio`
+- `GET /api/sync/portfolio?id=local-default`
+
+Portfolio sync is opt-in and device-scoped for the MVP. The browser sends `X-Koala-Client-ID`, generated and stored in IndexedDB. See [docs/sync.md](docs/sync.md).
 
 ## Privacy Principles
 
@@ -142,6 +149,7 @@ Useful API endpoints:
 - Server-side API key handling only
 - Optional accounts and opt-in leaderboard sync
 - Local-first portfolio state as the product baseline
+- Device-scoped sync before account-based sync
 
 ## License
 
