@@ -167,6 +167,19 @@ func (s *SQLite) UpsertPortfolio(ctx context.Context, portfolio Portfolio) error
 }
 
 func (s *SQLite) Portfolio(ctx context.Context, id string) (Portfolio, error) {
+	return s.portfolio(ctx, id)
+}
+
+func (s *SQLite) PortfolioByClient(ctx context.Context, clientID, clientPortfolioID string) (Portfolio, error) {
+	var id string
+	if err := s.db.GetContext(ctx, &id, `SELECT id FROM portfolios
+		WHERE client_id = ? AND client_portfolio_id = ?`, clientID, clientPortfolioID); err != nil {
+		return Portfolio{}, fmt.Errorf("select portfolio by client: %w", err)
+	}
+	return s.portfolio(ctx, id)
+}
+
+func (s *SQLite) portfolio(ctx context.Context, id string) (Portfolio, error) {
 	var row portfolioRow
 	if err := s.db.GetContext(ctx, &row, `SELECT
 		id, COALESCE(user_id, '') AS user_id, client_id, client_portfolio_id, schema_version,

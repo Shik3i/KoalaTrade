@@ -96,6 +96,14 @@ func TestSQLiteUpsertsAndReadsPortfolio(t *testing.T) {
 		t.Fatalf("expected transactions newest first, got %#v", got.Transactions)
 	}
 
+	got, err = store.PortfolioByClient(ctx, "client-1", "local-default")
+	if err != nil {
+		t.Fatalf("portfolio by client: %v", err)
+	}
+	if got.ID != "portfolio-1" {
+		t.Fatalf("expected client lookup to return portfolio-1, got %q", got.ID)
+	}
+
 	portfolio.CashCents = 1_000_000
 	portfolio.UpdatedAt = now.Add(2 * time.Minute)
 	portfolio.Positions = nil
@@ -156,5 +164,52 @@ func TestSQLitePortfolioUpsertRollsBackWhenAssetIsMissing(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("expected failed upsert to roll back portfolio, got %d", count)
+	}
+}
+
+func TestSQLitePortfolioByClientDoesNotCrossClients(t *testing.T) {
+	store, err := OpenSQLite(t.TempDir() + "/koalatrade.db")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+
+	ctx := context.Background()
+	now := time.Date(2026, 6, 29, 15, 0, 0, 0, time.UTC)
+	for _, portfolio := range []Portfolio{
+		{
+			ID:                "portfolio-1",
+			ClientID:          "client-1",
+			ClientPortfolioID: "local-default",
+			SchemaVersion:     1,
+			StartingCashCents: 1_000_000,
+			CashCents:         900_000,
+			CreatedAt:         now,
+			UpdatedAt:         now,
+		},
+		{
+			ID:                "portfolio-2",
+			ClientID:          "client-2",
+			ClientPortfolioID: "local-default",
+			SchemaVersion:     1,
+			StartingCashCents: 1_000_000,
+			CashCents:         700_000,
+			CreatedAt:         now,
+			UpdatedAt:         now,
+		},
+	} {
+		if err := store.UpsertPortfolio(ctx, portfolio); err != nil {
+			t.Fatalf("upsert portfolio %s: %v", portfolio.ID, err)
+		}
+	}
+
+	got, err := store.PortfolioByClient(ctx, "client-2", "local-default")
+	if err != nil {
+		t.Fatalf("portfolio by client: %v", err)
+	}
+	if got.ID != "portfolio-2" || got.CashCents != 700_000 {
+		t.Fatalf("expected client-2 portfolio only, got %#v", got)
 	}
 }
