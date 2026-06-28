@@ -1,138 +1,120 @@
-# KoalaTrade 🐨📈
+# KoalaTrade
 
-> Paper Trading — Bet on events via Polymarket, trade stocks/ETFs/crypto/gold. No real money, just glory.
+Privacy-first paper trading for event markets, stocks, ETFs, crypto, and gold. KoalaTrade is a no-real-money trading playground: users start with virtual cash, build a portfolio, and can later opt in to sync and leaderboards.
 
-Start with **$10,000** virtual cash and compete against friends on the leaderboard.
-Uses **Polymarket CLOB API** for event betting and **Finnhub + CoinGecko** for real-time market data.
-
----
+The repository is currently in foundation stage: backend, frontend, Docker, and CI are in place; trading, sync, and market-data features are tracked as roadmap items below.
 
 ## Tech Stack
 
 | Component | Choice |
 |---|---|
-| **Frontend** | Svelte 5 + Vite SPA + PWA |
-| **CSS** | Tailwind CSS |
-| **Icons** | Phosphor Icons |
-| **Backend** | Go + Chi Router + sqlx |
-| **Database** | SQLite (server), IndexedDB (client) |
-| **Auth** | JWT (stateless) |
-| **Market Data** | Finnhub (stocks/ETFs/gold), CoinGecko (crypto), Polymarket CLOB |
-| **Hosting** | Hetzner VPS + Caddy + Docker/Dockge |
+| Frontend | Svelte 5 + Vite + TypeScript SPA/PWA |
+| Styling | Local CSS variables and system fonts, no CDN assets |
+| Icons | Local bundled `@lucide/svelte` package plus local SVG app icon |
+| Backend | Go 1.26 + Chi Router |
+| Database | SQLite with pure-Go driver, WAL enabled |
+| Client storage | IndexedDB planned |
+| Auth | Optional account sync planned, cookie-based sessions preferred |
+| Market data | Finnhub, CoinGecko, and Polymarket CLOB planned through server cache |
+| Hosting | Hetzner VPS + Caddy + Docker/Compose planned |
 
-## Features
+## Current Foundation
+
+- Go API server with `/healthz` and `/api/config`
+- SQLite initialization with WAL, foreign keys, and busy timeout
+- Svelte dashboard shell with local-first/privacy status
+- Local PWA manifest, service worker, and SVG icon
+- No CDN, remote font, analytics, or tracking dependency
+- Dockerfiles for backend and frontend
+- Docker Compose for local full-stack runs
+- CI for backend tests, frontend checks/build, and Docker image builds
+
+## Roadmap
 
 ### MVP
-- [x] **Virtual Portfolio** — $10,000 starting balance, portfolio overview
-- [x] **Polymarket Bets** — Buy/sell Yes/No shares at CLOB API prices
-- [x] **Securities** — Stocks, ETFs, Gold, Crypto via Finnhub + CoinGecko
-- [x] **Live Prices** — Server-side price cache (updates every 1-2 min)
-- [x] **Leaderboard** — Total Worth + % Growth (day/week/month/year)
-- [x] **Local-First** — IndexedDB, works offline
-- [x] **Optional Account** — Username + password for sync & leaderboard
-- [x] **PWA** — Installable (service worker + manifest)
-- [x] **Dark Theme** — Default
 
-### Future / Nice-to-Have
-- [ ] **Seasons** — Optional 3-month reset with starting capital
-- [ ] **Private Group Leaderboards**
-- [ ] **Short Selling** (prepared, initially disabled)
-- [ ] **Order Types** — Limit/Stop-Loss (simulated)
-- [ ] **Watchlist**
-- [ ] **Stats & Badges**
-- [ ] **Public API** for third-party clients
+- [ ] Virtual portfolio with $10,000 starting balance
+- [ ] Local IndexedDB portfolio and transaction store
+- [ ] Simulated buy/sell flow for stocks, ETFs, crypto, gold, and event markets
+- [ ] Server-side price cache for external market APIs
+- [ ] Polymarket CLOB read-only market integration
+- [ ] Leaderboard with opt-in sync
+- [ ] Optional accounts with privacy-preserving defaults
+- [ ] Installable PWA with offline portfolio view
+- [ ] Dark trading dashboard across desktop and mobile
 
-## Architecture
+### Later
 
-### Local-First + Sync
+- [ ] Seasons with optional resets
+- [ ] Private group leaderboards
+- [ ] Watchlists and alerts
+- [ ] Simulated limit and stop-loss orders
+- [ ] Short selling toggle, disabled by default
+- [ ] Stats, badges, and export tools
+- [ ] Public API for third-party clients
 
-```
-Browser (IndexedDB)
-+-- portfolio        — Current positions
-+-- transactions     — Trade history
-+-- watchlist        — Tracked markets
-+-- user_profile     — Username (if registered)
+## Architecture Direction
+
+```text
+Browser
++-- Svelte app
++-- IndexedDB portfolio store
++-- Optional sync queue
         |
-        v  Sync on registration
-Server (Go + SQLite)
-+-- users            — Username + bcrypt hash
-+-- transactions     — Synced trade copy
-+-- leaderboard      — Portfolio values + growth rates
-+-- price_cache      — Cached price data
+        v
+Go API
++-- SQLite
++-- Price cache
++-- Optional account sync
++-- Leaderboard snapshots
+        |
+        v
+External market APIs
++-- Polymarket CLOB
++-- Finnhub
++-- CoinGecko
 ```
 
-### Price Update Strategy
-
-Server polls prices in background (goroutine + ticker):
-
-| Asset | Source | Interval |
-|---|---|---|
-| Stocks / ETFs | Finnhub (60 calls/min) | ~1-2 min per symbol |
-| Crypto | CoinGecko (30 calls/min, no key) | Every 1 min |
-| Gold / Commodities | Finnhub | Part of rotation |
-| Polymarket Markets | CLOB API (unlimited) | On-demand + cache |
-
-All clients fetch prices from the server cache — one API call serves 100 users.
-
-## Project Structure
-
-```
-koalatrade/
-+-- .env.example              # Environment variable template
-+-- Dockerfile.backend        # Go backend container
-+-- Dockerfile.frontend       # Svelte frontend container
-+-- LICENSE                   # MIT
-+-- Makefile                  # Development commands
-+-- README.md
-+-- docker-compose.yml
-+-- .github/
-|   +-- dependabot.yml
-|   +-- workflows/
-|       +-- docker-release.yml # Build & push on v* tags only
-+-- backend/                  # Go API server
-|   +-- cmd/server/main.go
-|   +-- internal/
-|   |   +-- handler/         # HTTP routes
-|   |   +-- model/           # Data models
-|   |   +-- repository/      # SQLite access
-|   |   +-- service/         # Business logic + price fetcher
-|   +-- go.mod
-+-- docs/                     # Documentation
-+-- frontend/                 # Svelte 5 SPA + PWA
-|   +-- src/
-|   |   +-- routes/          # SPA routes
-|   |   +-- lib/
-|   |   |   +-- components/  # UI components
-|   |   |   +-- stores/      # IndexedDB/LocalStorage
-|   |   +-- app.html
-|   |   +-- service-worker.js
-|   +-- static/
-|   |   +-- manifest.json
-|   +-- package.json
-|   +-- svelte.config.js
-```
+The server owns all external API traffic. Clients should never call market-data providers directly, which keeps API keys private, reduces rate-limit pressure, and avoids leaking user behavior to third parties.
 
 ## Environment
 
-Copy `.env.example` to `.env` and fill in your API keys:
+Copy `.env.example` to `.env` before running Docker Compose:
 
 ```bash
 cp .env.example .env
 ```
 
+For the current foundation, API keys are optional. Market-data features will require provider keys later.
+
 ## Development
 
 ```bash
-# Start backend (Go)
+# Backend
 make dev-backend
 
-# Start frontend (Svelte)
+# Frontend
 make dev-frontend
+
+# Tests and builds
+make ci
 
 # Full stack with Docker
 make docker-up
 ```
 
+Backend defaults to `http://127.0.0.1:8080` during local development. Frontend dev server defaults to `http://127.0.0.1:5173` and proxies `/api` to the backend. Docker Compose exposes the full app at `http://127.0.0.1:3000` and the backend health endpoint at `http://127.0.0.1:18080/healthz`.
+
+## Privacy Principles
+
+- No CDN assets
+- No analytics by default
+- No remote fonts
+- No third-party client SDKs for market data
+- Server-side API key handling only
+- Optional accounts and opt-in leaderboard sync
+- Local-first portfolio state as the product baseline
+
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).
