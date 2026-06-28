@@ -49,6 +49,8 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/config", s.handleConfig)
 		r.Get("/markets", s.handleMarkets)
 		r.Get("/quotes", s.handleQuotes)
+		r.Get("/sync/portfolio", s.handleGetPortfolioSync)
+		r.Put("/sync/portfolio", s.handlePutPortfolioSync)
 	})
 
 	return r
