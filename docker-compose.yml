@@ -1,0 +1,29 @@
+# KoalaTrade — Docker Compose
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - data:/data
+    environment:
+      - DB_PATH=/data/koalatrade.db
+      - PORT=8080
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    environment:
+      - PUBLIC_API_URL=http://backend:8080
+
+volumes:
+  data:
