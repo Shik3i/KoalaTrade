@@ -1,139 +1,138 @@
 # KoalaTrade 🐨📈
 
-> Paper Trading — Wetten, Aktien, ETFs, Crypto & Leaderboards. Kein Echtgeld, nur Ruhm.
+> Paper Trading — Bet on events via Polymarket, trade stocks/ETFs/crypto/gold. No real money, just glory.
 
-Ein Paper Trading Spiel, bei dem du mit virtuellen **$10,000** startest und gegen
-Freunde im Leaderboard antrittst. Nutzt die **Polymarket CLOB API** für
-Ereignis-Wetten und **Finnhub** (plus CoinGecko) für Echtzeit-Kursdaten.
+Start with **$10,000** virtual cash and compete against friends on the leaderboard.
+Uses **Polymarket CLOB API** for event betting and **Finnhub + CoinGecko** for real-time market data.
 
 ---
 
 ## Tech Stack
 
-| Komponente | Wahl |
+| Component | Choice |
 |---|---|
 | **Frontend** | Svelte 5 + Vite SPA + PWA |
 | **CSS** | Tailwind CSS |
 | **Icons** | Phosphor Icons |
 | **Backend** | Go + Chi Router + sqlx |
-| **Datenbank** | SQLite (Server), IndexedDB (Client) |
+| **Database** | SQLite (server), IndexedDB (client) |
 | **Auth** | JWT (stateless) |
-| **Marktdaten** | Finnhub (Aktien/ETFs/Gold) + CoinGecko (Crypto) + Polymarket CLOB |
+| **Market Data** | Finnhub (stocks/ETFs/gold), CoinGecko (crypto), Polymarket CLOB |
 | **Hosting** | Hetzner VPS + Caddy + Docker/Dockge |
 
 ## Features
 
 ### MVP
-- [x] **Virtuelles Depot** — $10,000 Startguthaben, Portfolio-Übersicht
-- [x] **Polymarket-Wetten** — Yes/No-Anteile kaufen/verkaufen via CLOB API-Preise
-- [x] **Wertpapiere** — Aktien, ETFs, Gold, Crypto über Finnhub + CoinGecko
-- [x] **Echtzeit-Kurse** — Server-seitiger Price-Cache (alle 1-2 Min aktualisiert)
-- [x] **Leaderboard** — Total Worth + % Growth (Tag/Woche/Monat/Jahr)
-- [x] **Local-First** — IndexedDB, offline nutzbar
-- [x] **Optionaler Account** — Nutzername + Passwort für Sync & Leaderboard
-- [x] **PWA** — Installierbar als App (Service Worker + Manifest)
+- [x] **Virtual Portfolio** — $10,000 starting balance, portfolio overview
+- [x] **Polymarket Bets** — Buy/sell Yes/No shares at CLOB API prices
+- [x] **Securities** — Stocks, ETFs, Gold, Crypto via Finnhub + CoinGecko
+- [x] **Live Prices** — Server-side price cache (updates every 1-2 min)
+- [x] **Leaderboard** — Total Worth + % Growth (day/week/month/year)
+- [x] **Local-First** — IndexedDB, works offline
+- [x] **Optional Account** — Username + password for sync & leaderboard
+- [x] **PWA** — Installable (service worker + manifest)
 - [x] **Dark Theme** — Default
 
-### Später / Nice-to-Have
-- [ ] **Seasons** — Freiwilliger 3-Monats-Reset mit Startguthaben
-- [ ] **Private Gruppen-Leaderboards**
-- [ ] **Leerverkäufe** (vorbereitet, erstmal deaktiviert)
-- [ ] **Order-Typen** — Limit/Stop-Loss (simuliert)
+### Future / Nice-to-Have
+- [ ] **Seasons** — Optional 3-month reset with starting capital
+- [ ] **Private Group Leaderboards**
+- [ ] **Short Selling** (prepared, initially disabled)
+- [ ] **Order Types** — Limit/Stop-Loss (simulated)
 - [ ] **Watchlist**
-- [ ] **Statistiken & Badges**
-- [ ] **Eigene API für Drittanbieter**
+- [ ] **Stats & Badges**
+- [ ] **Public API** for third-party clients
 
-## Architektur
+## Architecture
 
-### Lokal-First + Sync
+### Local-First + Sync
 
 ```
 Browser (IndexedDB)
-├── portfolio        — Aktuelle Positionen
-├── transactions     — Trade-Historie
-├── watchlist        — Gemerkte Märkte
-└── user_profile     — Nutzername (wenn registriert)
-        │
-        ▼  Sync bei Registration
++-- portfolio        — Current positions
++-- transactions     — Trade history
++-- watchlist        — Tracked markets
++-- user_profile     — Username (if registered)
+        |
+        v  Sync on registration
 Server (Go + SQLite)
-├── users            — Nutzername + bcrypt-Hash
-├── transactions     — Kopie der Trades
-├── leaderboard      — Depotwerte + Growth-Raten
-└── price_cache      — Gecachte Kursdaten
++-- users            — Username + bcrypt hash
++-- transactions     — Synced trade copy
++-- leaderboard      — Portfolio values + growth rates
++-- price_cache      — Cached price data
 ```
 
-### Price-Update-Strategie
+### Price Update Strategy
 
-Server pollt Preise im Hintergrund (Goroutine + Ticker):
+Server polls prices in background (goroutine + ticker):
 
-| Asset | Quelle | Takt |
+| Asset | Source | Interval |
 |---|---|---|
-| Aktien / ETFs | Finnhub (60 calls/min) | Jedes Symbol ~alle 1-2min |
-| Crypto | CoinGecko (30 calls/min, kein Key) | Alle 1min |
-| Gold / Rohstoffe | Finnhub | Teil der Rotation |
-| Polymarket-Märkte | CLOB API (unlimitiert) | On-Demand + Cache |
+| Stocks / ETFs | Finnhub (60 calls/min) | ~1-2 min per symbol |
+| Crypto | CoinGecko (30 calls/min, no key) | Every 1 min |
+| Gold / Commodities | Finnhub | Part of rotation |
+| Polymarket Markets | CLOB API (unlimited) | On-demand + cache |
 
-Alle Clients beziehen Preise vom Server-Cache — ein API-Call bedient 100 User.
+All clients fetch prices from the server cache — one API call serves 100 users.
 
-## Projektstruktur
+## Project Structure
 
 ```
 koalatrade/
-├── LICENSE                  # MIT
-├── README.md
-├── .gitignore
-├── Makefile
-├── docker-compose.yml
-│
-├── backend/                 # Go API-Server
-│   ├── cmd/server/main.go
-│   ├── internal/
-│   │   ├── handler/         # HTTP-Routen
-│   │   ├── model/           # Datenmodelle
-│   │   ├── repository/      # SQLite-Zugriff
-│   │   └── service/         # Business-Logik + Price-Fetcher
-│   ├── go.mod
-│   └── Dockerfile
-│
-├── frontend/                # Svelte 5 SPA + PWA
-│   ├── src/
-│   │   ├── routes/          # SPA-Routen
-│   │   ├── lib/
-│   │   │   ├── components/  # UI-Komponenten
-│   │   │   └── stores/      # IndexedDB/LocalStorage
-│   │   ├── app.html
-│   │   └── service-worker.js
-│   ├── static/
-│   │   └── manifest.json
-│   ├── package.json
-│   ├── svelte.config.js
-│   └── Dockerfile
-│
-└── docker-compose.yml
++-- .env.example              # Environment variable template
++-- Dockerfile.backend        # Go backend container
++-- Dockerfile.frontend       # Svelte frontend container
++-- LICENSE                   # MIT
++-- Makefile                  # Development commands
++-- README.md
++-- docker-compose.yml
++-- .github/
+|   +-- dependabot.yml
+|   +-- workflows/
+|       +-- docker-release.yml # Build & push on v* tags only
++-- backend/                  # Go API server
+|   +-- cmd/server/main.go
+|   +-- internal/
+|   |   +-- handler/         # HTTP routes
+|   |   +-- model/           # Data models
+|   |   +-- repository/      # SQLite access
+|   |   +-- service/         # Business logic + price fetcher
+|   +-- go.mod
++-- docs/                     # Documentation
++-- frontend/                 # Svelte 5 SPA + PWA
+|   +-- src/
+|   |   +-- routes/          # SPA routes
+|   |   +-- lib/
+|   |   |   +-- components/  # UI components
+|   |   |   +-- stores/      # IndexedDB/LocalStorage
+|   |   +-- app.html
+|   |   +-- service-worker.js
+|   +-- static/
+|   |   +-- manifest.json
+|   +-- package.json
+|   +-- svelte.config.js
 ```
 
-## Umgebungsvariablen
+## Environment
 
-Kopiere `backend/.env.example` nach `backend/.env` und trage Keys ein:
-
-```
-FINNHUB_API_KEY=dein_key
-POLYMARKET_API_KEY= # optional
-```
-
-## Entwicklung
+Copy `.env.example` to `.env` and fill in your API keys:
 
 ```bash
-# Backend starten
+cp .env.example .env
+```
+
+## Development
+
+```bash
+# Start backend (Go)
 make dev-backend
 
-# Frontend starten
+# Start frontend (Svelte)
 make dev-frontend
 
-# Full-Stack mit Docker
+# Full stack with Docker
 make docker-up
 ```
 
-## Lizenz
+## License
 
 MIT — see [LICENSE](LICENSE).

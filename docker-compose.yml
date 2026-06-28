@@ -4,8 +4,7 @@ version: "3.9"
 services:
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.backend
     ports:
       - "8080:8080"
     volumes:
@@ -13,11 +12,12 @@ services:
     environment:
       - DB_PATH=/data/koalatrade.db
       - PORT=8080
+    env_file:
+      - .env
 
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.frontend
     ports:
       - "3000:80"
     depends_on:
