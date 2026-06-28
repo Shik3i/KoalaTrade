@@ -12,7 +12,7 @@
     WalletCards
   } from '@lucide/svelte';
   import { onMount } from 'svelte';
-  import { fetchPublicConfig, type PublicConfig } from './lib/api';
+  import { fetchMarkets, fetchPublicConfig, type Market, type PublicConfig } from './lib/api';
   import { loadPortfolio, resetPortfolio, savePortfolio } from './lib/portfolio-db';
   import {
     applyTrade,
@@ -20,22 +20,23 @@
     formatMoney,
     formatPercentFromBps,
     summarizePortfolio,
-    type AssetKind,
     type PortfolioSnapshot
   } from './lib/portfolio';
 
-  const watchlist = [
-    { assetId: 'crypto:btc', symbol: 'BTC', name: 'Bitcoin', kind: 'crypto' as AssetKind, priceCents: 6_142_020, change: '+2.8%', tone: 'up' },
-    { assetId: 'etf:spy', symbol: 'SPY', name: 'S&P 500 ETF', kind: 'etf' as AssetKind, priceCents: 54_618, change: '+0.4%', tone: 'up' },
-    { assetId: 'commodity:gld', symbol: 'GLD', name: 'Gold Trust', kind: 'commodity' as AssetKind, priceCents: 21_492, change: '-0.2%', tone: 'down' },
-    { assetId: 'event:pmkt', symbol: 'PMKT', name: 'Event Markets', kind: 'event' as AssetKind, priceCents: 62, change: 'CLOB', tone: 'flat' }
+  const fallbackMarkets: Market[] = [
+    { assetId: 'crypto:btc', symbol: 'BTC', name: 'Bitcoin', kind: 'crypto', source: 'local', priceCents: 6_142_020, changeBps: 280, updatedAt: new Date(0).toISOString() },
+    { assetId: 'etf:spy', symbol: 'SPY', name: 'S&P 500 ETF', kind: 'etf', source: 'local', priceCents: 54_618, changeBps: 40, updatedAt: new Date(0).toISOString() },
+    { assetId: 'commodity:gld', symbol: 'GLD', name: 'Gold Trust', kind: 'commodity', source: 'local', priceCents: 21_492, changeBps: -20, updatedAt: new Date(0).toISOString() },
+    { assetId: 'event:pmkt', symbol: 'PMKT', name: 'Event Markets', kind: 'event', source: 'local', priceCents: 62, changeBps: 0, updatedAt: new Date(0).toISOString() }
   ];
 
   let config: PublicConfig | null = null;
   let configError = '';
+  let markets: Market[] = fallbackMarkets;
+  let marketsError = '';
   let portfolio: PortfolioSnapshot | null = null;
   let portfolioError = '';
-  let selectedAssetId = watchlist[0].assetId;
+  let selectedAssetId = fallbackMarkets[0].assetId;
   let orderSide: 'buy' | 'sell' = 'buy';
   let orderQuantity = 1;
   let orderError = '';
@@ -45,6 +46,16 @@
       config = await fetchPublicConfig();
     } catch (error) {
       configError = error instanceof Error ? error.message : 'Backend unavailable';
+    }
+
+    try {
+      markets = await fetchMarkets();
+      if (!markets.some((market) => market.assetId === selectedAssetId)) {
+        selectedAssetId = markets[0]?.assetId ?? fallbackMarkets[0].assetId;
+      }
+    } catch (error) {
+      marketsError = error instanceof Error ? error.message : 'Market data unavailable';
+      markets = fallbackMarkets;
     }
 
     const startingCashCents = config?.startingCashCents ?? 1_000_000;
@@ -60,7 +71,7 @@
   $: equityLabel = formatMoney(summary.totalEquityCents);
   $: returnLabel = formatPercentFromBps(summary.totalReturnBps);
   $: syncLabel = portfolioError ? 'Fallback' : summary.localTransactionCount > 0 ? 'Queued' : 'Local';
-  $: selectedMarket = watchlist.find((item) => item.assetId === selectedAssetId) ?? watchlist[0];
+  $: selectedMarket = markets.find((item) => item.assetId === selectedAssetId) ?? markets[0] ?? fallbackMarkets[0];
   $: normalizedOrderQuantity = Number.isFinite(Number(orderQuantity)) ? Number(orderQuantity) : 0;
   $: estimatedOrderValue = Math.round(normalizedOrderQuantity * selectedMarket.priceCents);
   $: positionRows = [
@@ -88,8 +99,8 @@
     portfolio?.transactions[0]
       ? `${portfolio.transactions[0].side.toUpperCase()} ${portfolio.transactions[0].quantity} ${portfolio.transactions[0].symbol} stored locally`
       : 'No simulated trades yet',
-    config ? 'Backend config endpoint connected' : 'Running with local defaults',
-    'External market data still disabled'
+    marketsError ? 'Using local fallback market data' : `Market data source: ${config?.marketDataSource ?? selectedMarket.source}`,
+    config ? 'Backend config endpoint connected' : 'Running with local defaults'
   ];
 
   async function handleResetPortfolio() {
@@ -129,6 +140,12 @@
       hour: '2-digit',
       minute: '2-digit'
     }).format(new Date(value));
+  }
+
+  function marketTone(changeBps: number) {
+    if (changeBps > 0) return 'up';
+    if (changeBps < 0) return 'down';
+    return 'flat';
   }
 </script>
 
@@ -219,7 +236,7 @@
         </div>
 
         <div class="market-list">
-          {#each watchlist as item}
+          {#each markets as item}
             <button
               class:selected={selectedMarket.assetId === item.assetId}
               class="market-row market-button"
@@ -232,7 +249,7 @@
               </div>
               <div class="market-price">
                 <strong>{formatMoney(item.priceCents)}</strong>
-                <span class={item.tone}>{item.change}</span>
+                <span class={marketTone(item.changeBps)}>{formatPercentFromBps(item.changeBps)}</span>
               </div>
             </button>
           {/each}
@@ -326,6 +343,9 @@
           {/if}
           {#if portfolioError}
             <li class="warning">{portfolioError}</li>
+          {/if}
+          {#if marketsError}
+            <li class="warning">{marketsError}</li>
           {/if}
         </ul>
       </section>
