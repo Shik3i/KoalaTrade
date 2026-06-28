@@ -2,7 +2,7 @@
 
 Privacy-first paper trading for event markets, stocks, ETFs, crypto, and gold. KoalaTrade is a no-real-money trading playground: users start with virtual cash, build a portfolio, and can later opt in to sync and leaderboards.
 
-The repository is currently in foundation stage: backend, frontend, Docker, and CI are in place; trading, sync, and market-data features are tracked as roadmap items below.
+The repository is currently in early MVP stage: backend, frontend, Docker, CI, local portfolio state, simulated trades, and mock server-side market data are in place. Real external providers are intentionally not connected yet.
 
 ## Tech Stack
 
@@ -13,16 +13,20 @@ The repository is currently in foundation stage: backend, frontend, Docker, and 
 | Icons | Local bundled `@lucide/svelte` package plus local SVG app icon |
 | Backend | Go 1.26 + Chi Router |
 | Database | SQLite with pure-Go driver, WAL enabled |
-| Client storage | IndexedDB planned |
+| Client storage | IndexedDB local portfolio and transaction state |
 | Auth | Optional account sync planned, cookie-based sessions preferred |
-| Market data | Finnhub, CoinGecko, and Polymarket CLOB planned through server cache |
+| Market data | Mock provider now, Finnhub/CoinGecko/Polymarket planned through server cache |
 | Hosting | Hetzner VPS + Caddy + Docker/Compose planned |
 
 ## Current Foundation
 
-- Go API server with `/healthz` and `/api/config`
+- Go API server with `/healthz`, `/api/config`, `/api/markets`, and `/api/quotes`
 - SQLite initialization with WAL, foreign keys, and busy timeout
+- SQLite schema prepared for optional portfolio sync and leaderboard snapshots
 - Svelte dashboard shell with local-first/privacy status
+- IndexedDB local portfolio state with reset support
+- Simulated buy/sell flow against local cash and positions
+- Server-owned mock market data provider with cached quote endpoint
 - Local PWA manifest, service worker, and SVG icon
 - No CDN, remote font, analytics, or tracking dependency
 - Dockerfiles for backend and frontend
@@ -33,10 +37,11 @@ The repository is currently in foundation stage: backend, frontend, Docker, and 
 
 ### MVP
 
-- [ ] Virtual portfolio with $10,000 starting balance
-- [ ] Local IndexedDB portfolio and transaction store
-- [ ] Simulated buy/sell flow for stocks, ETFs, crypto, gold, and event markets
-- [ ] Server-side price cache for external market APIs
+- [x] Virtual portfolio with $10,000 starting balance
+- [x] Local IndexedDB portfolio and transaction store
+- [x] Simulated buy/sell flow for stocks, ETFs, crypto, gold, and event markets
+- [x] Server-side mock price provider and cache shape
+- [ ] External Finnhub/CoinGecko price providers behind the server cache
 - [ ] Polymarket CLOB read-only market integration
 - [ ] Leaderboard with opt-in sync
 - [ ] Optional accounts with privacy-preserving defaults
@@ -64,7 +69,9 @@ Browser
         v
 Go API
 +-- SQLite
-+-- Price cache
++-- Market data service
++-- Mock provider
++-- Quote cache
 +-- Optional account sync
 +-- Leaderboard snapshots
         |
@@ -87,6 +94,15 @@ cp .env.example .env
 
 For the current foundation, API keys are optional. Market-data features will require provider keys later.
 
+Market-data configuration:
+
+```bash
+MARKET_DATA_PROVIDER=mock
+MARKET_DATA_CACHE_SECONDS=60
+```
+
+The only supported provider today is `mock`. Real providers must be server-side only; see [docs/market-data.md](docs/market-data.md).
+
 ## Development
 
 ```bash
@@ -104,6 +120,13 @@ make docker-up
 ```
 
 Backend defaults to `http://127.0.0.1:8080` during local development. Frontend dev server defaults to `http://127.0.0.1:5173` and proxies `/api` to the backend. Docker Compose exposes the full app at `http://127.0.0.1:3000` and the backend health endpoint at `http://127.0.0.1:18080/healthz`.
+
+Useful API endpoints:
+
+- `GET /healthz`
+- `GET /api/config`
+- `GET /api/markets`
+- `GET /api/quotes?ids=crypto:btc,etf:spy`
 
 ## Privacy Principles
 
