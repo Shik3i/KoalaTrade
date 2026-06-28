@@ -1,5 +1,5 @@
-const CACHE_NAME = 'koalatrade-shell-v1';
-const SHELL_ASSETS = ['/', '/manifest.webmanifest', '/icons/koalatrade.svg'];
+const CACHE_NAME = 'koalatrade-shell-v2';
+const SHELL_ASSETS = ['/manifest.webmanifest', '/icons/koalatrade.svg'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_ASSETS)));
@@ -17,7 +17,26 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
-  if (request.method !== 'GET' || new URL(request.url).pathname.startsWith('/api')) {
+  const url = new URL(request.url);
+
+  if (request.method !== 'GET' || url.pathname.startsWith('/api')) {
+    return;
+  }
+
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      caches.open(CACHE_NAME).then(async (cache) => {
+        try {
+          const response = await fetch(request);
+          if (response.ok) {
+            await cache.put('/index.html', response.clone());
+          }
+          return response;
+        } catch {
+          return (await cache.match('/index.html')) || Response.error();
+        }
+      })
+    );
     return;
   }
 

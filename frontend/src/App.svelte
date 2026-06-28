@@ -3,9 +3,9 @@
     Activity,
     Bell,
     CandlestickChart,
-    CircleDollarSign,
     Layers3,
     LineChart,
+    RotateCcw,
     Search,
     ShieldCheck,
     Trophy,
@@ -13,6 +13,14 @@
   } from '@lucide/svelte';
   import { onMount } from 'svelte';
   import { fetchPublicConfig, type PublicConfig } from './lib/api';
+  import { loadPortfolio, resetPortfolio } from './lib/portfolio-db';
+  import {
+    createInitialPortfolio,
+    formatMoney,
+    formatPercentFromBps,
+    summarizePortfolio,
+    type PortfolioSnapshot
+  } from './lib/portfolio';
 
   const watchlist = [
     { symbol: 'BTC', name: 'Bitcoin', price: '$61,420.20', change: '+2.8%', tone: 'up' },
@@ -21,20 +29,10 @@
     { symbol: 'PMKT', name: 'Event Markets', price: '142 live', change: 'CLOB', tone: 'flat' }
   ];
 
-  const positions = [
-    { market: 'Cash', exposure: '$10,000.00', allocation: '100%', state: 'Ready' },
-    { market: 'Open positions', exposure: '$0.00', allocation: '0%', state: 'None yet' },
-    { market: 'Pending sync', exposure: 'Local', allocation: '0 items', state: 'Private' }
-  ];
-
-  const activity = [
-    'Local portfolio vault initialized',
-    'Backend config endpoint connected',
-    'No external market data loaded yet'
-  ];
-
   let config: PublicConfig | null = null;
   let configError = '';
+  let portfolio: PortfolioSnapshot | null = null;
+  let portfolioError = '';
 
   onMount(async () => {
     try {
@@ -42,15 +40,57 @@
     } catch (error) {
       configError = error instanceof Error ? error.message : 'Backend unavailable';
     }
+
+    const startingCashCents = config?.startingCashCents ?? 1_000_000;
+    try {
+      portfolio = await loadPortfolio(startingCashCents);
+    } catch (error) {
+      portfolioError = error instanceof Error ? error.message : 'Local portfolio unavailable';
+      portfolio = createInitialPortfolio(startingCashCents);
+    }
   });
 
-  $: startingCash = config ? formatMoney(config.startingCashCents) : '$10,000.00';
+  $: summary = summarizePortfolio(portfolio ?? createInitialPortfolio(config?.startingCashCents ?? 1_000_000));
+  $: equityLabel = formatMoney(summary.totalEquityCents);
+  $: returnLabel = formatPercentFromBps(summary.totalReturnBps);
+  $: syncLabel = portfolioError ? 'Fallback' : summary.localTransactionCount > 0 ? 'Queued' : 'Local';
+  $: positionRows = [
+    {
+      market: 'Cash',
+      exposure: formatMoney(summary.cashCents),
+      allocation: summary.totalEquityCents > 0 ? formatPercentFromBps(Math.round((summary.cashCents / summary.totalEquityCents) * 10_000)) : '0.00%',
+      state: 'Available'
+    },
+    {
+      market: 'Positions',
+      exposure: formatMoney(summary.positionsValueCents),
+      allocation: `${summary.openPositions} open`,
+      state: summary.openPositions > 0 ? 'Active' : 'None yet'
+    },
+    {
+      market: 'Pending sync',
+      exposure: `${summary.localTransactionCount} local`,
+      allocation: 'Opt-in',
+      state: 'Private'
+    }
+  ];
+  $: activity = [
+    portfolio ? `Local portfolio opened ${formatUpdatedAt(portfolio.updatedAt)}` : 'Opening local portfolio',
+    config ? 'Backend config endpoint connected' : 'Running with local defaults',
+    'No external market data loaded yet'
+  ];
 
-  function formatMoney(cents: number) {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(cents / 100);
+  async function handleResetPortfolio() {
+    const startingCashCents = config?.startingCashCents ?? portfolio?.startingCashCents ?? 1_000_000;
+    portfolio = await resetPortfolio(startingCashCents);
+    portfolioError = '';
+  }
+
+  function formatUpdatedAt(value: string) {
+    return new Intl.DateTimeFormat('en-US', {
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(new Date(value));
   }
 </script>
 
@@ -109,21 +149,23 @@
     <section class="hero-strip" aria-label="Portfolio overview">
       <div>
         <p class="eyebrow">Virtual equity</p>
-        <h1>{startingCash}</h1>
-        <span class="muted">Foundation ready for simulated trades</span>
+        <h1>{equityLabel}</h1>
+        <span class="muted">Local vault ready for simulated trades</span>
       </div>
       <div class="hero-metrics" aria-label="Portfolio metrics">
         <div>
-          <span>Day</span>
-          <strong>0.00%</strong>
+          <span>Total</span>
+          <strong class:up={summary.totalReturnCents > 0} class:down={summary.totalReturnCents < 0}>
+            {returnLabel}
+          </strong>
         </div>
         <div>
-          <span>Risk</span>
-          <strong>None</strong>
+          <span>Cash</span>
+          <strong>{formatMoney(summary.cashCents)}</strong>
         </div>
         <div>
           <span>Sync</span>
-          <strong>{configError ? 'Offline' : 'Ready'}</strong>
+          <strong>{configError ? 'Offline' : syncLabel}</strong>
         </div>
       </div>
     </section>
@@ -171,13 +213,15 @@
         <div class="panel-heading">
           <div>
             <p class="eyebrow">Portfolio</p>
-            <h2>Starting state</h2>
+            <h2>Local state</h2>
           </div>
-          <CircleDollarSign size={19} />
+          <button class="icon-button" type="button" aria-label="Reset portfolio" title="Reset portfolio" on:click={handleResetPortfolio}>
+            <RotateCcw size={18} />
+          </button>
         </div>
 
         <div class="position-table">
-          {#each positions as position}
+          {#each positionRows as position}
             <div class="position-row">
               <span>{position.market}</span>
               <strong>{position.exposure}</strong>
@@ -203,6 +247,9 @@
           {/each}
           {#if configError}
             <li class="warning">{configError}</li>
+          {/if}
+          {#if portfolioError}
+            <li class="warning">{portfolioError}</li>
           {/if}
         </ul>
       </section>
