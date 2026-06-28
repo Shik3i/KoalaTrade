@@ -17,6 +17,9 @@ type Config struct {
 	StartingCashCents      int64
 	MarketDataProvider     string
 	MarketDataCacheSeconds int
+	MarketDataHTTPTimeout  int
+	CoinGeckoBaseURL       string
+	CoinGeckoAPIKey        string
 }
 
 func Load() Config {
@@ -28,6 +31,9 @@ func Load() Config {
 		StartingCashCents:      getEnvInt64("STARTING_CASH_CENTS", defaultStartingCashCents),
 		MarketDataProvider:     getEnv("MARKET_DATA_PROVIDER", "mock"),
 		MarketDataCacheSeconds: getEnvInt("MARKET_DATA_CACHE_SECONDS", defaultMarketDataCacheSeconds),
+		MarketDataHTTPTimeout:  getEnvInt("MARKET_DATA_HTTP_TIMEOUT_SECONDS", 5),
+		CoinGeckoBaseURL:       getEnv("COINGECKO_BASE_URL", ""),
+		CoinGeckoAPIKey:        getEnv("COINGECKO_API_KEY", ""),
 	}
 }
 

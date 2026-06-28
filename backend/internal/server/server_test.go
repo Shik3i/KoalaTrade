@@ -27,6 +27,7 @@ func TestHealthz(t *testing.T) {
 		StartingCashCents:      1_000_000,
 		MarketDataProvider:     "mock",
 		MarketDataCacheSeconds: 60,
+		MarketDataHTTPTimeout:  5,
 	}, db)
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
@@ -58,6 +59,7 @@ func TestMarkets(t *testing.T) {
 		StartingCashCents:      1_000_000,
 		MarketDataProvider:     "mock",
 		MarketDataCacheSeconds: 60,
+		MarketDataHTTPTimeout:  5,
 	}, db)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/markets", nil)

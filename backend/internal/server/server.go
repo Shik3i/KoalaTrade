@@ -18,10 +18,20 @@ type Server struct {
 }
 
 func New(cfg config.Config, db *storage.SQLite) *Server {
+	provider := marketdata.Provider(marketdata.NewMockProvider())
+	if cfg.MarketDataProvider == "coingecko" {
+		provider = marketdata.NewCoinGeckoProvider(
+			cfg.CoinGeckoBaseURL,
+			cfg.CoinGeckoAPIKey,
+			time.Duration(cfg.MarketDataHTTPTimeout)*time.Second,
+			provider,
+		)
+	}
+
 	return &Server{
 		cfg:        cfg,
 		db:         db,
-		marketData: marketdata.NewService(marketdata.NewMockProvider(), time.Duration(cfg.MarketDataCacheSeconds)*time.Second),
+		marketData: marketdata.NewService(provider, time.Duration(cfg.MarketDataCacheSeconds)*time.Second),
 	}
 }
 
