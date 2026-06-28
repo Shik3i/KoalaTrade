@@ -1,0 +1,17 @@
+{
+  "name": "KoalaTrade",
+  "short_name": "KoalaTrade",
+  "description": "Privacy-first paper trading dashboard.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#101312",
+  "theme_color": "#101312",
+  "icons": [
+    {
+      "src": "/icons/koalatrade.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

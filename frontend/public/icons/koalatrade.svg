@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">KoalaTrade mark</title>
+  <rect width="128" height="128" rx="28" fill="#101312"/>
+  <circle cx="40" cy="38" r="20" fill="#30372f"/>
+  <circle cx="88" cy="38" r="20" fill="#30372f"/>
+  <circle cx="64" cy="66" r="44" fill="#f4f1e8"/>
+  <circle cx="48" cy="58" r="8" fill="#101312"/>
+  <circle cx="80" cy="58" r="8" fill="#101312"/>
+  <path d="M56 76c0-5 4-9 8-9s8 4 8 9-4 10-8 10-8-5-8-10Z" fill="#30372f"/>
+  <path d="M39 92h50" stroke="#78d692" stroke-width="8" stroke-linecap="round"/>
+  <path d="M46 92l15-18 13 10 17-25" fill="none" stroke="#78d692" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
