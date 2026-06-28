@@ -31,7 +31,7 @@ func New(cfg config.Config, db *storage.SQLite) *Server {
 	return &Server{
 		cfg:        cfg,
 		db:         db,
-		marketData: marketdata.NewService(provider, time.Duration(cfg.MarketDataCacheSeconds)*time.Second),
+		marketData: marketdata.NewService(provider, time.Duration(cfg.MarketDataCacheSeconds)*time.Second, db),
 	}
 }
 

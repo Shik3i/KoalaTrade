@@ -75,6 +75,31 @@ func (s *SQLite) configure() error {
 			created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
 			updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 		);`,
+		`CREATE TABLE IF NOT EXISTS assets (
+			id TEXT PRIMARY KEY,
+			kind TEXT NOT NULL CHECK (kind IN ('stock', 'etf', 'crypto', 'commodity', 'event')),
+			symbol TEXT NOT NULL,
+			name TEXT NOT NULL,
+			currency TEXT NOT NULL DEFAULT 'USD',
+			provider TEXT NOT NULL,
+			provider_ref TEXT NOT NULL DEFAULT '',
+			active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+			created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+			updated_at TEXT NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_assets_kind_symbol
+			ON assets(kind, symbol);`,
+		`CREATE TABLE IF NOT EXISTS asset_quotes (
+			asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+			symbol TEXT NOT NULL,
+			price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
+			change_bps INTEGER NOT NULL,
+			source TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			cached_until TEXT NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_asset_quotes_cached_until
+			ON asset_quotes(cached_until);`,
 		`CREATE TABLE IF NOT EXISTS portfolio_snapshots (
 			id TEXT PRIMARY KEY,
 			user_id TEXT REFERENCES user_profiles(id) ON DELETE CASCADE,

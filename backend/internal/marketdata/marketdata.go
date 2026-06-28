@@ -45,16 +45,29 @@ type Provider interface {
 	Quotes(ctx context.Context, assetIDs []string) ([]Quote, error)
 }
 
+type Store interface {
+	UpsertMarkets(ctx context.Context, markets []Market) error
+	FreshQuotes(ctx context.Context, assetIDs []string, now time.Time) ([]Quote, error)
+	StoreQuotes(ctx context.Context, quotes []Quote) error
+}
+
 type Service struct {
 	provider Provider
+	store    Store
 	ttl      time.Duration
 	mu       sync.RWMutex
 	cache    map[string]Quote
 }
 
-func NewService(provider Provider, ttl time.Duration) *Service {
+func NewService(provider Provider, ttl time.Duration, stores ...Store) *Service {
+	var store Store
+	if len(stores) > 0 {
+		store = stores[0]
+	}
+
 	return &Service{
 		provider: provider,
+		store:    store,
 		ttl:      ttl,
 		cache:    make(map[string]Quote),
 	}
@@ -69,6 +82,10 @@ func (s *Service) Markets(ctx context.Context) ([]Market, error) {
 	sort.Slice(markets, func(i, j int) bool {
 		return markets[i].Symbol < markets[j].Symbol
 	})
+
+	if s.store != nil {
+		_ = s.store.UpsertMarkets(ctx, markets)
+	}
 
 	return markets, nil
 }
@@ -95,19 +112,56 @@ func (s *Service) Quotes(ctx context.Context, assetIDs []string) ([]Quote, error
 	s.mu.RUnlock()
 
 	if len(missing) > 0 {
+		if s.store != nil {
+			stored, err := s.store.FreshQuotes(ctx, missing, now)
+			if err == nil {
+				cachedUntilByID := make(map[string]Quote, len(stored))
+				for _, quote := range stored {
+					cachedUntilByID[quote.AssetID] = quote
+				}
+
+				stillMissing := make([]string, 0, len(missing))
+				s.mu.Lock()
+				for _, assetID := range missing {
+					quote, ok := cachedUntilByID[assetID]
+					if !ok {
+						stillMissing = append(stillMissing, assetID)
+						continue
+					}
+					s.cache[assetID] = quote
+					quotes = append(quotes, quote)
+				}
+				s.mu.Unlock()
+				missing = stillMissing
+			}
+		}
+
+		if len(missing) == 0 {
+			sort.Slice(quotes, func(i, j int) bool {
+				return quotes[i].Symbol < quotes[j].Symbol
+			})
+			return quotes, nil
+		}
+
 		fresh, err := s.provider.Quotes(ctx, missing)
 		if err != nil {
 			return nil, err
 		}
 
 		cachedUntil := now.Add(s.ttl)
+		cachedFresh := make([]Quote, 0, len(fresh))
 		s.mu.Lock()
 		for _, quote := range fresh {
 			quote.CachedUntil = cachedUntil
 			s.cache[quote.AssetID] = quote
 			quotes = append(quotes, quote)
+			cachedFresh = append(cachedFresh, quote)
 		}
 		s.mu.Unlock()
+
+		if s.store != nil {
+			_ = s.store.StoreQuotes(ctx, cachedFresh)
+		}
 	}
 
 	sort.Slice(quotes, func(i, j int) bool {
