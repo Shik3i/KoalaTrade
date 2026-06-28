@@ -1,0 +1,64 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
+
+const defaultStartingCashCents int64 = 1_000_000
+
+type Config struct {
+	AppName           string
+	DatabasePath      string
+	Port              int
+	Environment       string
+	StartingCashCents int64
+}
+
+func Load() Config {
+	return Config{
+		AppName:           getEnv("APP_NAME", "KoalaTrade"),
+		DatabasePath:      getEnv("DB_PATH", "data/koalatrade.db"),
+		Port:              getEnvInt("PORT", 8080),
+		Environment:       getEnv("APP_ENV", "development"),
+		StartingCashCents: getEnvInt64("STARTING_CASH_CENTS", defaultStartingCashCents),
+	}
+}
+
+func (c Config) ListenAddr() string {
+	return fmt.Sprintf(":%d", c.Port)
+}
+
+func getEnv(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func getEnvInt(key string, fallback int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func getEnvInt64(key string, fallback int64) int64 {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}

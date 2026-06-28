@@ -1,5 +1,6 @@
 # --- Go ---
 backend/server
+backend/data/
 *.exe
 *.exe~
 *.dll
