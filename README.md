@@ -2,7 +2,7 @@
 
 Privacy-first paper trading for event markets, stocks, ETFs, crypto, and gold. KoalaTrade is a no-real-money trading playground: users start with virtual cash, build a portfolio, and can later opt in to sync and leaderboards.
 
-The repository is currently in early MVP stage: backend, frontend, Docker, CI, local portfolio state, simulated trades, and mock server-side market data are in place. Real external providers are intentionally not connected yet.
+The repository is currently in early MVP stage: backend, frontend, Docker, CI, local portfolio state, simulated trades, mock server-side market data, and an optional CoinGecko crypto provider are in place.
 
 ## Tech Stack
 
@@ -15,7 +15,7 @@ The repository is currently in early MVP stage: backend, frontend, Docker, CI, l
 | Database | SQLite with pure-Go driver, WAL enabled |
 | Client storage | IndexedDB local portfolio and transaction state |
 | Auth | Optional account sync planned, cookie-based sessions preferred |
-| Market data | Mock provider now, Finnhub/CoinGecko/Polymarket planned through server cache |
+| Market data | Mock provider by default, optional CoinGecko crypto overlay, Finnhub/Polymarket planned |
 | Hosting | Hetzner VPS + Caddy + Docker/Compose planned |
 
 ## Current Foundation
@@ -26,7 +26,8 @@ The repository is currently in early MVP stage: backend, frontend, Docker, CI, l
 - Svelte dashboard shell with local-first/privacy status
 - IndexedDB local portfolio state with reset support
 - Simulated buy/sell flow against local cash and positions
-- Server-owned mock market data provider with cached quote endpoint
+- Server-owned market data service with cached quote endpoint
+- Mock market provider by default, optional CoinGecko overlay for BTC
 - Local PWA manifest, service worker, and SVG icon
 - No CDN, remote font, analytics, or tracking dependency
 - Dockerfiles for backend and frontend
@@ -41,7 +42,8 @@ The repository is currently in early MVP stage: backend, frontend, Docker, CI, l
 - [x] Local IndexedDB portfolio and transaction store
 - [x] Simulated buy/sell flow for stocks, ETFs, crypto, gold, and event markets
 - [x] Server-side mock price provider and cache shape
-- [ ] External Finnhub/CoinGecko price providers behind the server cache
+- [x] Optional CoinGecko crypto provider behind the server cache
+- [ ] External Finnhub stock/ETF/commodity provider behind the server cache
 - [ ] Polymarket CLOB read-only market integration
 - [ ] Leaderboard with opt-in sync
 - [ ] Optional accounts with privacy-preserving defaults
@@ -71,6 +73,7 @@ Go API
 +-- SQLite
 +-- Market data service
 +-- Mock provider
++-- Optional CoinGecko provider
 +-- Quote cache
 +-- Optional account sync
 +-- Leaderboard snapshots
@@ -99,9 +102,11 @@ Market-data configuration:
 ```bash
 MARKET_DATA_PROVIDER=mock
 MARKET_DATA_CACHE_SECONDS=60
+MARKET_DATA_HTTP_TIMEOUT_SECONDS=5
+COINGECKO_API_KEY=
 ```
 
-The only supported provider today is `mock`. Real providers must be server-side only; see [docs/market-data.md](docs/market-data.md).
+Use `MARKET_DATA_PROVIDER=coingecko` to overlay BTC prices from CoinGecko while keeping non-crypto markets on the mock provider. `COINGECKO_API_KEY` is optional for the Demo API and is sent only from the server. See [docs/market-data.md](docs/market-data.md).
 
 ## Development
 
