@@ -7,22 +7,27 @@ import (
 )
 
 const defaultStartingCashCents int64 = 1_000_000
+const defaultMarketDataCacheSeconds = 60
 
 type Config struct {
-	AppName           string
-	DatabasePath      string
-	Port              int
-	Environment       string
-	StartingCashCents int64
+	AppName                string
+	DatabasePath           string
+	Port                   int
+	Environment            string
+	StartingCashCents      int64
+	MarketDataProvider     string
+	MarketDataCacheSeconds int
 }
 
 func Load() Config {
 	return Config{
-		AppName:           getEnv("APP_NAME", "KoalaTrade"),
-		DatabasePath:      getEnv("DB_PATH", "data/koalatrade.db"),
-		Port:              getEnvInt("PORT", 8080),
-		Environment:       getEnv("APP_ENV", "development"),
-		StartingCashCents: getEnvInt64("STARTING_CASH_CENTS", defaultStartingCashCents),
+		AppName:                getEnv("APP_NAME", "KoalaTrade"),
+		DatabasePath:           getEnv("DB_PATH", "data/koalatrade.db"),
+		Port:                   getEnvInt("PORT", 8080),
+		Environment:            getEnv("APP_ENV", "development"),
+		StartingCashCents:      getEnvInt64("STARTING_CASH_CENTS", defaultStartingCashCents),
+		MarketDataProvider:     getEnv("MARKET_DATA_PROVIDER", "mock"),
+		MarketDataCacheSeconds: getEnvInt("MARKET_DATA_CACHE_SECONDS", defaultMarketDataCacheSeconds),
 	}
 }
 

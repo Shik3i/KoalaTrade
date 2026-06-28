@@ -5,18 +5,24 @@ import (
 	"time"
 
 	"github.com/Shik3i/KoalaTrade/backend/internal/config"
+	"github.com/Shik3i/KoalaTrade/backend/internal/marketdata"
 	"github.com/Shik3i/KoalaTrade/backend/internal/storage"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
 type Server struct {
-	cfg config.Config
-	db  *storage.SQLite
+	cfg        config.Config
+	db         *storage.SQLite
+	marketData *marketdata.Service
 }
 
 func New(cfg config.Config, db *storage.SQLite) *Server {
-	return &Server{cfg: cfg, db: db}
+	return &Server{
+		cfg:        cfg,
+		db:         db,
+		marketData: marketdata.NewService(marketdata.NewMockProvider(), time.Duration(cfg.MarketDataCacheSeconds)*time.Second),
+	}
 }
 
 func (s *Server) Routes() http.Handler {
@@ -31,6 +37,8 @@ func (s *Server) Routes() http.Handler {
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/config", s.handleConfig)
+		r.Get("/markets", s.handleMarkets)
+		r.Get("/quotes", s.handleQuotes)
 	})
 
 	return r

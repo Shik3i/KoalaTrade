@@ -3,6 +3,9 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
+
+	"github.com/Shik3i/KoalaTrade/backend/internal/marketdata"
 )
 
 type healthResponse struct {
@@ -14,6 +17,19 @@ type configResponse struct {
 	AppName           string `json:"appName"`
 	Environment       string `json:"environment"`
 	StartingCashCents int64  `json:"startingCashCents"`
+	MarketDataSource  string `json:"marketDataSource"`
+}
+
+type marketsResponse struct {
+	Markets []marketdata.Market `json:"markets"`
+}
+
+type quotesResponse struct {
+	Quotes []marketdata.Quote `json:"quotes"`
+}
+
+type errorResponse struct {
+	Error string `json:"error"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -33,7 +49,29 @@ func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
 		AppName:           s.cfg.AppName,
 		Environment:       s.cfg.Environment,
 		StartingCashCents: s.cfg.StartingCashCents,
+		MarketDataSource:  s.cfg.MarketDataProvider,
 	})
+}
+
+func (s *Server) handleMarkets(w http.ResponseWriter, r *http.Request) {
+	markets, err := s.marketData.Markets(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "market data unavailable"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, marketsResponse{Markets: markets})
+}
+
+func (s *Server) handleQuotes(w http.ResponseWriter, r *http.Request) {
+	ids := strings.Split(r.URL.Query().Get("ids"), ",")
+	quotes, err := s.marketData.Quotes(r.Context(), ids)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, quotesResponse{Quotes: quotes})
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
