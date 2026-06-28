@@ -13,26 +13,32 @@
   } from '@lucide/svelte';
   import { onMount } from 'svelte';
   import { fetchPublicConfig, type PublicConfig } from './lib/api';
-  import { loadPortfolio, resetPortfolio } from './lib/portfolio-db';
+  import { loadPortfolio, resetPortfolio, savePortfolio } from './lib/portfolio-db';
   import {
+    applyTrade,
     createInitialPortfolio,
     formatMoney,
     formatPercentFromBps,
     summarizePortfolio,
+    type AssetKind,
     type PortfolioSnapshot
   } from './lib/portfolio';
 
   const watchlist = [
-    { symbol: 'BTC', name: 'Bitcoin', price: '$61,420.20', change: '+2.8%', tone: 'up' },
-    { symbol: 'SPY', name: 'S&P 500 ETF', price: '$546.18', change: '+0.4%', tone: 'up' },
-    { symbol: 'GLD', name: 'Gold Trust', price: '$214.92', change: '-0.2%', tone: 'down' },
-    { symbol: 'PMKT', name: 'Event Markets', price: '142 live', change: 'CLOB', tone: 'flat' }
+    { assetId: 'crypto:btc', symbol: 'BTC', name: 'Bitcoin', kind: 'crypto' as AssetKind, priceCents: 6_142_020, change: '+2.8%', tone: 'up' },
+    { assetId: 'etf:spy', symbol: 'SPY', name: 'S&P 500 ETF', kind: 'etf' as AssetKind, priceCents: 54_618, change: '+0.4%', tone: 'up' },
+    { assetId: 'commodity:gld', symbol: 'GLD', name: 'Gold Trust', kind: 'commodity' as AssetKind, priceCents: 21_492, change: '-0.2%', tone: 'down' },
+    { assetId: 'event:pmkt', symbol: 'PMKT', name: 'Event Markets', kind: 'event' as AssetKind, priceCents: 62, change: 'CLOB', tone: 'flat' }
   ];
 
   let config: PublicConfig | null = null;
   let configError = '';
   let portfolio: PortfolioSnapshot | null = null;
   let portfolioError = '';
+  let selectedAssetId = watchlist[0].assetId;
+  let orderSide: 'buy' | 'sell' = 'buy';
+  let orderQuantity = 1;
+  let orderError = '';
 
   onMount(async () => {
     try {
@@ -54,6 +60,9 @@
   $: equityLabel = formatMoney(summary.totalEquityCents);
   $: returnLabel = formatPercentFromBps(summary.totalReturnBps);
   $: syncLabel = portfolioError ? 'Fallback' : summary.localTransactionCount > 0 ? 'Queued' : 'Local';
+  $: selectedMarket = watchlist.find((item) => item.assetId === selectedAssetId) ?? watchlist[0];
+  $: normalizedOrderQuantity = Number.isFinite(Number(orderQuantity)) ? Number(orderQuantity) : 0;
+  $: estimatedOrderValue = Math.round(normalizedOrderQuantity * selectedMarket.priceCents);
   $: positionRows = [
     {
       market: 'Cash',
@@ -76,14 +85,43 @@
   ];
   $: activity = [
     portfolio ? `Local portfolio opened ${formatUpdatedAt(portfolio.updatedAt)}` : 'Opening local portfolio',
+    portfolio?.transactions[0]
+      ? `${portfolio.transactions[0].side.toUpperCase()} ${portfolio.transactions[0].quantity} ${portfolio.transactions[0].symbol} stored locally`
+      : 'No simulated trades yet',
     config ? 'Backend config endpoint connected' : 'Running with local defaults',
-    'No external market data loaded yet'
+    'External market data still disabled'
   ];
 
   async function handleResetPortfolio() {
     const startingCashCents = config?.startingCashCents ?? portfolio?.startingCashCents ?? 1_000_000;
     portfolio = await resetPortfolio(startingCashCents);
     portfolioError = '';
+    orderError = '';
+  }
+
+  async function handleSubmitOrder() {
+    orderError = '';
+    if (!portfolio) {
+      orderError = 'Portfolio is still opening';
+      return;
+    }
+
+    try {
+      const nextPortfolio = applyTrade(portfolio, {
+        id: crypto.randomUUID(),
+        assetId: selectedMarket.assetId,
+        symbol: selectedMarket.symbol,
+        name: selectedMarket.name,
+        kind: selectedMarket.kind,
+        side: orderSide,
+        quantity: normalizedOrderQuantity,
+        priceCents: selectedMarket.priceCents
+      });
+      await savePortfolio(nextPortfolio);
+      portfolio = nextPortfolio;
+    } catch (error) {
+      orderError = error instanceof Error ? error.message : 'Unable to place simulated order';
+    }
   }
 
   function formatUpdatedAt(value: string) {
@@ -182,18 +220,56 @@
 
         <div class="market-list">
           {#each watchlist as item}
-            <article class="market-row">
+            <button
+              class:selected={selectedMarket.assetId === item.assetId}
+              class="market-row market-button"
+              type="button"
+              on:click={() => (selectedAssetId = item.assetId)}
+            >
               <div>
                 <strong>{item.symbol}</strong>
                 <span>{item.name}</span>
               </div>
               <div class="market-price">
-                <strong>{item.price}</strong>
+                <strong>{formatMoney(item.priceCents)}</strong>
                 <span class={item.tone}>{item.change}</span>
               </div>
-            </article>
+            </button>
           {/each}
         </div>
+      </section>
+
+      <section class="trade-panel panel" aria-label="Simulated order ticket">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Order</p>
+            <h2>{selectedMarket.symbol}</h2>
+          </div>
+          <CandlestickChart size={19} />
+        </div>
+
+        <form class="order-form" on:submit|preventDefault={handleSubmitOrder}>
+          <div class="segmented" aria-label="Order side">
+            <button class:active={orderSide === 'buy'} type="button" on:click={() => (orderSide = 'buy')}>Buy</button>
+            <button class:active={orderSide === 'sell'} type="button" on:click={() => (orderSide = 'sell')}>Sell</button>
+          </div>
+
+          <label class="field">
+            <span>Quantity</span>
+            <input bind:value={orderQuantity} min="0.0001" step="0.0001" type="number" />
+          </label>
+
+          <div class="order-estimate">
+            <span>Estimated value</span>
+            <strong>{formatMoney(estimatedOrderValue)}</strong>
+          </div>
+
+          {#if orderError}
+            <p class="form-error">{orderError}</p>
+          {/if}
+
+          <button class="primary-button" type="submit">{orderSide === 'buy' ? 'Buy' : 'Sell'} {selectedMarket.symbol}</button>
+        </form>
       </section>
 
       <section class="chart-panel panel" aria-label="Equity curve">

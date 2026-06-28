@@ -49,6 +49,18 @@ export type PortfolioSummary = {
   localTransactionCount: number;
 };
 
+export type TradeInput = {
+  id: string;
+  assetId: string;
+  symbol: string;
+  name: string;
+  kind: AssetKind;
+  side: TransactionSide;
+  quantity: number;
+  priceCents: number;
+  feeCents?: number;
+};
+
 export function createInitialPortfolio(startingCashCents: number, now = new Date()): PortfolioSnapshot {
   const timestamp = now.toISOString();
 
@@ -60,6 +72,96 @@ export function createInitialPortfolio(startingCashCents: number, now = new Date
     positions: [],
     transactions: [],
     createdAt: timestamp,
+    updatedAt: timestamp
+  };
+}
+
+export function applyTrade(
+  snapshot: PortfolioSnapshot,
+  input: TradeInput,
+  now = new Date()
+): PortfolioSnapshot {
+  if (!Number.isFinite(input.quantity) || input.quantity <= 0) {
+    throw new Error('Quantity must be greater than zero');
+  }
+  if (!Number.isFinite(input.priceCents) || input.priceCents <= 0) {
+    throw new Error('Price must be greater than zero');
+  }
+
+  const feeCents = input.feeCents ?? 0;
+  const grossCents = Math.round(input.quantity * input.priceCents);
+  const timestamp = now.toISOString();
+  const positions = snapshot.positions.map((position) => ({ ...position }));
+  const transactions = [...snapshot.transactions];
+  const existingIndex = positions.findIndex((position) => position.assetId === input.assetId);
+  const existing = existingIndex >= 0 ? positions[existingIndex] : undefined;
+  let cashCents = snapshot.cashCents;
+
+  if (input.side === 'buy') {
+    const totalCostCents = grossCents + feeCents;
+    if (totalCostCents > cashCents) {
+      throw new Error('Not enough cash for this simulated order');
+    }
+
+    cashCents -= totalCostCents;
+    if (existing) {
+      const oldCostCents = existing.quantity * existing.averageCostCents;
+      const newQuantity = existing.quantity + input.quantity;
+      positions[existingIndex] = {
+        ...existing,
+        quantity: newQuantity,
+        averageCostCents: Math.round((oldCostCents + grossCents) / newQuantity),
+        lastPriceCents: input.priceCents,
+        updatedAt: timestamp
+      };
+    } else {
+      positions.push({
+        assetId: input.assetId,
+        symbol: input.symbol,
+        name: input.name,
+        kind: input.kind,
+        quantity: input.quantity,
+        averageCostCents: input.priceCents,
+        lastPriceCents: input.priceCents,
+        updatedAt: timestamp
+      });
+    }
+  } else {
+    if (!existing || existing.quantity < input.quantity) {
+      throw new Error('Not enough position size for this simulated sell');
+    }
+
+    cashCents += grossCents - feeCents;
+    const newQuantity = existing.quantity - input.quantity;
+    if (newQuantity <= 0.000_001) {
+      positions.splice(existingIndex, 1);
+    } else {
+      positions[existingIndex] = {
+        ...existing,
+        quantity: newQuantity,
+        lastPriceCents: input.priceCents,
+        updatedAt: timestamp
+      };
+    }
+  }
+
+  transactions.unshift({
+    id: input.id,
+    assetId: input.assetId,
+    symbol: input.symbol,
+    side: input.side,
+    quantity: input.quantity,
+    priceCents: input.priceCents,
+    feeCents,
+    status: 'local',
+    createdAt: timestamp
+  });
+
+  return {
+    ...snapshot,
+    cashCents,
+    positions,
+    transactions,
     updatedAt: timestamp
   };
 }
