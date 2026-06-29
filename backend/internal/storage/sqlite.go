@@ -47,6 +47,32 @@ func (s *SQLite) PingContext(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
 
+// GetMeta reads a value from the generic app_meta key/value store.
+func (s *SQLite) GetMeta(ctx context.Context, key string) (string, bool, error) {
+	var value string
+	err := s.db.GetContext(ctx, &value, `SELECT value FROM app_meta WHERE key = ?`, key)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("get meta: %w", err)
+	}
+	return value, true, nil
+}
+
+// SetMeta upserts a value into the generic app_meta key/value store.
+func (s *SQLite) SetMeta(ctx context.Context, key, value string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO app_meta (key, value, updated_at)
+		VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+	`, key, value)
+	if err != nil {
+		return fmt.Errorf("set meta: %w", err)
+	}
+	return nil
+}
+
 func (s *SQLite) TableExists(ctx context.Context, name string) (bool, error) {
 	var exists bool
 	err := s.db.GetContext(ctx, &exists, `SELECT EXISTS (
