@@ -47,6 +47,190 @@ button { cursor: pointer; }
   min-height: 100vh;
 }
 
+.landing-shell {
+  min-height: 100vh;
+  padding: clamp(1rem, 2vw, 2rem);
+}
+
+.landing-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.nav-action,
+.landing-actions span {
+  min-height: 2.55rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  color: var(--text);
+  background: var(--panel);
+}
+
+.nav-action {
+  padding: 0 1rem;
+}
+
+.landing-hero {
+  display: grid;
+  grid-template-columns: minmax(20rem, 0.95fr) minmax(24rem, 1.05fr);
+  gap: clamp(1.25rem, 4vw, 3.5rem);
+  align-items: center;
+  max-width: 1180px;
+  min-height: calc(100vh - 8rem);
+  margin: 0 auto;
+}
+
+.landing-copy {
+  display: grid;
+  gap: 1.2rem;
+}
+
+.landing-copy h1 {
+  max-width: 12ch;
+  margin: 0;
+  font-size: clamp(3rem, 7vw, 6.8rem);
+  line-height: 0.92;
+}
+
+.landing-copy p:not(.eyebrow) {
+  max-width: 38rem;
+  margin: 0;
+  color: var(--soft);
+  font-size: 1.08rem;
+}
+
+.landing-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.landing-actions .primary-button {
+  min-width: 11rem;
+  padding: 0 1.1rem;
+}
+
+.landing-actions span {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.9rem;
+  color: var(--muted);
+}
+
+.landing-terminal {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background:
+    linear-gradient(145deg, rgba(115, 213, 220, 0.15), rgba(243, 198, 109, 0.07)),
+    var(--panel);
+  box-shadow: 0 34px 90px rgba(0, 0, 0, 0.46);
+}
+
+.terminal-top,
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.terminal-top {
+  align-items: center;
+}
+
+.terminal-top span,
+.terminal-top strong,
+.terminal-top em,
+.preview-grid div {
+  min-height: 3.4rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: rgba(11, 13, 15, 0.56);
+}
+
+.terminal-top em {
+  font-style: normal;
+  text-align: right;
+}
+
+.preview-chart {
+  position: relative;
+  overflow: hidden;
+  min-height: 22rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px),
+    #0f1418;
+  background-size: 100% 20%, 14.28% 100%;
+}
+
+.preview-chart::before {
+  content: "";
+  position: absolute;
+  inset: 20% 7% 17%;
+  border-bottom: 4px solid var(--cyan);
+  border-left: 4px solid transparent;
+  border-radius: 50%;
+  transform: skewY(-10deg);
+}
+
+.preview-chart span {
+  position: absolute;
+  bottom: 12%;
+  width: 0.75rem;
+  border-radius: 99px 99px 0 0;
+  background: linear-gradient(var(--green), rgba(114, 224, 161, 0.24));
+}
+
+.preview-chart span:nth-child(1) { left: 16%; height: 38%; }
+.preview-chart span:nth-child(2) { left: 36%; height: 58%; background: linear-gradient(var(--amber), rgba(243, 198, 109, 0.24)); }
+.preview-chart span:nth-child(3) { left: 57%; height: 46%; }
+.preview-chart span:nth-child(4) { left: 78%; height: 72%; background: linear-gradient(var(--violet), rgba(167, 155, 255, 0.24)); }
+
+.preview-grid div {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.preview-grid span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+}
+
+.landing-bands {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  max-width: 1180px;
+  margin: -2rem auto 2rem;
+}
+
+.landing-bands article {
+  display: grid;
+  gap: 0.55rem;
+  min-height: 10rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: color-mix(in srgb, var(--panel), transparent 5%);
+  box-shadow: var(--shadow);
+}
+
+.landing-bands span {
+  color: var(--muted);
+}
+
 .rail {
   position: sticky;
   top: 0;
@@ -61,7 +245,6 @@ button { cursor: pointer; }
 
 .brand,
 .nav-item,
-.privacy-panel,
 .command-bar,
 .command-actions,
 .panel-head,
@@ -74,12 +257,10 @@ button { cursor: pointer; }
 }
 
 .brand { gap: 0.75rem; padding: 0.35rem; }
-.brand div,
-.privacy-panel div { display: grid; }
+.brand div { display: grid; }
 .brand strong { letter-spacing: 0.01em; }
 .brand span,
 .nav-item,
-.privacy-panel span,
 .eyebrow,
 .metric span,
 .instrument span,
@@ -99,11 +280,13 @@ button { cursor: pointer; }
 .nav-list { display: grid; gap: 0.35rem; margin-top: 0.6rem; }
 
 .nav-item {
+  width: 100%;
   gap: 0.65rem;
   min-height: 2.75rem;
   padding: 0 0.8rem;
   border: 1px solid transparent;
   border-radius: var(--r);
+  text-align: left;
   text-decoration: none;
   transition: 160ms ease;
 }
@@ -113,15 +296,6 @@ button { cursor: pointer; }
   color: var(--text);
   border-color: var(--line);
   background: var(--panel);
-}
-
-.privacy-panel {
-  gap: 0.75rem;
-  margin-top: auto;
-  padding: 0.85rem;
-  border: 1px solid rgba(114, 224, 161, 0.24);
-  border-radius: var(--r);
-  background: linear-gradient(135deg, rgba(114, 224, 161, 0.12), rgba(115, 213, 220, 0.07)), var(--panel);
 }
 
 .workspace { min-width: 0; padding: 1rem; }
@@ -401,6 +575,9 @@ button { cursor: pointer; }
 .flat { color: var(--cyan) !important; }
 
 @media (max-width: 1180px) {
+  .landing-hero { grid-template-columns: 1fr; padding: 3rem 0; }
+  .landing-copy h1 { max-width: 14ch; }
+  .landing-bands { margin-top: 0; grid-template-columns: 1fr; }
   .terminal-shell { grid-template-columns: 1fr; }
   .rail {
     position: static;
@@ -410,12 +587,17 @@ button { cursor: pointer; }
   }
   .nav-list { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .nav-item { justify-content: center; }
-  .privacy-panel { margin-top: 0; }
   .desk-grid { grid-template-columns: minmax(16rem, 0.82fr) minmax(24rem, 1.2fr); }
   .side-stack { grid-column: 1 / -1; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 760px) {
+  .landing-nav,
+  .landing-actions { align-items: stretch; flex-direction: column; }
+  .landing-copy h1 { font-size: 3.25rem; }
+  .terminal-top,
+  .preview-grid { grid-template-columns: 1fr; }
+  .preview-chart { min-height: 16rem; }
   .workspace,
   .rail { padding: 0.8rem; }
   .command-bar,

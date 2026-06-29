@@ -1,4 +1,4 @@
-const CACHE_NAME = 'koalatrade-shell-v2';
+const CACHE_NAME = 'koalatrade-shell-v3';
 const SHELL_ASSETS = ['/manifest.webmanifest', '/icons/koalatrade.svg'];
 
 self.addEventListener('install', (event) => {
