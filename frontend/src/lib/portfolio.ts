@@ -172,6 +172,46 @@ export function applyTrade(
   };
 }
 
+/**
+ * Settles a resolved event/bet position: a winning "Yes" contract pays out 100¢
+ * each, a losing one expires at 0¢. Credits cash, removes the position, and
+ * records the settlement as a transaction.
+ */
+export function resolveEventPosition(
+  snapshot: PortfolioSnapshot,
+  assetId: string,
+  won: boolean,
+  now = new Date()
+): PortfolioSnapshot | null {
+  const index = snapshot.positions.findIndex((position) => position.assetId === assetId);
+  if (index < 0) return null;
+
+  const position = snapshot.positions[index];
+  const payoutCents = won ? 100 : 0;
+  const proceedsCents = Math.round(position.quantity * payoutCents);
+  const timestamp = now.toISOString();
+
+  const transaction: Transaction = {
+    id: crypto.randomUUID(),
+    assetId: position.assetId,
+    symbol: position.symbol,
+    side: 'sell',
+    quantity: position.quantity,
+    priceCents: payoutCents,
+    feeCents: 0,
+    status: 'local',
+    createdAt: timestamp
+  };
+
+  return {
+    ...snapshot,
+    cashCents: snapshot.cashCents + proceedsCents,
+    positions: snapshot.positions.filter((_, i) => i !== index),
+    transactions: [transaction, ...snapshot.transactions],
+    updatedAt: timestamp
+  };
+}
+
 export function summarizePortfolio(snapshot: PortfolioSnapshot): PortfolioSummary {
   const positionsValueCents = snapshot.positions.reduce(
     (total, position) => total + Math.round(position.quantity * position.lastPriceCents),
@@ -222,6 +262,108 @@ export function markPositionsToMarket(
   });
 
   return changed ? { ...snapshot, positions, updatedAt: timestamp } : snapshot;
+}
+
+export type EquityPoint = {
+  t: string;
+  equityCents: number;
+};
+
+export type PortfolioPerformance = {
+  realizedPnlCents: number;
+  unrealizedPnlCents: number;
+  peakEquityCents: number;
+  drawdownBps: number;
+  curve: EquityPoint[];
+};
+
+/**
+ * Reconstructs an approximate equity curve by replaying transactions in
+ * chronological order, valuing each position at the most recent traded price.
+ * Anchored with the starting cash at creation and the live equity at the end.
+ */
+export function computePerformance(
+  snapshot: PortfolioSnapshot,
+  currentEquityCents: number,
+  now = new Date()
+): PortfolioPerformance {
+  const ordered = [...snapshot.transactions].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
+
+  let cashCents = snapshot.startingCashCents;
+  let realizedPnlCents = 0;
+  const holdings = new Map<string, { quantity: number; avgCostCents: number; lastPriceCents: number }>();
+  const curve: EquityPoint[] = [{ t: snapshot.createdAt, equityCents: snapshot.startingCashCents }];
+
+  const equityAt = () => {
+    let value = cashCents;
+    for (const holding of holdings.values()) {
+      value += Math.round(holding.quantity * holding.lastPriceCents);
+    }
+    return value;
+  };
+
+  for (const tx of ordered) {
+    const grossCents = Math.round(tx.quantity * tx.priceCents);
+    const existing = holdings.get(tx.assetId);
+
+    if (tx.side === 'buy') {
+      cashCents -= grossCents + tx.feeCents;
+      if (existing) {
+        const newQuantity = existing.quantity + tx.quantity;
+        existing.avgCostCents = Math.round(
+          (existing.quantity * existing.avgCostCents + grossCents) / newQuantity
+        );
+        existing.quantity = newQuantity;
+        existing.lastPriceCents = tx.priceCents;
+      } else {
+        holdings.set(tx.assetId, {
+          quantity: tx.quantity,
+          avgCostCents: tx.priceCents,
+          lastPriceCents: tx.priceCents
+        });
+      }
+    } else {
+      cashCents += grossCents - tx.feeCents;
+      if (existing) {
+        realizedPnlCents += Math.round((tx.priceCents - existing.avgCostCents) * tx.quantity) - tx.feeCents;
+        existing.quantity -= tx.quantity;
+        existing.lastPriceCents = tx.priceCents;
+        if (existing.quantity <= 0.000_001) {
+          holdings.delete(tx.assetId);
+        }
+      }
+    }
+
+    curve.push({ t: tx.createdAt, equityCents: equityAt() });
+  }
+
+  curve.push({ t: now.toISOString(), equityCents: currentEquityCents });
+
+  const unrealizedPnlCents = snapshot.positions.reduce(
+    (total, position) =>
+      total + Math.round((position.lastPriceCents - position.averageCostCents) * position.quantity),
+    0
+  );
+
+  let peakEquityCents = snapshot.startingCashCents;
+  let maxDrawdownBps = 0;
+  for (const point of curve) {
+    peakEquityCents = Math.max(peakEquityCents, point.equityCents);
+    if (peakEquityCents > 0) {
+      const ddBps = Math.round(((peakEquityCents - point.equityCents) / peakEquityCents) * 10_000);
+      maxDrawdownBps = Math.max(maxDrawdownBps, ddBps);
+    }
+  }
+
+  return {
+    realizedPnlCents,
+    unrealizedPnlCents,
+    peakEquityCents,
+    drawdownBps: maxDrawdownBps,
+    curve
+  };
 }
 
 export function formatMoney(cents: number) {
