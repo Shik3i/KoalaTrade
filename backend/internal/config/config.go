@@ -40,6 +40,9 @@ type Config struct {
 	LolesportsBaseURL           string
 	PolymarketBaseURL           string
 	EsportsCacheSeconds         int
+	AdminUsername               string
+	AdminPassword               string
+	AuthSecret                  string
 }
 
 func Load() Config {
@@ -62,6 +65,9 @@ func Load() Config {
 		LolesportsBaseURL:           getEnv("LOLESPORTS_BASE_URL", defaultLolesportsBaseURL),
 		PolymarketBaseURL:           getEnv("POLYMARKET_BASE_URL", defaultPolymarketBaseURL),
 		EsportsCacheSeconds:         getEnvInt("ESPORTS_CACHE_SECONDS", defaultEsportsCacheSeconds),
+		AdminUsername:               getEnv("ADMIN_USERNAME", "admin"),
+		AdminPassword:               getEnv("ADMIN_PASSWORD", ""),
+		AuthSecret:                  getEnv("AUTH_SECRET", ""),
 	}
 }
 

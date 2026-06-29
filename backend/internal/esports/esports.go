@@ -57,11 +57,12 @@ type Result struct {
 	CompletedAt time.Time `json:"completedAt"`
 }
 
-// MetaStore is a minimal key/value persistence hook so completed results survive
-// restarts (and the lolesports schedule window aging out).
-type MetaStore interface {
+// Store persists results (so they survive restarts / the schedule window aging
+// out) and supplies team code mappings for Polymarket slug building.
+type Store interface {
 	GetMeta(ctx context.Context, key string) (string, bool, error)
 	SetMeta(ctx context.Context, key, value string) error
+	TeamMappingsMap(ctx context.Context) (map[string]string, error)
 }
 
 const resultsMetaKey = "esports_results"
@@ -72,7 +73,7 @@ type Service struct {
 	polyBase string
 	http     *http.Client
 	ttl      time.Duration
-	store    MetaStore
+	store    Store
 
 	mu            sync.Mutex
 	cache         []Match
@@ -83,7 +84,7 @@ type Service struct {
 	resultsLoaded bool
 }
 
-func NewService(apiKey, lolBaseURL, polyBaseURL string, timeout, ttl time.Duration, store MetaStore) *Service {
+func NewService(apiKey, lolBaseURL, polyBaseURL string, timeout, ttl time.Duration, store Store) *Service {
 	return &Service{
 		apiKey:   apiKey,
 		lolBase:  strings.TrimRight(lolBaseURL, "/"),
@@ -93,6 +94,48 @@ func NewService(apiKey, lolBaseURL, polyBaseURL string, timeout, ttl time.Durati
 		store:    store,
 		results:  make(map[string]Result),
 	}
+}
+
+type Status struct {
+	ScheduleCached     bool `json:"scheduleCached"`
+	ScheduleAgeSeconds int  `json:"scheduleAgeSeconds"`
+	MatchCount         int  `json:"matchCount"`
+	MatchesWithOdds    int  `json:"matchesWithOdds"`
+	ResultsCount       int  `json:"resultsCount"`
+	TeamsCached        bool `json:"teamsCached"`
+	TeamCount          int  `json:"teamCount"`
+}
+
+// Status reports cache state for the admin panel.
+func (s *Service) Status(ctx context.Context) Status {
+	s.ensureResultsLoaded(ctx)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	status := Status{
+		ResultsCount: len(s.results),
+		TeamsCached:  s.teamsCache != nil,
+		TeamCount:    len(s.teamsCache),
+	}
+	if s.cache != nil {
+		status.ScheduleCached = true
+		status.ScheduleAgeSeconds = int(time.Since(s.cachedAt).Seconds())
+		status.MatchCount = len(s.cache)
+		for _, m := range s.cache {
+			if m.HasOdds {
+				status.MatchesWithOdds++
+			}
+		}
+	}
+	return status
+}
+
+// ForceRefresh invalidates the schedule cache and re-fetches schedule + odds now.
+func (s *Service) ForceRefresh(ctx context.Context) ([]Match, error) {
+	s.mu.Lock()
+	s.cachedAt = time.Time{}
+	s.mu.Unlock()
+	return s.Matches(ctx)
 }
 
 // Results returns the stored outcomes for the requested match ids (only those
@@ -219,7 +262,7 @@ func (s *Service) RefreshMatchOdds(ctx context.Context, matchID string) (Match, 
 	match.Team2.ProbBps, match.Team2.PriceCents = 0, 0
 
 	if match.Team1.Code != "TBD" && match.Team2.Code != "TBD" {
-		slugs := generateSlugs(&match)
+		slugs := generateSlugs(&match, s.mappingDict(ctx))
 		for start := 0; start < len(slugs); start += 50 {
 			end := start + 50
 			if end > len(slugs) {
@@ -473,6 +516,7 @@ type polymarketEvent struct {
 // attachOdds queries Polymarket for each match by guessed slugs, then maps the
 // returned "match winner" market back onto the schedule.
 func (s *Service) attachOdds(ctx context.Context, matches []Match) {
+	dict := s.mappingDict(ctx)
 	slugToIndex := map[string]int{}
 	allSlugs := make([]string, 0, len(matches)*8)
 	for i := range matches {
@@ -480,7 +524,7 @@ func (s *Service) attachOdds(ctx context.Context, matches []Match) {
 		if m.Team1.Code == "TBD" || m.Team2.Code == "TBD" {
 			continue
 		}
-		for _, slug := range generateSlugs(m) {
+		for _, slug := range generateSlugs(m, dict) {
 			if _, seen := slugToIndex[slug]; !seen {
 				slugToIndex[slug] = i
 				allSlugs = append(allSlugs, slug)
@@ -628,12 +672,24 @@ func containsAny(list []string, candidates ...string) bool {
 	return false
 }
 
+func (s *Service) mappingDict(ctx context.Context) map[string]string {
+	if s.store == nil {
+		return nil
+	}
+	dict, err := s.store.TeamMappingsMap(ctx)
+	if err != nil {
+		return nil
+	}
+	return dict
+}
+
 // generateSlugs mirrors Polymarket's LoL slug convention:
 // lol-<team1>-<team2>-<YYYY-MM-DD>, trying both team orders and nearby dates
-// (timezone skew) plus code/name identifiers.
-func generateSlugs(m *Match) []string {
-	ids1 := identifiers(m.Team1)
-	ids2 := identifiers(m.Team2)
+// (timezone skew) plus code/name identifiers. Admin-defined mappings let an
+// lolesports code resolve to Polymarket's differing code (e.g. EINS -> ES1).
+func generateSlugs(m *Match, mapping map[string]string) []string {
+	ids1 := identifiers(m.Team1, mapping)
+	ids2 := identifiers(m.Team2, mapping)
 	seen := map[string]struct{}{}
 	out := make([]string, 0, 16)
 
@@ -656,10 +712,14 @@ func generateSlugs(m *Match) []string {
 	return out
 }
 
-func identifiers(t Team) []string {
+func identifiers(t Team, mapping map[string]string) []string {
 	seen := map[string]struct{}{}
-	out := make([]string, 0, 2)
-	for _, candidate := range []string{normalize(t.Code), normalize(t.Name)} {
+	out := make([]string, 0, 3)
+	mapped := ""
+	if mapping != nil {
+		mapped = normalize(mapping[strings.ToLower(t.Code)])
+	}
+	for _, candidate := range []string{mapped, normalize(t.Code), normalize(t.Name)} {
 		if candidate == "" {
 			continue
 		}

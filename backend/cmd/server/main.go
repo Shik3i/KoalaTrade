@@ -42,6 +42,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	app.SeedAdmin(ctx, logger)
 	app.StartMarketDataPoller(ctx, logger)
 	app.StartEsportsPoller(ctx, logger)
 
