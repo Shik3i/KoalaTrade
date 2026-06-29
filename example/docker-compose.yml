@@ -1,6 +1,6 @@
 services:
   backend:
-    image: ghcr.io/shik3i/koalatrade-backend:${KOALATRADE_VERSION:-0.1.1}
+    image: ghcr.io/shik3i/koalatrade-backend:${KOALATRADE_VERSION:-0.1.2}
     restart: unless-stopped
     environment:
       APP_ENV: production
@@ -34,7 +34,7 @@ services:
       start_period: 10s
 
   frontend:
-    image: ghcr.io/shik3i/koalatrade-frontend:${KOALATRADE_VERSION:-0.1.1}
+    image: ghcr.io/shik3i/koalatrade-frontend:${KOALATRADE_VERSION:-0.1.2}
     restart: unless-stopped
     depends_on:
       backend:
