@@ -1,10 +1,12 @@
 import { createInitialPortfolio, PORTFOLIO_ID, type PortfolioSnapshot } from './portfolio';
+import { defaultPreferences, type Preferences } from './preferences';
 
 const DB_NAME = 'koalatrade';
 const DB_VERSION = 3;
 const PORTFOLIO_STORE = 'portfolios';
 const META_STORE = 'meta';
 const CLIENT_ID_KEY = 'client-id';
+const PREFERENCES_KEY = 'preferences';
 
 export async function loadPortfolio(startingCashCents: number): Promise<PortfolioSnapshot> {
   const db = await openDatabase();
@@ -50,6 +52,28 @@ export async function loadClientId(): Promise<string> {
   await writeMeta(db, CLIENT_ID_KEY, clientId);
   db.close();
   return clientId;
+}
+
+export async function loadPreferences(): Promise<Preferences> {
+  const db = await openDatabase();
+  const raw = await readMeta(db, PREFERENCES_KEY);
+  db.close();
+  if (!raw) return defaultPreferences();
+  try {
+    const parsed = JSON.parse(raw) as Partial<Preferences>;
+    return {
+      favoriteTeams: Array.isArray(parsed.favoriteTeams) ? parsed.favoriteTeams : [],
+      esportsLeagues: Array.isArray(parsed.esportsLeagues) ? parsed.esportsLeagues : defaultPreferences().esportsLeagues
+    };
+  } catch {
+    return defaultPreferences();
+  }
+}
+
+export async function savePreferences(preferences: Preferences): Promise<void> {
+  const db = await openDatabase();
+  await writeMeta(db, PREFERENCES_KEY, JSON.stringify(preferences));
+  db.close();
 }
 
 function openDatabase(): Promise<IDBDatabase> {
