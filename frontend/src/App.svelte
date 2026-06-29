@@ -9,6 +9,7 @@
     Keyboard,
     RotateCcw,
     Search,
+    ShieldCheck,
     Sparkles,
     TrendingUp,
     Trophy,
@@ -17,6 +18,7 @@
     Zap
   } from '@lucide/svelte';
   import { onDestroy, onMount } from 'svelte';
+  import AdminView from './lib/components/AdminView.svelte';
   import AreaChart from './lib/components/AreaChart.svelte';
   import EsportsView from './lib/components/EsportsView.svelte';
   import OrderBook from './lib/components/OrderBook.svelte';
@@ -24,6 +26,7 @@
   import Sparkline from './lib/components/Sparkline.svelte';
   import Toasts from './lib/components/Toasts.svelte';
   import {
+    adminLogin,
     fetchEsportsMatches,
     fetchEsportsResults,
     fetchEsportsTeams,
@@ -112,8 +115,10 @@
   let orderError = '';
   let isSyncing = false;
   let syncMessage = 'Sync bereit';
-  type AppView = 'landing' | DeskView | 'profile';
+  type AppView = 'landing' | DeskView | 'profile' | 'admin';
   let activeView: AppView = 'landing';
+  const ADMIN_TOKEN_KEY = 'koala-admin-token';
+  let adminToken: string | null = null;
   let clientId = '';
   let quoteTimer: ReturnType<typeof setInterval> | undefined;
   let showShortcuts = false;
@@ -148,6 +153,8 @@
     } catch {
       preferences = defaultPreferences();
     }
+
+    adminToken = localStorage.getItem(ADMIN_TOKEN_KEY);
 
     try {
       clientId = await loadClientId();
@@ -263,6 +270,11 @@
     void loadTeams();
   }
 
+  // Load matches for the admin "no odds" diagnostic when the admin panel opens.
+  $: if (activeView === 'admin' && adminToken && !esportsLoaded && !esportsLoading) {
+    void loadEsports();
+  }
+
   // League toggle options: curated defaults + whatever leagues are live right now.
   $: leagueOptions = Array.from(
     new Set([...DEFAULT_LEAGUES, ...preferences.esportsLeagues, ...esportsMatches.map((match) => match.league).filter(Boolean)])
@@ -366,6 +378,18 @@
       return;
     }
     await placeEsportsBet(match, team, contracts);
+  }
+
+  async function handleAdminLogin(username: string, password: string) {
+    const { token } = await adminLogin(username, password);
+    adminToken = token;
+    localStorage.setItem(ADMIN_TOKEN_KEY, token);
+    toast.success('Angemeldet', 'Admin-Bereich entsperrt.');
+  }
+
+  function handleAdminLogout() {
+    adminToken = null;
+    localStorage.removeItem(ADMIN_TOKEN_KEY);
   }
 
   async function loadTeams() {
@@ -824,6 +848,9 @@
         <button class="icon-button" class:active={activeView === 'profile'} type="button" aria-label="Profil" title="Profil & Favoriten" on:click={() => setActiveView('profile')}>
           <UserCircle2 size={18} />
         </button>
+        <button class="icon-button" class:active={activeView === 'admin'} type="button" aria-label="Admin" title="Admin" on:click={() => setActiveView('admin')}>
+          <ShieldCheck size={18} />
+        </button>
         <button class="icon-button" type="button" aria-label="Shortcuts" title="Tastenkürzel (?)" on:click={() => (showShortcuts = !showShortcuts)}>
           <Keyboard size={18} />
         </button>
@@ -1131,7 +1158,7 @@
           onRefreshOdds={handleRefreshOdds}
         />
       </section>
-    {:else}
+    {:else if activeView === 'profile'}
       <section class="view-scroll" aria-label="Profil">
         <ProfileView
           favoriteTeams={preferences.favoriteTeams}
@@ -1144,6 +1171,15 @@
           startingCents={portfolio?.startingCashCents ?? 0}
           onToggleTeam={toggleFavoriteTeam}
           onToggleLeague={toggleDefaultLeague}
+        />
+      </section>
+    {:else}
+      <section class="view-scroll" aria-label="Admin">
+        <AdminView
+          token={adminToken}
+          matches={esportsMatches}
+          onLogin={handleAdminLogin}
+          onLogout={handleAdminLogout}
         />
       </section>
     {/if}
