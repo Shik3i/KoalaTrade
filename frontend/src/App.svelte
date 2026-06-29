@@ -31,6 +31,8 @@
     { assetId: 'commodity:gld', symbol: 'GLD', name: 'Gold Trust', kind: 'commodity', source: 'local', priceCents: 21_492, changeBps: -20, updatedAt: new Date(0).toISOString() },
     { assetId: 'event:pmkt', symbol: 'PMKT', name: 'Event Markets', kind: 'event', source: 'local', priceCents: 62, changeBps: 0, updatedAt: new Date(0).toISOString() }
   ];
+  const ORDER_FEE_BPS = 8;
+  const QUANTITY_STEP = 0.0001;
 
   let config: PublicConfig | null = null;
   let configError = '';
@@ -97,10 +99,31 @@
     ? markets.filter((market) => `${market.symbol} ${market.name} ${market.kind}`.toLowerCase().includes(query))
     : markets;
   $: normalizedOrderQuantity = Number.isFinite(Number(orderQuantity)) ? Number(orderQuantity) : 0;
+  $: selectedPosition = positionList.find((position) => position.assetId === selectedMarket.assetId);
+  $: selectedPositionQuantity = selectedPosition?.quantity ?? 0;
   $: estimatedOrderValue = Math.round(normalizedOrderQuantity * selectedMarket.priceCents);
+  $: estimatedOrderFee = Math.max(0, Math.round((estimatedOrderValue * ORDER_FEE_BPS) / 10_000));
+  $: estimatedOrderTotal = orderSide === 'buy' ? estimatedOrderValue + estimatedOrderFee : Math.max(0, estimatedOrderValue - estimatedOrderFee);
+  $: maxBuyQuantity = selectedMarket.priceCents > 0 ? roundQuantity(summary.cashCents / (selectedMarket.priceCents * (1 + ORDER_FEE_BPS / 10_000))) : 0;
+  $: maxSellQuantity = roundQuantity(selectedPositionQuantity);
+  $: orderLimitQuantity = orderSide === 'buy' ? maxBuyQuantity : maxSellQuantity;
+  $: canSubmitOrder =
+    !!portfolio &&
+    normalizedOrderQuantity > 0 &&
+    normalizedOrderQuantity <= orderLimitQuantity &&
+    (orderSide === 'buy' ? estimatedOrderTotal <= summary.cashCents : selectedPositionQuantity >= normalizedOrderQuantity);
+  $: orderPowerLabel = orderSide === 'buy' ? 'Buying power' : 'Available';
+  $: orderPowerValue = orderSide === 'buy' ? formatMoney(summary.cashCents) : `${formatQuantity(selectedPositionQuantity)} ${selectedMarket.symbol}`;
   $: syncLabel = portfolioError ? 'Fallback' : isSyncing ? 'Syncing' : summary.localTransactionCount > 0 ? 'Queued' : 'Synced';
   $: positionList = portfolio?.positions ?? [];
   $: transactionList = portfolio?.transactions.slice(0, 6) ?? [];
+  $: positionRows = positionList.map((position) => {
+    const marketValueCents = Math.round(position.quantity * position.lastPriceCents);
+    const costBasisCents = Math.round(position.quantity * position.averageCostCents);
+    const pnlCents = marketValueCents - costBasisCents;
+    const pnlBps = costBasisCents > 0 ? Math.round((pnlCents / costBasisCents) * 10_000) : 0;
+    return { ...position, marketValueCents, pnlCents, pnlBps };
+  });
   $: exposureRows = [
     ['Cash', formatMoney(summary.cashCents), summary.totalEquityCents > 0 ? formatPercentFromBps(Math.round((summary.cashCents / summary.totalEquityCents) * 10_000)) : '0.00%'],
     ['Positions', formatMoney(summary.positionsValueCents), `${summary.openPositions} open`],
@@ -132,6 +155,10 @@
       orderError = 'Portfolio is still opening';
       return;
     }
+    if (!canSubmitOrder) {
+      orderError = orderSide === 'buy' ? 'Not enough buying power for this order' : 'Not enough available position size';
+      return;
+    }
 
     try {
       const nextPortfolio = applyTrade(portfolio, {
@@ -142,7 +169,8 @@
         kind: selectedMarket.kind,
         side: orderSide,
         quantity: normalizedOrderQuantity,
-        priceCents: selectedMarket.priceCents
+        priceCents: selectedMarket.priceCents,
+        feeCents: estimatedOrderFee
       });
       await savePortfolio(nextPortfolio);
       portfolio = nextPortfolio;
@@ -227,6 +255,28 @@
 
   function formatUpdatedAt(value: string) {
     return new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit' }).format(new Date(value));
+  }
+
+  function formatQuantity(value: number) {
+    return new Intl.NumberFormat('en-US', { maximumFractionDigits: 6 }).format(value);
+  }
+
+  function formatSignedMoney(cents: number) {
+    return `${cents > 0 ? '+' : cents < 0 ? '-' : ''}${formatMoney(Math.abs(cents))}`;
+  }
+
+  function roundQuantity(value: number) {
+    return Math.max(0, Math.floor(value / QUANTITY_STEP) * QUANTITY_STEP);
+  }
+
+  function setOrderSide(side: 'buy' | 'sell') {
+    orderSide = side;
+    orderError = '';
+  }
+
+  function fillMaxQuantity() {
+    orderQuantity = orderLimitQuantity || QUANTITY_STEP;
+    orderError = '';
   }
 
   function marketTone(changeBps: number) {
@@ -413,8 +463,12 @@
               {#if positionList.length === 0}
                 <p class="empty-state">No open positions yet.</p>
               {:else}
-                {#each positionList as position}
-                  <div class="holding-row"><strong>{position.symbol}</strong><span>{position.quantity} · {formatMoney(position.lastPriceCents)}</span><em>{position.kind}</em></div>
+                {#each positionRows as position}
+                  <div class="holding-row">
+                    <strong>{position.symbol}<small>{formatQuantity(position.quantity)} {position.kind}</small></strong>
+                    <span>{formatMoney(position.marketValueCents)}<small>Avg {formatMoney(position.averageCostCents)}</small></span>
+                    <em class:up={position.pnlCents > 0} class:down={position.pnlCents < 0}>{formatSignedMoney(position.pnlCents)}<small>{formatPercentFromBps(position.pnlBps)}</small></em>
+                  </div>
                 {/each}
               {/if}
             </div>
@@ -426,7 +480,11 @@
                 <p class="empty-state">No simulated trades yet.</p>
               {:else}
                 {#each transactionList as transaction}
-                  <div class="ledger-row"><strong>{transaction.side.toUpperCase()} {transaction.symbol}</strong><span>{transaction.quantity} @ {formatMoney(transaction.priceCents)}</span><em>{transaction.status}</em></div>
+                  <div class="ledger-row">
+                    <strong class={transaction.side}>{transaction.side.toUpperCase()} {transaction.symbol}<small>{formatUpdatedAt(transaction.createdAt)}</small></strong>
+                    <span>{formatQuantity(transaction.quantity)} @ {formatMoney(transaction.priceCents)}<small>Fee {formatMoney(transaction.feeCents)}</small></span>
+                    <em>{transaction.status}</em>
+                  </div>
                 {/each}
               {/if}
             </div>
@@ -457,16 +515,25 @@
           </div>
           <form class="order-form" on:submit|preventDefault={handleSubmitOrder}>
             <div class="segmented" aria-label="Order side">
-              <button class:active={orderSide === 'buy'} type="button" on:click={() => (orderSide = 'buy')}>Buy</button>
-              <button class:active={orderSide === 'sell'} type="button" on:click={() => (orderSide = 'sell')}>Sell</button>
+              <button class:active={orderSide === 'buy'} type="button" on:click={() => setOrderSide('buy')}>Buy</button>
+              <button class:active={orderSide === 'sell'} type="button" on:click={() => setOrderSide('sell')}>Sell</button>
             </div>
             <label class="field">
               <span>Quantity</span>
-              <input bind:value={orderQuantity} min="0.0001" step="0.0001" type="number" />
+              <input bind:value={orderQuantity} max={orderLimitQuantity || undefined} min="0.0001" step="0.0001" type="number" />
             </label>
-            <div class="estimate"><span>Estimated value</span><strong>{formatMoney(estimatedOrderValue)}</strong></div>
+            <div class="quick-actions">
+              <span>{orderPowerLabel}: <strong>{orderPowerValue}</strong></span>
+              <button type="button" disabled={orderLimitQuantity <= 0} on:click={fillMaxQuantity}>Max</button>
+            </div>
+            <div class="order-summary">
+              <div><span>Market price</span><strong>{formatMoney(selectedMarket.priceCents)}</strong></div>
+              <div><span>Gross value</span><strong>{formatMoney(estimatedOrderValue)}</strong></div>
+              <div><span>Fee</span><strong>{formatMoney(estimatedOrderFee)}</strong></div>
+              <div class="total"><span>{orderSide === 'buy' ? 'Cash debit' : 'Cash credit'}</span><strong>{formatMoney(estimatedOrderTotal)}</strong></div>
+            </div>
             {#if orderError}<p class="form-error">{orderError}</p>{/if}
-            <button class="primary-button" type="submit">{orderSide === 'buy' ? 'Buy' : 'Sell'} {selectedMarket.symbol}</button>
+            <button class="primary-button" type="submit" disabled={!canSubmitOrder}>{orderSide === 'buy' ? 'Buy' : 'Sell'} {selectedMarket.symbol}</button>
           </form>
         </section>
 
