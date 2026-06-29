@@ -198,6 +198,11 @@ func (s *SQLite) configure() error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_leaderboard_snapshots_period_rank
 			ON leaderboard_snapshots(period, total_return_bps DESC, recorded_at DESC);`,
+		`CREATE TABLE IF NOT EXISTS team_mappings (
+			original_code TEXT PRIMARY KEY,
+			polymarket_code TEXT NOT NULL,
+			updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+		);`,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

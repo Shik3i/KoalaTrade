@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/rand"
 	"net/http"
 	"time"
 
@@ -17,6 +18,7 @@ type Server struct {
 	db         *storage.SQLite
 	marketData *marketdata.Service
 	esports    *esports.Service
+	authSecret []byte
 }
 
 func New(cfg config.Config, db *storage.SQLite) *Server {
@@ -38,9 +40,16 @@ func New(cfg config.Config, db *storage.SQLite) *Server {
 		)
 	}
 
+	secret := []byte(cfg.AuthSecret)
+	if len(secret) == 0 {
+		secret = make([]byte, 32)
+		_, _ = rand.Read(secret)
+	}
+
 	return &Server{
 		cfg:        cfg,
 		db:         db,
+		authSecret: secret,
 		marketData: marketdata.NewService(provider, time.Duration(cfg.MarketDataCacheSeconds)*time.Second, db),
 		esports: esports.NewService(
 			cfg.LolesportsAPIKey,
@@ -74,6 +83,17 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/esports/results", s.handleEsportsResults)
 		r.Get("/sync/portfolio", s.handleGetPortfolioSync)
 		r.Put("/sync/portfolio", s.handlePutPortfolioSync)
+
+		r.Post("/auth/login", s.handleLogin)
+
+		r.Route("/admin", func(r chi.Router) {
+			r.Use(s.requireAdmin)
+			r.Get("/mappings", s.handleListMappings)
+			r.Put("/mappings", s.handleUpsertMapping)
+			r.Delete("/mappings/{code}", s.handleDeleteMapping)
+			r.Get("/status", s.handleAdminStatus)
+			r.Post("/refresh", s.handleAdminRefresh)
+		})
 	})
 
 	return r
