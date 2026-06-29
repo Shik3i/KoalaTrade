@@ -63,6 +63,27 @@ func TestServiceQuotesUsesPersistentCacheBeforeProvider(t *testing.T) {
 	}
 }
 
+func TestServiceRefreshAllStoresFreshQuotes(t *testing.T) {
+	store := &memoryStore{}
+	service := NewService(NewMockProvider(), time.Minute, store)
+
+	quotes, err := service.RefreshAll(context.Background())
+	if err != nil {
+		t.Fatalf("refresh all: %v", err)
+	}
+	if len(quotes) != 6 {
+		t.Fatalf("expected 6 quotes, got %d", len(quotes))
+	}
+	if len(store.quotes) != 6 {
+		t.Fatalf("expected stored quotes, got %d", len(store.quotes))
+	}
+	for _, quote := range quotes {
+		if quote.CachedUntil.IsZero() {
+			t.Fatal("expected cached until to be set")
+		}
+	}
+}
+
 type countingProvider struct {
 	quoteCalls int
 }

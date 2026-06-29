@@ -8,6 +8,7 @@ import (
 
 const defaultStartingCashCents int64 = 1_000_000
 const defaultMarketDataCacheSeconds = 60
+const defaultMarketDataPollSeconds = 60
 
 type Config struct {
 	AppName                string
@@ -17,9 +18,12 @@ type Config struct {
 	StartingCashCents      int64
 	MarketDataProvider     string
 	MarketDataCacheSeconds int
+	MarketDataPollSeconds  int
 	MarketDataHTTPTimeout  int
 	CoinGeckoBaseURL       string
 	CoinGeckoAPIKey        string
+	FinnhubBaseURL         string
+	FinnhubAPIKey          string
 }
 
 func Load() Config {
@@ -31,9 +35,12 @@ func Load() Config {
 		StartingCashCents:      getEnvInt64("STARTING_CASH_CENTS", defaultStartingCashCents),
 		MarketDataProvider:     getEnv("MARKET_DATA_PROVIDER", "mock"),
 		MarketDataCacheSeconds: getEnvInt("MARKET_DATA_CACHE_SECONDS", defaultMarketDataCacheSeconds),
+		MarketDataPollSeconds:  getEnvInt("MARKET_DATA_POLL_SECONDS", defaultMarketDataPollSeconds),
 		MarketDataHTTPTimeout:  getEnvInt("MARKET_DATA_HTTP_TIMEOUT_SECONDS", 5),
 		CoinGeckoBaseURL:       getEnv("COINGECKO_BASE_URL", ""),
 		CoinGeckoAPIKey:        getEnv("COINGECKO_API_KEY", ""),
+		FinnhubBaseURL:         getEnv("FINNHUB_BASE_URL", ""),
+		FinnhubAPIKey:          getEnv("FINNHUB_API_KEY", ""),
 	}
 }
 

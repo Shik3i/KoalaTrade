@@ -90,6 +90,44 @@ func (s *Service) Markets(ctx context.Context) ([]Market, error) {
 	return markets, nil
 }
 
+func (s *Service) RefreshAll(ctx context.Context) ([]Quote, error) {
+	markets, err := s.Markets(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	assetIDs := make([]string, 0, len(markets))
+	for _, market := range markets {
+		assetIDs = append(assetIDs, market.AssetID)
+	}
+	return s.Refresh(ctx, assetIDs)
+}
+
+func (s *Service) Refresh(ctx context.Context, assetIDs []string) ([]Quote, error) {
+	normalized := normalizeAssetIDs(assetIDs)
+	if len(normalized) == 0 {
+		return nil, errors.New("at least one asset id is required")
+	}
+
+	fresh, err := s.provider.Quotes(ctx, normalized)
+	if err != nil {
+		return nil, err
+	}
+
+	cachedUntil := time.Now().UTC().Add(s.ttl)
+	s.mu.Lock()
+	for index := range fresh {
+		fresh[index].CachedUntil = cachedUntil
+		s.cache[fresh[index].AssetID] = fresh[index]
+	}
+	s.mu.Unlock()
+
+	if s.store != nil {
+		_ = s.store.StoreQuotes(ctx, fresh)
+	}
+	return fresh, nil
+}
+
 func (s *Service) Quotes(ctx context.Context, assetIDs []string) ([]Quote, error) {
 	normalized := normalizeAssetIDs(assetIDs)
 	if len(normalized) == 0 {

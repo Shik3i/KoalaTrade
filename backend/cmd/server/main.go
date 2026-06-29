@@ -42,6 +42,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	app.StartMarketDataPoller(ctx, logger)
+
 	go func() {
 		logger.Info("server listening", "addr", cfg.ListenAddr())
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

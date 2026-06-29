@@ -8,7 +8,6 @@
     RotateCcw,
     Search,
     ShieldCheck,
-    Trophy,
     WalletCards
   } from '@lucide/svelte';
   import { onDestroy, onMount } from 'svelte';
@@ -29,10 +28,20 @@
     { assetId: 'crypto:btc', symbol: 'BTC', name: 'Bitcoin', kind: 'crypto', source: 'local', priceCents: 6_142_020, changeBps: 280, updatedAt: new Date(0).toISOString() },
     { assetId: 'etf:spy', symbol: 'SPY', name: 'S&P 500 ETF', kind: 'etf', source: 'local', priceCents: 54_618, changeBps: 40, updatedAt: new Date(0).toISOString() },
     { assetId: 'commodity:gld', symbol: 'GLD', name: 'Gold Trust', kind: 'commodity', source: 'local', priceCents: 21_492, changeBps: -20, updatedAt: new Date(0).toISOString() },
-    { assetId: 'event:pmkt', symbol: 'PMKT', name: 'Event Markets', kind: 'event', source: 'local', priceCents: 62, changeBps: 0, updatedAt: new Date(0).toISOString() }
+    { assetId: 'event:pmkt', symbol: 'PMKT', name: 'Polymarket event markets', kind: 'event', source: 'local', priceCents: 62, changeBps: 0, updatedAt: new Date(0).toISOString() },
+    { assetId: 'event:lolesports-t1', symbol: 'LOL-T1', name: 'LoL Esports: T1 match winner', kind: 'event', source: 'local', priceCents: 64, changeBps: 180, updatedAt: new Date(0).toISOString() },
+    { assetId: 'event:lolesports-geng', symbol: 'LOL-GEN', name: 'LoL Esports: Gen.G match winner', kind: 'event', source: 'local', priceCents: 41, changeBps: -120, updatedAt: new Date(0).toISOString() }
   ];
   const ORDER_FEE_BPS = 8;
   const QUANTITY_STEP = 0.0001;
+  const marketFilters = [
+    { id: 'all', label: 'All' },
+    { id: 'crypto', label: 'Crypto' },
+    { id: 'etf', label: 'ETFs' },
+    { id: 'commodity', label: 'Metals' },
+    { id: 'event', label: 'eSports' }
+  ] as const;
+  type MarketFilter = (typeof marketFilters)[number]['id'];
 
   let config: PublicConfig | null = null;
   let configError = '';
@@ -42,6 +51,7 @@
   let portfolioError = '';
   let selectedAssetId = fallbackMarkets[0].assetId;
   let marketQuery = '';
+  let marketFilter: MarketFilter = 'all';
   let orderSide: 'buy' | 'sell' = 'buy';
   let orderQuantity = 1;
   let orderError = '';
@@ -95,9 +105,11 @@
   $: summary = summarizePortfolio(portfolio ?? createInitialPortfolio(config?.startingCashCents ?? 1_000_000));
   $: selectedMarket = markets.find((item) => item.assetId === selectedAssetId) ?? markets[0] ?? fallbackMarkets[0];
   $: query = marketQuery.trim().toLowerCase();
-  $: filteredMarkets = query
-    ? markets.filter((market) => `${market.symbol} ${market.name} ${market.kind}`.toLowerCase().includes(query))
-    : markets;
+  $: filteredMarkets = markets.filter((market) => {
+    const matchesFilter = marketFilter === 'all' || market.kind === marketFilter;
+    const matchesQuery = !query || `${market.symbol} ${market.name} ${market.kind}`.toLowerCase().includes(query);
+    return matchesFilter && matchesQuery;
+  });
   $: normalizedOrderQuantity = Number.isFinite(Number(orderQuantity)) ? Number(orderQuantity) : 0;
   $: selectedPosition = positionList.find((position) => position.assetId === selectedMarket.assetId);
   $: selectedPositionQuantity = selectedPosition?.quantity ?? 0;
@@ -279,6 +291,11 @@
     orderError = '';
   }
 
+  function selectMarket(assetId: string) {
+    selectedAssetId = assetId;
+    orderError = '';
+  }
+
   function marketTone(changeBps: number) {
     if (changeBps > 0) return 'up';
     if (changeBps < 0) return 'down';
@@ -357,9 +374,9 @@
         <span>Orders, Cash, Positionen und Sync-Status getrennt statt in einem Demo-Klotz.</span>
       </article>
       <article>
-        <Trophy size={20} />
-        <strong>Leaderboard-ready</strong>
-        <span>Das Datenmodell ist vorbereitet für spätere Seasons, Accounts und Rankings.</span>
+        <LineChart size={20} />
+        <strong>eSports markets</strong>
+        <span>LoL-Eventmärkte sind im Trading-Desk als eigene Event-Kategorie sichtbar.</span>
       </article>
     </section>
   </main>
@@ -375,10 +392,9 @@
       </div>
 
       <nav class="desk-tabs" aria-label="Trading sections">
-        <button type="button" on:click={() => setActiveView('landing')}><LineChart size={17} /> Home</button>
         <button class="active" type="button"><CandlestickChart size={17} /> Trade</button>
         <button type="button"><WalletCards size={17} /> Portfolio</button>
-        <button type="button"><Trophy size={17} /> Seasons</button>
+        <button type="button"><LineChart size={17} /> Markets</button>
       </nav>
 
       <div class="desk-actions">
@@ -394,7 +410,7 @@
 
     <section class="market-tape" aria-label="Market tape">
       {#each markets.slice(0, 6) as item}
-        <button class:active={selectedMarket.assetId === item.assetId} type="button" on:click={() => (selectedAssetId = item.assetId)}>
+        <button class:active={selectedMarket.assetId === item.assetId} type="button" on:click={() => selectMarket(item.assetId)}>
           <strong>{item.symbol}</strong>
           <span>{formatMoney(item.priceCents)}</span>
           <em class={marketTone(item.changeBps)}>{formatPercentFromBps(item.changeBps)}</em>
@@ -408,15 +424,24 @@
           <Search size={17} />
           <input bind:value={marketQuery} type="search" placeholder="Search markets" />
         </label>
+        <div class="market-filters" aria-label="Market filters">
+          {#each marketFilters as filter}
+            <button class:active={marketFilter === filter.id} type="button" on:click={() => (marketFilter = filter.id)}>{filter.label}</button>
+          {/each}
+        </div>
         <div class="watchlist-head"><span>Asset</span><span>Price</span><span>24h</span></div>
         <div class="market-list">
-          {#each filteredMarkets as item}
-            <button class:selected={selectedMarket.assetId === item.assetId} class="market-row" type="button" on:click={() => (selectedAssetId = item.assetId)}>
+          {#if filteredMarkets.length === 0}
+            <p class="empty-state">No markets match this filter.</p>
+          {:else}
+            {#each filteredMarkets as item}
+              <button class:selected={selectedMarket.assetId === item.assetId} class="market-row" type="button" on:click={() => selectMarket(item.assetId)}>
               <span><strong>{item.symbol}</strong><small>{item.kind}</small></span>
               <span>{formatMoney(item.priceCents)}</span>
               <em class={marketTone(item.changeBps)}>{formatPercentFromBps(item.changeBps)}</em>
             </button>
-          {/each}
+            {/each}
+          {/if}
         </div>
       </aside>
 

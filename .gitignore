@@ -13,7 +13,7 @@ vendor/
 # --- Node / Svelte ---
 node_modules/
 frontend/.svelte-kit/
-frontend/build/
+frontend/dist/
 frontend/.env
 frontend/.env.*
 *.local

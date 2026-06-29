@@ -2,7 +2,7 @@
 
 Privacy-first paper trading for event markets, stocks, ETFs, crypto, and gold. KoalaTrade is a no-real-money trading playground: users start with virtual cash, build a portfolio, and can later opt in to sync and leaderboards.
 
-The repository is currently in MVP stage: backend, frontend, Docker, CI, local portfolio state, simulated trades, mock server-side market data, optional CoinGecko crypto overlay, and opt-in device-scoped portfolio sync are in place.
+The repository is currently in MVP stage: backend, frontend, Docker, CI, local portfolio state, simulated trades, background-polled server-side market data, optional CoinGecko/Finnhub overlays, and opt-in device-scoped portfolio sync are in place.
 
 ## Tech Stack
 
@@ -15,7 +15,7 @@ The repository is currently in MVP stage: backend, frontend, Docker, CI, local p
 | Database | SQLite with pure-Go driver, WAL enabled |
 | Client storage | IndexedDB local portfolio and transaction state |
 | Auth | No account required for MVP; future sessions should use secure HTTP-only cookies |
-| Market data | Mock provider by default, optional CoinGecko crypto overlay, Finnhub/Polymarket planned |
+| Market data | Mock provider by default, optional CoinGecko BTC and Finnhub SPY/GLD overlays |
 | Hosting | Hetzner VPS + Caddy + Docker/Compose planned |
 
 ## Current Foundation
@@ -27,8 +27,8 @@ The repository is currently in MVP stage: backend, frontend, Docker, CI, local p
 - IndexedDB local portfolio state with reset support
 - Simulated buy/sell flow against local cash and positions
 - Opt-in portfolio sync using a local IndexedDB device id
-- Server-owned market data service with cached quote endpoint
-- Mock market provider by default, optional CoinGecko overlay for BTC
+- Server-owned market data service with cached quote endpoint and background poller
+- Mock market provider by default, optional CoinGecko overlay for BTC and Finnhub overlay for SPY/GLD
 - Local PWA manifest, service worker, and SVG icon
 - No CDN, remote font, analytics, or tracking dependency
 - Dockerfiles for backend and frontend
@@ -46,7 +46,7 @@ The repository is currently in MVP stage: backend, frontend, Docker, CI, local p
 - [x] Optional CoinGecko crypto provider behind the server cache
 - [x] Opt-in device-scoped portfolio sync
 - [x] Dockerized MVP smoke-tested through the frontend proxy
-- [ ] External Finnhub stock/ETF/commodity provider behind the server cache
+- [x] External Finnhub stock/ETF/commodity provider behind the server cache
 - [ ] Polymarket CLOB read-only market integration
 - [ ] Leaderboard with opt-in sync
 - [ ] Optional accounts with privacy-preserving defaults
@@ -105,11 +105,13 @@ Market-data configuration:
 ```bash
 MARKET_DATA_PROVIDER=mock
 MARKET_DATA_CACHE_SECONDS=60
+MARKET_DATA_POLL_SECONDS=60
 MARKET_DATA_HTTP_TIMEOUT_SECONDS=5
 COINGECKO_API_KEY=
+FINNHUB_API_KEY=
 ```
 
-Use `MARKET_DATA_PROVIDER=coingecko` to overlay BTC prices from CoinGecko while keeping non-crypto markets on the mock provider. `COINGECKO_API_KEY` is optional for the Demo API and is sent only from the server. See [docs/market-data.md](docs/market-data.md).
+Use `MARKET_DATA_PROVIDER=live` to overlay BTC through CoinGecko and SPY/GLD through Finnhub while keeping unsupported assets on mock fallback. Provider keys are sent only from the server. See [docs/market-data.md](docs/market-data.md).
 
 ## Development
 
