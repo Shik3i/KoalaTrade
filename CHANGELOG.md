@@ -8,14 +8,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 See [ROADMAP.md](ROADMAP.md) for planned work.
 
-## [0.1.1] - 2026-06-29
-
-Release hardening for the Docker/GHCR pipeline.
+## [0.1.2] - 2026-06-29
 
 ### Added
 
 - Deployment documentation and an `example/` Compose + Caddyfile for production-style runs (GHCR images, TLS, backups, updates, smoke tests).
 - Container healthchecks for the backend and frontend; dependents now wait for `service_healthy`.
+
+## [0.1.1] - 2026-06-29
+
+Release hardening for the Docker/GHCR pipeline.
 
 ### Changed
 
@@ -49,6 +51,7 @@ First MVP release. Published as Docker images to GHCR.
 - Market history endpoint now URL-decodes the asset id (colon in `crypto:btc`).
 - Docker release workflow lowercases the image owner so GHCR pushes succeed.
 
-[Unreleased]: https://github.com/Shik3i/KoalaTrade/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/Shik3i/KoalaTrade/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/Shik3i/KoalaTrade/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Shik3i/KoalaTrade/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Shik3i/KoalaTrade/releases/tag/v0.1.0

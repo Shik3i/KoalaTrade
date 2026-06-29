@@ -25,7 +25,7 @@ Create a `.env` file for the deployment or pass variables through your hosting
 platform:
 
 ```bash
-KOALATRADE_VERSION=0.1.1
+KOALATRADE_VERSION=0.1.2
 KOALATRADE_DOMAIN=trade.example.com
 AUTH_SECRET=replace-with-a-long-random-secret
 ADMIN_USERNAME=admin
