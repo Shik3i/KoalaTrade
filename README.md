@@ -1,158 +1,132 @@
-# KoalaTrade
+<div align="center">
 
-Privacy-first paper trading for event markets, stocks, ETFs, crypto, and gold. KoalaTrade is a no-real-money trading playground: users start with virtual cash, build a portfolio, and can later opt in to sync and leaderboards.
+# 🐨 KoalaTrade
 
-The repository is currently in MVP stage: backend, frontend, Docker, CI, local portfolio state, simulated trades, background-polled server-side market data, optional CoinGecko/Finnhub overlays, and opt-in device-scoped portfolio sync are in place.
+**A modern, privacy-first paper-trading desk for stocks, ETFs, crypto, commodities — and live eSports prediction markets.**
+
+Trade with virtual cash, learn the markets, and compete — no real money, no tracking.
+
+[![CI](https://github.com/Shik3i/KoalaTrade/actions/workflows/ci.yml/badge.svg)](https://github.com/Shik3i/KoalaTrade/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Roadmap](https://img.shields.io/badge/docs-roadmap-blue.svg)](ROADMAP.md)
+
+</div>
+
+---
+
+## Highlights
+
+- **Trading desk** — watchlist, an interactive price chart (SMA + crosshair), a simulated order book with depth, and an order ticket (market / limit / stop) with quantity presets and keyboard shortcuts.
+- **Portfolio analytics** — equity curve, realized vs. unrealized P&L, drawdown, positions, and order history.
+- **eSports prediction markets** — real League of Legends schedules from lolesports with live "match winner" odds from Polymarket, traded as Yes-contracts through the paper portfolio. Bets auto-resolve when a match completes; sell or top up anytime at the current price.
+- **Profile** — favorite teams and default leagues (stored locally), coupled with the eSports page filter.
+- **Admin area** — seeded admin login, Polymarket team-code mappings, cache status, and force-refresh.
+- **Privacy-first** — no account required to trade, portfolio lives in your browser (IndexedDB), no CDN/fonts/analytics/trackers. The server owns all third-party API traffic so keys stay private.
+
+> Status: **MVP (v0.1.0)**. See the [Roadmap](ROADMAP.md) for what's next.
 
 ## Tech Stack
 
 | Component | Choice |
 |---|---|
 | Frontend | Svelte 5 + Vite + TypeScript SPA/PWA |
-| Styling | Local CSS variables and system fonts, no CDN assets |
-| Icons | Local bundled `@lucide/svelte` package plus local SVG app icon |
-| Backend | Go 1.26 + Chi Router |
-| Database | SQLite with pure-Go driver, WAL enabled |
-| Client storage | IndexedDB local portfolio and transaction state |
-| Auth | No account required for MVP; future sessions should use secure HTTP-only cookies |
-| Market data | Mock provider by default, optional CoinGecko BTC and Finnhub SPY/GLD overlays |
-| Hosting | Hetzner VPS + Caddy + Docker/Compose planned |
+| Charts/UI | Hand-built SVG, local CSS variables, `@lucide/svelte` icons — no CDN |
+| Backend | Go 1.26 + chi router |
+| Database | SQLite (pure-Go `modernc.org/sqlite`, WAL) |
+| Client storage | IndexedDB (portfolio, preferences, device id) |
+| Admin auth | PBKDF2 password hashing + HMAC bearer tokens (stdlib only) |
+| Market data | Mock by default; optional CoinGecko (crypto) + Finnhub (stocks/ETF/commodity) |
+| eSports data | lolesports schedule/teams + Polymarket odds (server-side) |
+| Packaging | Docker + Docker Compose; images published to GHCR on tag |
 
-## Current Foundation
+## Quick Start
 
-- Go API server with `/healthz`, `/api/config`, `/api/markets`, and `/api/quotes`
-- SQLite initialization with WAL, foreign keys, and busy timeout
-- SQLite schema prepared for optional portfolio sync and leaderboard snapshots
-- Svelte dashboard shell with local-first/privacy status
-- IndexedDB local portfolio state with reset support
-- Simulated buy/sell flow against local cash and positions
-- Opt-in portfolio sync using a local IndexedDB device id
-- Server-owned market data service with cached quote endpoint and background poller
-- Mock market provider by default, optional CoinGecko overlay for BTC and Finnhub overlay for SPY/GLD
-- Local PWA manifest, service worker, and SVG icon
-- No CDN, remote font, analytics, or tracking dependency
-- Dockerfiles for backend and frontend
-- Docker Compose for local full-stack runs
-- CI for backend tests, frontend checks/build, and Docker image builds
-
-## Roadmap
-
-### MVP
-
-- [x] Virtual portfolio with $10,000 starting balance
-- [x] Local IndexedDB portfolio and transaction store
-- [x] Simulated buy/sell flow for stocks, ETFs, crypto, gold, and event markets
-- [x] Server-side mock price provider and cache shape
-- [x] Optional CoinGecko crypto provider behind the server cache
-- [x] Opt-in device-scoped portfolio sync
-- [x] Dockerized MVP smoke-tested through the frontend proxy
-- [x] External Finnhub stock/ETF/commodity provider behind the server cache
-- [ ] Polymarket CLOB read-only market integration
-- [ ] Leaderboard with opt-in sync
-- [ ] Optional accounts with privacy-preserving defaults
-- [ ] Installable PWA with offline portfolio view
-- [ ] Dark trading dashboard across desktop and mobile
-
-### Later
-
-- [ ] Seasons with optional resets
-- [ ] Private group leaderboards
-- [ ] Watchlists and alerts
-- [ ] Simulated limit and stop-loss orders
-- [ ] Short selling toggle, disabled by default
-- [ ] Stats, badges, and export tools
-- [ ] Public API for third-party clients
-
-## Architecture Direction
-
-```text
-Browser
-+-- Svelte app
-+-- IndexedDB portfolio store
-+-- Optional sync queue
-        |
-        v
-Go API
-+-- SQLite
-+-- Market data service
-+-- Mock provider
-+-- Optional CoinGecko provider
-+-- Quote cache
-+-- Optional account sync
-+-- Leaderboard snapshots
-        |
-        v
-External market APIs
-+-- Polymarket CLOB
-+-- Finnhub
-+-- CoinGecko
-```
-
-The server owns all external API traffic. Clients should never call market-data providers directly, which keeps API keys private, reduces rate-limit pressure, and avoids leaking user behavior to third parties.
-
-## Environment
-
-Copy `.env.example` to `.env` before running Docker Compose:
+### Docker (recommended)
 
 ```bash
-cp .env.example .env
+cp .env.example .env   # then edit values (see Configuration)
+docker compose up --build
 ```
 
-For the current foundation, API keys are optional. Market-data features will require provider keys later.
+- Frontend: http://localhost:3000
+- Backend health (direct): http://127.0.0.1:18080/healthz — the frontend proxies `/api/*` to the backend.
 
-Market-data configuration:
+### Local development
 
 ```bash
-MARKET_DATA_PROVIDER=mock
-MARKET_DATA_CACHE_SECONDS=60
-MARKET_DATA_POLL_SECONDS=60
-MARKET_DATA_HTTP_TIMEOUT_SECONDS=5
-COINGECKO_API_KEY=
-FINNHUB_API_KEY=
+# Terminal 1 — backend (http://127.0.0.1:8080)
+cd backend && go run ./cmd/server
+
+# Terminal 2 — frontend (http://127.0.0.1:5173, proxies /api to the backend)
+cd frontend && npm install && npm run dev
 ```
 
-Use `MARKET_DATA_PROVIDER=live` to overlay BTC through CoinGecko and SPY/GLD through Finnhub while keeping unsupported assets on mock fallback. Provider keys are sent only from the server. See [docs/market-data.md](docs/market-data.md).
+The dev proxy target is configurable: set `KOALA_API_TARGET` (default `http://127.0.0.1:8080`) before `npm run dev` to point at a backend on another port. A `Makefile` provides shortcuts (`make dev-backend`, `make dev-frontend`, `make ci`, `make docker-up`).
 
-## Development
+## Configuration
 
-```bash
-# Backend
-make dev-backend
+All configuration is via environment variables — see [`.env.example`](.env.example) and [docs/configuration.md](docs/configuration.md). The essentials:
 
-# Frontend
-make dev-frontend
+| Variable | Default | Purpose |
+|---|---|---|
+| `STARTING_CASH_CENTS` | `1000000` | Virtual starting balance ($10,000) |
+| `MARKET_DATA_PROVIDER` | `mock` | `mock`, `coingecko`, `finnhub`, or `live` |
+| `MARKET_DATA_REFRESH_WINDOW_SECONDS` | `900` | Window over which quote refreshes are staggered to respect rate limits |
+| `FINNHUB_API_KEY` / `COINGECKO_API_KEY` | — | Optional live market-data overlays |
+| `LOLESPORTS_API_KEY` | public key | LoL Esports schedule/teams |
+| `ESPORTS_CACHE_SECONDS` | `300` | eSports schedule/odds cache TTL |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / _empty_ | Seeds the admin user once; empty password disables admin |
+| `AUTH_SECRET` | random | Signs admin session tokens; set it to keep sessions across restarts |
 
-# Tests and builds
-make ci
+> ⚠️ `.env` is git-ignored — never commit real keys. For a deployment, set `ADMIN_PASSWORD` and `AUTH_SECRET`, and ensure the backend can reach `esports-api.lolesports.com` and `gamma-api.polymarket.com` outbound.
 
-# Full stack with Docker
-make docker-up
+## API Overview
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/healthz` | Health check |
+| GET | `/api/config` | Public config |
+| GET | `/api/markets` | All markets |
+| GET | `/api/markets/{assetId}/history?range=1H..1Y` | Price history (OHLCV) |
+| GET | `/api/quotes?ids=` | Current quotes |
+| GET | `/api/esports/matches` | LoL matches with Polymarket odds |
+| GET | `/api/esports/matches/{id}/odds` | On-demand odds refresh for one match |
+| GET | `/api/esports/teams` | Team catalogue |
+| GET | `/api/esports/results?ids=` | Settled results (bet resolution) |
+| GET/PUT | `/api/sync/portfolio` | Opt-in device-scoped portfolio sync |
+| POST | `/api/auth/login` | Admin login → bearer token |
+| `*` | `/api/admin/*` | Token-gated admin (mappings, status, refresh) |
+
+## Documentation
+
+- [docs/architecture.md](docs/architecture.md) — system overview
+- [docs/configuration.md](docs/configuration.md) — full environment reference
+- [docs/esports.md](docs/esports.md) — eSports markets, Polymarket odds, team mappings, admin
+- [docs/market-data.md](docs/market-data.md) — market-data providers & caching
+- [docs/sync.md](docs/sync.md) — portfolio sync model
+- [ROADMAP.md](ROADMAP.md) · [CHANGELOG.md](CHANGELOG.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md)
+
+## Project Structure
+
 ```
-
-Backend defaults to `http://127.0.0.1:8080` during local development. Frontend dev server defaults to `http://127.0.0.1:5173` and proxies `/api` to the backend. Docker Compose exposes the full app at `http://127.0.0.1:3000` and the backend health endpoint at `http://127.0.0.1:18080/healthz`.
-
-Useful API endpoints:
-
-- `GET /healthz`
-- `GET /api/config`
-- `GET /api/markets`
-- `GET /api/quotes?ids=crypto:btc,etf:spy`
-- `PUT /api/sync/portfolio`
-- `GET /api/sync/portfolio?id=local-default`
-
-Portfolio sync is opt-in and device-scoped for the MVP. The browser sends `X-Koala-Client-ID`, generated and stored in IndexedDB. See [docs/sync.md](docs/sync.md).
+KoalaTrade/
+├── backend/            Go API (chi, SQLite); internal/{config,server,marketdata,esports,storage,auth}
+├── frontend/           Svelte 5 + Vite SPA; src/lib/{components,api,portfolio,preferences,...}
+├── docs/               Architecture, configuration, and feature docs
+├── Dockerfile.backend  Dockerfile.frontend  docker-compose.yml
+└── .github/            CI, release workflow, dependabot, issue/PR templates
+```
 
 ## Privacy Principles
 
-- No CDN assets
-- No analytics by default
-- No remote fonts
-- No third-party client SDKs for market data
-- Server-side API key handling only
-- Optional accounts and opt-in leaderboard sync
-- Local-first portfolio state as the product baseline
-- Device-scoped sync before account-based sync
+No CDN assets · no remote fonts · no analytics by default · no third-party client SDKs for market data · server-side API-key handling only · local-first portfolio state · device-scoped sync before accounts.
+
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+[MIT](LICENSE) © Shik3i
+
+> **Disclaimer:** KoalaTrade is for education and entertainment. It uses virtual money only and is **not** financial advice or a real trading/betting platform.
