@@ -1,0 +1,46 @@
+name: 🐞 Bug report
+description: Report something that isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to file a bug! Please fill out the sections below.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, including what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to ...
+        2. Click ...
+        3. See error
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Frontend (trading desk / UI)
+        - eSports markets
+        - Admin area
+        - Backend / API
+        - Docker / deployment
+        - Other
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser/OS, Docker vs local dev, commit or version (e.g. v0.1.0).
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: Relevant backend logs, browser console output, or screenshots.
+      render: shell
