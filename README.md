@@ -101,6 +101,7 @@ All configuration is via environment variables — see [`.env.example`](.env.exa
 
 - [docs/architecture.md](docs/architecture.md) — system overview
 - [docs/configuration.md](docs/configuration.md) — full environment reference
+- [docs/deployment.md](docs/deployment.md) — Docker/GHCR deployment with Caddy
 - [docs/esports.md](docs/esports.md) — eSports markets, Polymarket odds, team mappings, admin
 - [docs/market-data.md](docs/market-data.md) — market-data providers & caching
 - [docs/sync.md](docs/sync.md) — portfolio sync model
@@ -113,6 +114,7 @@ KoalaTrade/
 ├── backend/            Go API (chi, SQLite); internal/{config,server,marketdata,esports,storage,auth}
 ├── frontend/           Svelte 5 + Vite SPA; src/lib/{components,api,portfolio,preferences,...}
 ├── docs/               Architecture, configuration, and feature docs
+├── example/            Production-style Compose and Caddy examples
 ├── Dockerfile.backend  Dockerfile.frontend  docker-compose.yml
 └── .github/            CI, release workflow, dependabot, issue/PR templates
 ```

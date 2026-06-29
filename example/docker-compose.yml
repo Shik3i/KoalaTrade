@@ -1,0 +1,68 @@
+services:
+  backend:
+    image: ghcr.io/shik3i/koalatrade-backend:${KOALATRADE_VERSION:-0.1.1}
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      DB_PATH: /data/koalatrade.db
+      PORT: 8080
+      STARTING_CASH_CENTS: ${STARTING_CASH_CENTS:-1000000}
+      MARKET_DATA_PROVIDER: ${MARKET_DATA_PROVIDER:-mock}
+      MARKET_DATA_CACHE_SECONDS: ${MARKET_DATA_CACHE_SECONDS:-60}
+      MARKET_DATA_POLL_SECONDS: ${MARKET_DATA_POLL_SECONDS:-60}
+      MARKET_DATA_REFRESH_WINDOW_SECONDS: ${MARKET_DATA_REFRESH_WINDOW_SECONDS:-900}
+      MARKET_DATA_HTTP_TIMEOUT_SECONDS: ${MARKET_DATA_HTTP_TIMEOUT_SECONDS:-5}
+      COINGECKO_BASE_URL: ${COINGECKO_BASE_URL:-}
+      COINGECKO_API_KEY: ${COINGECKO_API_KEY:-}
+      FINNHUB_BASE_URL: ${FINNHUB_BASE_URL:-}
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
+      LOLESPORTS_API_KEY: ${LOLESPORTS_API_KEY:-0TvQnueqKa5mxJntVWt0w4LpLfEkrV1Ta8rQBb9Z}
+      LOLESPORTS_BASE_URL: ${LOLESPORTS_BASE_URL:-https://esports-api.lolesports.com}
+      POLYMARKET_BASE_URL: ${POLYMARKET_BASE_URL:-https://gamma-api.polymarket.com}
+      POLYMARKET_API_KEY: ${POLYMARKET_API_KEY:-}
+      ESPORTS_CACHE_SECONDS: ${ESPORTS_CACHE_SECONDS:-300}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in your deployment environment}
+    volumes:
+      - koalatrade_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    image: ghcr.io/shik3i/koalatrade-frontend:${KOALATRADE_VERSION:-0.1.1}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      frontend:
+        condition: service_healthy
+    environment:
+      KOALATRADE_DOMAIN: ${KOALATRADE_DOMAIN:?set KOALATRADE_DOMAIN, e.g. trade.example.com}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  koalatrade_data:
+  caddy_data:
+  caddy_config:
