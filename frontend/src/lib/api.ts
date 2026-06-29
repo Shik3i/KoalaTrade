@@ -49,6 +49,81 @@ export type MarketHistory = {
   candles: Candle[];
 };
 
+// ---- Admin ----
+export type TeamMapping = {
+  originalCode: string;
+  polymarketCode: string;
+  updatedAt: string;
+};
+
+export type AdminStatus = {
+  esports: {
+    scheduleCached: boolean;
+    scheduleAgeSeconds: number;
+    matchCount: number;
+    matchesWithOdds: number;
+    resultsCount: number;
+    teamsCached: boolean;
+    teamCount: number;
+  };
+  marketDataSource: string;
+};
+
+export async function adminLogin(username: string, password: string): Promise<{ token: string; expiresAt: string }> {
+  const response = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ username, password })
+  });
+  if (response.status === 401) throw new Error('Falsche Zugangsdaten');
+  if (!response.ok) throw new Error(`Login fehlgeschlagen (${response.status})`);
+  return (await response.json()) as { token: string; expiresAt: string };
+}
+
+function adminHeaders(token: string) {
+  return { Authorization: `Bearer ${token}`, Accept: 'application/json' };
+}
+
+export class AdminAuthError extends Error {}
+
+async function adminJson<T>(response: Response): Promise<T> {
+  if (response.status === 401) throw new AdminAuthError('Sitzung abgelaufen');
+  if (!response.ok) throw new Error(`Request fehlgeschlagen (${response.status})`);
+  return (await response.json()) as T;
+}
+
+export async function fetchTeamMappings(token: string): Promise<TeamMapping[]> {
+  const response = await fetch('/api/admin/mappings', { headers: adminHeaders(token) });
+  return (await adminJson<{ mappings: TeamMapping[] }>(response)).mappings ?? [];
+}
+
+export async function upsertTeamMapping(token: string, originalCode: string, polymarketCode: string): Promise<TeamMapping[]> {
+  const response = await fetch('/api/admin/mappings', {
+    method: 'PUT',
+    headers: { ...adminHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ originalCode, polymarketCode })
+  });
+  return (await adminJson<{ mappings: TeamMapping[] }>(response)).mappings ?? [];
+}
+
+export async function deleteTeamMapping(token: string, originalCode: string): Promise<TeamMapping[]> {
+  const response = await fetch(`/api/admin/mappings/${encodeURIComponent(originalCode)}`, {
+    method: 'DELETE',
+    headers: adminHeaders(token)
+  });
+  return (await adminJson<{ mappings: TeamMapping[] }>(response)).mappings ?? [];
+}
+
+export async function fetchAdminStatus(token: string): Promise<AdminStatus> {
+  const response = await fetch('/api/admin/status', { headers: adminHeaders(token) });
+  return adminJson<AdminStatus>(response);
+}
+
+export async function adminRefreshEsports(token: string): Promise<number> {
+  const response = await fetch('/api/admin/refresh', { method: 'POST', headers: adminHeaders(token) });
+  return (await adminJson<{ refreshed: number }>(response)).refreshed ?? 0;
+}
+
 export async function fetchPublicConfig(): Promise<PublicConfig> {
   const response = await fetch('/api/config', {
     headers: { Accept: 'application/json' }
