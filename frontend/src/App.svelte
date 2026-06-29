@@ -268,16 +268,29 @@
       </div>
 
       <div class="landing-terminal" aria-label="Product preview">
-        <div class="terminal-top">
-          <span>{selectedMarket.symbol}</span>
+        <div class="preview-marketbar">
+          <div>
+            <strong>{selectedMarket.symbol}</strong>
+            <span>{selectedMarket.name}</span>
+          </div>
           <strong>{formatMoney(selectedMarket.priceCents)}</strong>
           <em class={marketTone(selectedMarket.changeBps)}>{formatPercentFromBps(selectedMarket.changeBps)}</em>
         </div>
-        <div class="preview-chart" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
-        <div class="preview-grid">
-          <div><span>Equity</span><strong>{formatMoney(summary.totalEquityCents)}</strong></div>
-          <div><span>Cash</span><strong>{formatMoney(summary.cashCents)}</strong></div>
-          <div><span>Markets</span><strong>{markets.length}</strong></div>
+
+        <div class="preview-desk">
+          <div class="preview-chart" aria-hidden="true">
+            <svg class="preview-line" viewBox="0 0 520 240" preserveAspectRatio="none">
+              <path class="preview-area" d="M18 184 L72 154 L126 171 L182 132 L238 146 L302 92 L366 112 L426 72 L500 84 L500 222 L18 222 Z" />
+              <path class="preview-stroke" d="M18 184 L72 154 L126 171 L182 132 L238 146 L302 92 L366 112 L426 72 L500 84" />
+            </svg>
+            <span></span><span></span><span></span><span></span><i></i><i></i><b>{formatMoney(selectedMarket.priceCents)}</b>
+          </div>
+          <aside class="preview-side">
+            <div><span>Equity</span><strong>{formatMoney(summary.totalEquityCents)}</strong></div>
+            <div><span>Cash</span><strong>{formatMoney(summary.cashCents)}</strong></div>
+            <div><span>Markets</span><strong>{markets.length}</strong></div>
+            <button type="button" on:click={() => setActiveView('desk')}>Desk öffnen</button>
+          </aside>
         </div>
       </div>
     </section>

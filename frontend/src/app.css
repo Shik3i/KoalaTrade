@@ -134,78 +134,149 @@ button { cursor: pointer; }
   box-shadow: 0 34px 90px rgba(0, 0, 0, 0.46);
 }
 
-.terminal-top,
-.preview-grid {
+.preview-marketbar {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.75rem;
-}
-
-.terminal-top {
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-}
-
-.terminal-top span,
-.terminal-top strong,
-.terminal-top em,
-.preview-grid div {
-  min-height: 3.4rem;
-  padding: 0.75rem;
+  gap: 1rem;
+  min-height: 4.25rem;
+  padding: 0.85rem 1rem;
   border: 1px solid var(--line);
   border-radius: var(--r);
   background: rgba(11, 13, 15, 0.56);
 }
 
-.terminal-top em {
+.preview-marketbar div,
+.preview-side div {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.preview-marketbar div strong {
+  font-size: 1.45rem;
+}
+
+.preview-marketbar span,
+.preview-side span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+}
+
+.preview-marketbar > strong {
+  font-size: 1.35rem;
+}
+
+.preview-marketbar em {
   font-style: normal;
   text-align: right;
+}
+
+.preview-desk {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(10rem, 0.36fr);
+  gap: 1rem;
+  min-height: 26rem;
 }
 
 .preview-chart {
   position: relative;
   overflow: hidden;
-  min-height: 22rem;
+  min-height: 100%;
   border: 1px solid var(--line);
   border-radius: var(--r);
   background:
-    linear-gradient(var(--line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--line) 1px, transparent 1px),
-    #0f1418;
-  background-size: 100% 20%, 14.28% 100%;
+    linear-gradient(rgba(255, 255, 255, 0.052) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.052) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(114, 224, 161, 0.045), transparent 55%),
+    #090d11;
+  background-size: 100% 20%, 12.5% 100%, 100% 100%, 100% 100%;
 }
 
 .preview-chart::before {
-  content: "";
-  position: absolute;
-  inset: 20% 7% 17%;
-  border-bottom: 4px solid var(--cyan);
-  border-left: 4px solid transparent;
-  border-radius: 50%;
-  transform: skewY(-10deg);
+  content: none;
 }
 
-.preview-chart span {
+.preview-chart::after {
+  content: "";
   position: absolute;
+  inset: 48% 0 auto;
+  border-top: 1px dashed rgba(243, 198, 109, 0.52);
+}
+
+.preview-chart span,
+.preview-chart i {
+  position: absolute;
+  z-index: 1;
   bottom: 12%;
-  width: 0.75rem;
-  border-radius: 99px 99px 0 0;
+  width: 0.7rem;
+  border-radius: 3px;
   background: linear-gradient(var(--green), rgba(114, 224, 161, 0.24));
 }
 
-.preview-chart span:nth-child(1) { left: 16%; height: 38%; }
-.preview-chart span:nth-child(2) { left: 36%; height: 58%; background: linear-gradient(var(--amber), rgba(243, 198, 109, 0.24)); }
-.preview-chart span:nth-child(3) { left: 57%; height: 46%; }
-.preview-chart span:nth-child(4) { left: 78%; height: 72%; background: linear-gradient(var(--violet), rgba(167, 155, 255, 0.24)); }
-
-.preview-grid div {
-  display: grid;
-  gap: 0.1rem;
+.preview-line {
+  position: absolute;
+  z-index: 2;
+  inset: 8% 4% 12%;
+  width: 92%;
+  height: 80%;
+  overflow: visible;
 }
 
-.preview-grid span {
-  color: var(--muted);
-  font-size: 0.76rem;
-  text-transform: uppercase;
+.preview-area { fill: rgba(114, 224, 161, 0.12); }
+
+.preview-stroke {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 14px rgba(114, 224, 161, 0.3));
+}
+
+.preview-chart span:nth-of-type(1) { left: 12%; height: 38%; }
+.preview-chart span:nth-of-type(2) { left: 25%; height: 54%; background: linear-gradient(var(--amber), rgba(243, 198, 109, 0.24)); }
+.preview-chart span:nth-of-type(3) { left: 41%; height: 34%; background: linear-gradient(var(--red), rgba(255, 122, 112, 0.22)); }
+.preview-chart span:nth-of-type(4) { left: 58%; height: 61%; }
+.preview-chart i:nth-of-type(1) { left: 73%; height: 48%; background: linear-gradient(var(--red), rgba(255, 122, 112, 0.22)); }
+.preview-chart i:nth-of-type(2) { left: 87%; height: 70%; background: linear-gradient(var(--violet), rgba(167, 155, 255, 0.24)); }
+
+.preview-chart b {
+  position: absolute;
+  z-index: 3;
+  right: 5%;
+  top: 43%;
+  min-width: 5.4rem;
+  min-height: 1.55rem;
+  padding: 0.17rem 0.6rem;
+  border: 1px solid rgba(114, 224, 161, 0.5);
+  border-radius: 999px;
+  background: rgba(114, 224, 161, 0.13);
+  color: var(--green);
+  font-size: 0.78rem;
+  line-height: 1.15rem;
+  text-align: center;
+}
+
+.preview-side {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.preview-side div,
+.preview-side button {
+  min-height: 4rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  color: var(--text);
+  background: rgba(11, 13, 15, 0.56);
+}
+
+.preview-side button {
+  min-height: 3.2rem;
+  border-color: rgba(114, 224, 161, 0.54);
+  background: linear-gradient(135deg, rgba(114, 224, 161, 0.18), rgba(115, 213, 220, 0.1)), var(--panel-2);
 }
 
 .landing-bands {
@@ -578,6 +649,7 @@ button { cursor: pointer; }
   .landing-hero { grid-template-columns: 1fr; padding: 3rem 0; }
   .landing-copy h1 { max-width: 14ch; }
   .landing-bands { margin-top: 0; grid-template-columns: 1fr; }
+  .preview-desk { min-height: 22rem; }
   .terminal-shell { grid-template-columns: 1fr; }
   .rail {
     position: static;
@@ -595,9 +667,22 @@ button { cursor: pointer; }
   .landing-nav,
   .landing-actions { align-items: stretch; flex-direction: column; }
   .landing-copy h1 { font-size: 3.25rem; }
-  .terminal-top,
-  .preview-grid { grid-template-columns: 1fr; }
-  .preview-chart { min-height: 16rem; }
+  .preview-marketbar {
+    grid-template-columns: minmax(4.5rem, 1fr) auto auto;
+    gap: 0.55rem;
+    padding: 0.75rem;
+  }
+  .preview-marketbar div strong,
+  .preview-marketbar > strong {
+    font-size: 1.05rem;
+  }
+  .preview-desk {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+  .preview-chart { min-height: 19rem; }
+  .preview-side { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .preview-side button { grid-column: 1 / -1; }
   .workspace,
   .rail { padding: 0.8rem; }
   .command-bar,
