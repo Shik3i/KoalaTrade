@@ -8,6 +8,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 See [ROADMAP.md](ROADMAP.md) for planned work.
 
+## [0.1.1] - 2026-06-29
+
+Release hardening for the Docker/GHCR pipeline.
+
+### Changed
+
+- CI and Docker release workflows now use Node.js 24 and current major versions of the GitHub/Docker Actions.
+- Docker releases now run backend and frontend verification before publishing GHCR images.
+
 ## [0.1.0] - 2026-06-29
 
 First MVP release. Published as Docker images to GHCR.
@@ -35,5 +44,6 @@ First MVP release. Published as Docker images to GHCR.
 - Market history endpoint now URL-decodes the asset id (colon in `crypto:btc`).
 - Docker release workflow lowercases the image owner so GHCR pushes succeed.
 
-[Unreleased]: https://github.com/Shik3i/KoalaTrade/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Shik3i/KoalaTrade/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/Shik3i/KoalaTrade/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Shik3i/KoalaTrade/releases/tag/v0.1.0

@@ -23,7 +23,7 @@ Trade with virtual cash, learn the markets, and compete — no real money, no tr
 - **Admin area** — seeded admin login, Polymarket team-code mappings, cache status, and force-refresh.
 - **Privacy-first** — no account required to trade, portfolio lives in your browser (IndexedDB), no CDN/fonts/analytics/trackers. The server owns all third-party API traffic so keys stay private.
 
-> Status: **MVP (v0.1.0)**. See the [Roadmap](ROADMAP.md) for what's next.
+> Status: **MVP (v0.1.1)**. See the [Roadmap](ROADMAP.md) for what's next.
 
 ## Tech Stack
 

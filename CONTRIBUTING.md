@@ -8,7 +8,7 @@ By participating you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md)
 ## Prerequisites
 
 - **Go** 1.26+
-- **Node.js** 22+ and npm
+- **Node.js** 24+ and npm
 - **Docker** (optional, for full-stack runs)
 
 ## Setup
@@ -69,8 +69,11 @@ user-facing changes.
 Releases are cut by tagging `main`:
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
 This triggers the Docker Release workflow, which builds and publishes the backend
-and frontend images to GHCR. Update `CHANGELOG.md` before tagging.
+and frontend images to GHCR after backend and frontend checks pass. Use a new
+SemVer tag newer than the latest release, and update `CHANGELOG.md` before
+tagging.
