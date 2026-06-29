@@ -1,0 +1,673 @@
+// Package esports turns the public LoL Esports schedule into tradeable
+// prediction markets by attaching live Polymarket "match winner" odds.
+package esports
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+// ErrMatchNotFound is returned when a per-match odds refresh targets an unknown id.
+var ErrMatchNotFound = errors.New("match not found")
+
+type Team struct {
+	Name       string `json:"name"`
+	Code       string `json:"code"`
+	Image      string `json:"image"`
+	ProbBps    int64  `json:"probBps"`    // implied win probability in basis points (0-10000)
+	PriceCents int64  `json:"priceCents"` // Yes contract price in cents (0-100)
+}
+
+type Match struct {
+	ID            string    `json:"id"`
+	StartTime     time.Time `json:"startTime"`
+	State         string    `json:"state"`
+	League        string    `json:"league"`
+	BlockName     string    `json:"blockName"`
+	BestOf        int       `json:"bestOf"`
+	Team1         Team      `json:"team1"`
+	Team2         Team      `json:"team2"`
+	HasOdds       bool      `json:"hasOdds"`
+	PolymarketURL string    `json:"polymarketUrl"`
+}
+
+type TeamInfo struct {
+	Code   string `json:"code"`
+	Name   string `json:"name"`
+	League string `json:"league"`
+	Image  string `json:"image"`
+}
+
+// Result is the settled outcome of a completed match, used to resolve bets.
+type Result struct {
+	MatchID     string    `json:"matchId"`
+	WinnerCode  string    `json:"winnerCode"`
+	Team1Code   string    `json:"team1Code"`
+	Team2Code   string    `json:"team2Code"`
+	CompletedAt time.Time `json:"completedAt"`
+}
+
+// MetaStore is a minimal key/value persistence hook so completed results survive
+// restarts (and the lolesports schedule window aging out).
+type MetaStore interface {
+	GetMeta(ctx context.Context, key string) (string, bool, error)
+	SetMeta(ctx context.Context, key, value string) error
+}
+
+const resultsMetaKey = "esports_results"
+
+type Service struct {
+	apiKey   string
+	lolBase  string
+	polyBase string
+	http     *http.Client
+	ttl      time.Duration
+	store    MetaStore
+
+	mu            sync.Mutex
+	cache         []Match
+	cachedAt      time.Time
+	teamsCache    []TeamInfo
+	teamsCachedAt time.Time
+	results       map[string]Result
+	resultsLoaded bool
+}
+
+func NewService(apiKey, lolBaseURL, polyBaseURL string, timeout, ttl time.Duration, store MetaStore) *Service {
+	return &Service{
+		apiKey:   apiKey,
+		lolBase:  strings.TrimRight(lolBaseURL, "/"),
+		polyBase: strings.TrimRight(polyBaseURL, "/"),
+		http:     &http.Client{Timeout: timeout},
+		ttl:      ttl,
+		store:    store,
+		results:  make(map[string]Result),
+	}
+}
+
+// Results returns the stored outcomes for the requested match ids (only those
+// that have completed).
+func (s *Service) Results(ctx context.Context, matchIDs []string) []Result {
+	s.ensureResultsLoaded(ctx)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]Result, 0, len(matchIDs))
+	for _, id := range matchIDs {
+		if result, ok := s.results[id]; ok {
+			out = append(out, result)
+		}
+	}
+	return out
+}
+
+func (s *Service) ensureResultsLoaded(ctx context.Context) {
+	s.mu.Lock()
+	if s.resultsLoaded || s.store == nil {
+		s.resultsLoaded = true
+		s.mu.Unlock()
+		return
+	}
+	s.mu.Unlock()
+
+	raw, ok, err := s.store.GetMeta(ctx, resultsMetaKey)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err == nil && ok {
+		var loaded map[string]Result
+		if json.Unmarshal([]byte(raw), &loaded) == nil && loaded != nil {
+			for id, result := range loaded {
+				if _, exists := s.results[id]; !exists {
+					s.results[id] = result
+				}
+			}
+		}
+	}
+	s.resultsLoaded = true
+}
+
+// recordResults merges newly seen completed results and persists them.
+func (s *Service) recordResults(ctx context.Context, fresh []Result) {
+	if len(fresh) == 0 {
+		return
+	}
+	s.ensureResultsLoaded(ctx)
+
+	s.mu.Lock()
+	changed := false
+	for _, result := range fresh {
+		if _, exists := s.results[result.MatchID]; !exists {
+			s.results[result.MatchID] = result
+			changed = true
+		}
+	}
+	snapshot := make(map[string]Result, len(s.results))
+	for id, result := range s.results {
+		snapshot[id] = result
+	}
+	s.mu.Unlock()
+
+	if changed && s.store != nil {
+		if encoded, err := json.Marshal(snapshot); err == nil {
+			_ = s.store.SetMeta(ctx, resultsMetaKey, string(encoded))
+		}
+	}
+}
+
+// Matches returns upcoming/in-progress LoL matches with odds, served from a
+// short-lived in-memory cache. On upstream failure it falls back to the last
+// good snapshot rather than erroring out.
+func (s *Service) Matches(ctx context.Context) ([]Match, error) {
+	s.mu.Lock()
+	if s.cache != nil && time.Since(s.cachedAt) < s.ttl {
+		cached := s.cache
+		s.mu.Unlock()
+		return cached, nil
+	}
+	s.mu.Unlock()
+
+	matches, err := s.fetchSchedule(ctx)
+	if err != nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.cache != nil {
+			return s.cache, nil
+		}
+		return nil, err
+	}
+
+	s.attachOdds(ctx, matches)
+
+	s.mu.Lock()
+	s.cache = matches
+	s.cachedAt = time.Now()
+	s.mu.Unlock()
+	return matches, nil
+}
+
+// RefreshMatchOdds re-queries Polymarket for a single match, bypassing the
+// schedule cache TTL. Polymarket has no rate limit, so this is called on demand
+// right before a user places a bet to show the freshest odds.
+func (s *Service) RefreshMatchOdds(ctx context.Context, matchID string) (Match, error) {
+	s.mu.Lock()
+	idx := -1
+	for i := range s.cache {
+		if s.cache[i].ID == matchID {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		s.mu.Unlock()
+		return Match{}, ErrMatchNotFound
+	}
+	match := s.cache[idx]
+	s.mu.Unlock()
+
+	match.HasOdds = false
+	match.Team1.ProbBps, match.Team1.PriceCents = 0, 0
+	match.Team2.ProbBps, match.Team2.PriceCents = 0, 0
+
+	if match.Team1.Code != "TBD" && match.Team2.Code != "TBD" {
+		slugs := generateSlugs(&match)
+		for start := 0; start < len(slugs); start += 50 {
+			end := start + 50
+			if end > len(slugs) {
+				end = len(slugs)
+			}
+			events, err := s.fetchPolymarketEvents(ctx, slugs[start:end])
+			if err != nil {
+				continue
+			}
+			for _, event := range events {
+				applyOdds(&match, event)
+			}
+		}
+	}
+
+	s.mu.Lock()
+	for i := range s.cache {
+		if s.cache[i].ID == matchID {
+			s.cache[i] = match
+			break
+		}
+	}
+	s.mu.Unlock()
+	return match, nil
+}
+
+type teamsResponse struct {
+	Data struct {
+		Teams []struct {
+			Name       string `json:"name"`
+			Code       string `json:"code"`
+			Image      string `json:"image"`
+			Status     string `json:"status"`
+			HomeLeague struct {
+				Name string `json:"name"`
+			} `json:"homeLeague"`
+		} `json:"teams"`
+	} `json:"data"`
+}
+
+// Teams returns the catalogue of active eSports teams (for the favorites picker),
+// trimmed and deduplicated, served from a TTL cache.
+func (s *Service) Teams(ctx context.Context) ([]TeamInfo, error) {
+	s.mu.Lock()
+	if s.teamsCache != nil && time.Since(s.teamsCachedAt) < s.ttl {
+		cached := s.teamsCache
+		s.mu.Unlock()
+		return cached, nil
+	}
+	s.mu.Unlock()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.lolBase+"/persisted/gw/getTeams?hl=en-GB", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("x-api-key", s.apiKey)
+
+	resp, err := s.http.Do(req)
+	if err != nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.teamsCache != nil {
+			return s.teamsCache, nil
+		}
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("lolesports teams status %d", resp.StatusCode)
+	}
+
+	var payload teamsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+
+	seen := map[string]struct{}{}
+	teams := make([]TeamInfo, 0, len(payload.Data.Teams))
+	for _, t := range payload.Data.Teams {
+		code := strings.ToUpper(strings.TrimSpace(t.Code))
+		if code == "" || code == "TBD" || code == "TBDD" || t.Status == "archived" {
+			continue
+		}
+		if _, ok := seen[code]; ok {
+			continue
+		}
+		seen[code] = struct{}{}
+		league := t.HomeLeague.Name
+		if league == "" {
+			league = "Unknown"
+		}
+		teams = append(teams, TeamInfo{
+			Code:   code,
+			Name:   t.Name,
+			League: league,
+			Image:  strings.Replace(t.Image, "http://", "https://", 1),
+		})
+	}
+	sort.Slice(teams, func(i, j int) bool { return teams[i].Name < teams[j].Name })
+
+	s.mu.Lock()
+	s.teamsCache = teams
+	s.teamsCachedAt = time.Now()
+	s.mu.Unlock()
+	return teams, nil
+}
+
+type scheduleResponse struct {
+	Data struct {
+		Schedule struct {
+			Events []struct {
+				ID        string    `json:"id"`
+				StartTime time.Time `json:"startTime"`
+				State     string    `json:"state"`
+				BlockName string    `json:"blockName"`
+				League    struct {
+					Name string `json:"name"`
+				} `json:"league"`
+				Match struct {
+					ID       string `json:"id"`
+					Strategy struct {
+						Count int `json:"count"`
+					} `json:"strategy"`
+					Teams []struct {
+						Name   string `json:"name"`
+						Code   string `json:"code"`
+						Image  string `json:"image"`
+						Result struct {
+							Outcome  string `json:"outcome"`
+							GameWins int    `json:"gameWins"`
+						} `json:"result"`
+					} `json:"teams"`
+				} `json:"match"`
+			} `json:"events"`
+		} `json:"schedule"`
+	} `json:"data"`
+}
+
+func (s *Service) fetchSchedule(ctx context.Context) ([]Match, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.lolBase+"/persisted/gw/getSchedule?hl=en-GB", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("x-api-key", s.apiKey)
+
+	resp, err := s.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("lolesports schedule status %d", resp.StatusCode)
+	}
+
+	var payload scheduleResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+
+	matches := make([]Match, 0, 40)
+	results := make([]Result, 0)
+	for _, event := range payload.Data.Schedule.Events {
+		if len(event.Match.Teams) < 2 {
+			continue
+		}
+		id := event.Match.ID
+		if id == "" {
+			id = event.ID
+		}
+
+		if event.State == "completed" {
+			if result, ok := resultFromEvent(id, event.StartTime, event.Match.Teams[0], event.Match.Teams[1]); ok {
+				results = append(results, result)
+			}
+			continue
+		}
+
+		if len(matches) >= 40 {
+			continue
+		}
+		matches = append(matches, Match{
+			ID:        id,
+			StartTime: event.StartTime,
+			State:     event.State,
+			League:    event.League.Name,
+			BlockName: event.BlockName,
+			BestOf:    event.Match.Strategy.Count,
+			Team1:     team(event.Match.Teams[0].Name, event.Match.Teams[0].Code, event.Match.Teams[0].Image),
+			Team2:     team(event.Match.Teams[1].Name, event.Match.Teams[1].Code, event.Match.Teams[1].Image),
+		})
+	}
+
+	s.recordResults(ctx, results)
+	return matches, nil
+}
+
+type scheduleTeam = struct {
+	Name   string `json:"name"`
+	Code   string `json:"code"`
+	Image  string `json:"image"`
+	Result struct {
+		Outcome  string `json:"outcome"`
+		GameWins int    `json:"gameWins"`
+	} `json:"result"`
+}
+
+func resultFromEvent(matchID string, completedAt time.Time, t1, t2 scheduleTeam) (Result, bool) {
+	winner := ""
+	if t1.Result.Outcome == "win" {
+		winner = strings.ToUpper(t1.Code)
+	} else if t2.Result.Outcome == "win" {
+		winner = strings.ToUpper(t2.Code)
+	}
+	if winner == "" {
+		return Result{}, false
+	}
+	return Result{
+		MatchID:     matchID,
+		WinnerCode:  winner,
+		Team1Code:   strings.ToUpper(t1.Code),
+		Team2Code:   strings.ToUpper(t2.Code),
+		CompletedAt: completedAt,
+	}, true
+}
+
+func team(name, code, image string) Team {
+	if name == "" {
+		name = "TBD"
+	}
+	if code == "" {
+		code = "TBD"
+	}
+	return Team{Name: name, Code: code, Image: strings.Replace(image, "http://", "https://", 1)}
+}
+
+type polymarketMarket struct {
+	Question         string `json:"question"`
+	GroupItemTitle   string `json:"groupItemTitle"`
+	SportsMarketType string `json:"sportsMarketType"`
+	Outcomes         string `json:"outcomes"`
+	OutcomePrices    string `json:"outcomePrices"`
+}
+
+type polymarketEvent struct {
+	ID      string             `json:"id"`
+	Slug    string             `json:"slug"`
+	Title   string             `json:"title"`
+	Markets []polymarketMarket `json:"markets"`
+}
+
+// attachOdds queries Polymarket for each match by guessed slugs, then maps the
+// returned "match winner" market back onto the schedule.
+func (s *Service) attachOdds(ctx context.Context, matches []Match) {
+	slugToIndex := map[string]int{}
+	allSlugs := make([]string, 0, len(matches)*8)
+	for i := range matches {
+		m := &matches[i]
+		if m.Team1.Code == "TBD" || m.Team2.Code == "TBD" {
+			continue
+		}
+		for _, slug := range generateSlugs(m) {
+			if _, seen := slugToIndex[slug]; !seen {
+				slugToIndex[slug] = i
+				allSlugs = append(allSlugs, slug)
+			}
+		}
+	}
+	if len(allSlugs) == 0 {
+		return
+	}
+
+	for start := 0; start < len(allSlugs); start += 50 {
+		end := start + 50
+		if end > len(allSlugs) {
+			end = len(allSlugs)
+		}
+		events, err := s.fetchPolymarketEvents(ctx, allSlugs[start:end])
+		if err != nil {
+			continue
+		}
+		for _, event := range events {
+			idx, ok := slugToIndex[event.Slug]
+			if !ok {
+				continue
+			}
+			applyOdds(&matches[idx], event)
+		}
+	}
+}
+
+func (s *Service) fetchPolymarketEvents(ctx context.Context, slugs []string) ([]polymarketEvent, error) {
+	query := url.Values{}
+	for _, slug := range slugs {
+		query.Add("slug", slug)
+	}
+	endpoint := s.polyBase + "/events?" + query.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := s.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("polymarket status %d", resp.StatusCode)
+	}
+
+	var events []polymarketEvent
+	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
+func applyOdds(match *Match, event polymarketEvent) {
+	if match.HasOdds {
+		return
+	}
+	winner := pickMoneylineMarket(event)
+	if winner == nil {
+		return
+	}
+
+	var names, prices []string
+	if err := json.Unmarshal([]byte(winner.Outcomes), &names); err != nil {
+		return
+	}
+	if err := json.Unmarshal([]byte(winner.OutcomePrices), &prices); err != nil {
+		return
+	}
+	if len(names) != 2 || len(prices) != 2 {
+		return
+	}
+
+	for i, name := range names {
+		price, _ := strconv.ParseFloat(prices[i], 64)
+		probBps := int64(price*10000 + 0.5)
+		priceCents := int64(price*100 + 0.5)
+		switch {
+		case teamMatches(match.Team1, name):
+			match.Team1.ProbBps = probBps
+			match.Team1.PriceCents = priceCents
+		case teamMatches(match.Team2, name):
+			match.Team2.ProbBps = probBps
+			match.Team2.PriceCents = priceCents
+		}
+	}
+
+	if match.Team1.PriceCents > 0 || match.Team2.PriceCents > 0 {
+		match.HasOdds = true
+		match.PolymarketURL = "https://polymarket.com/event/" + event.Slug
+	}
+}
+
+func pickMoneylineMarket(event polymarketEvent) *polymarketMarket {
+	for i := range event.Markets {
+		m := &event.Markets[i]
+		if m.SportsMarketType == "moneyline" || m.GroupItemTitle == "Match Winner" {
+			return m
+		}
+	}
+	// Fallback: a two-team market that is not a per-game / prop sub-market.
+	for i := range event.Markets {
+		m := &event.Markets[i]
+		var names []string
+		if err := json.Unmarshal([]byte(m.Outcomes), &names); err != nil || len(names) != 2 {
+			continue
+		}
+		if containsAny(names, "Yes", "No", "Over", "Under") {
+			continue
+		}
+		q := strings.ToLower(m.Question)
+		if strings.Contains(q, "first blood") || strings.Contains(q, "game") || strings.Contains(q, "handicap") || strings.Contains(q, "map") {
+			continue
+		}
+		return m
+	}
+	return nil
+}
+
+var nonAlnum = regexp.MustCompile(`[^a-z0-9]`)
+
+func normalize(s string) string {
+	return nonAlnum.ReplaceAllString(strings.ToLower(s), "")
+}
+
+func teamMatches(t Team, outcome string) bool {
+	o := normalize(outcome)
+	return o != "" && (o == normalize(t.Name) || o == normalize(t.Code) ||
+		strings.Contains(normalize(t.Name), o) || strings.Contains(o, normalize(t.Name)))
+}
+
+func containsAny(list []string, candidates ...string) bool {
+	set := map[string]struct{}{}
+	for _, item := range list {
+		set[item] = struct{}{}
+	}
+	for _, c := range candidates {
+		if _, ok := set[c]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// generateSlugs mirrors Polymarket's LoL slug convention:
+// lol-<team1>-<team2>-<YYYY-MM-DD>, trying both team orders and nearby dates
+// (timezone skew) plus code/name identifiers.
+func generateSlugs(m *Match) []string {
+	ids1 := identifiers(m.Team1)
+	ids2 := identifiers(m.Team2)
+	seen := map[string]struct{}{}
+	out := make([]string, 0, 16)
+
+	for offset := -2; offset <= 1; offset++ {
+		date := m.StartTime.AddDate(0, 0, offset).UTC().Format("2006-01-02")
+		for _, a := range ids1 {
+			for _, b := range ids2 {
+				for _, slug := range []string{
+					"lol-" + a + "-" + b + "-" + date,
+					"lol-" + b + "-" + a + "-" + date,
+				} {
+					if _, ok := seen[slug]; !ok {
+						seen[slug] = struct{}{}
+						out = append(out, slug)
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
+func identifiers(t Team) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, 2)
+	for _, candidate := range []string{normalize(t.Code), normalize(t.Name)} {
+		if candidate == "" {
+			continue
+		}
+		if _, ok := seen[candidate]; !ok {
+			seen[candidate] = struct{}{}
+			out = append(out, candidate)
+		}
+	}
+	sort.Strings(out)
+	return out
+}

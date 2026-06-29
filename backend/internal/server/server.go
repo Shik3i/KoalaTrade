@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Shik3i/KoalaTrade/backend/internal/config"
+	"github.com/Shik3i/KoalaTrade/backend/internal/esports"
 	"github.com/Shik3i/KoalaTrade/backend/internal/marketdata"
 	"github.com/Shik3i/KoalaTrade/backend/internal/storage"
 	"github.com/go-chi/chi/v5"
@@ -15,6 +16,7 @@ type Server struct {
 	cfg        config.Config
 	db         *storage.SQLite
 	marketData *marketdata.Service
+	esports    *esports.Service
 }
 
 func New(cfg config.Config, db *storage.SQLite) *Server {
@@ -40,6 +42,14 @@ func New(cfg config.Config, db *storage.SQLite) *Server {
 		cfg:        cfg,
 		db:         db,
 		marketData: marketdata.NewService(provider, time.Duration(cfg.MarketDataCacheSeconds)*time.Second, db),
+		esports: esports.NewService(
+			cfg.LolesportsAPIKey,
+			cfg.LolesportsBaseURL,
+			cfg.PolymarketBaseURL,
+			time.Duration(cfg.MarketDataHTTPTimeout+10)*time.Second,
+			time.Duration(cfg.EsportsCacheSeconds)*time.Second,
+			db,
+		),
 	}
 }
 
@@ -56,7 +66,12 @@ func (s *Server) Routes() http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/config", s.handleConfig)
 		r.Get("/markets", s.handleMarkets)
+		r.Get("/markets/{assetId}/history", s.handleMarketHistory)
 		r.Get("/quotes", s.handleQuotes)
+		r.Get("/esports/matches", s.handleEsportsMatches)
+		r.Get("/esports/matches/{matchId}/odds", s.handleMatchOdds)
+		r.Get("/esports/teams", s.handleEsportsTeams)
+		r.Get("/esports/results", s.handleEsportsResults)
 		r.Get("/sync/portfolio", s.handleGetPortfolioSync)
 		r.Put("/sync/portfolio", s.handlePutPortfolioSync)
 	})
