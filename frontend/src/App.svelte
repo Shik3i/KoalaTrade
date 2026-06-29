@@ -11,15 +11,17 @@
     Trophy,
     WalletCards
   } from '@lucide/svelte';
-  import { onMount } from 'svelte';
-  import { fetchMarkets, fetchPublicConfig, syncPortfolio, type Market, type PublicConfig } from './lib/api';
+  import { onDestroy, onMount } from 'svelte';
+  import { fetchMarkets, fetchPublicConfig, fetchQuotes, fetchSyncedPortfolio, syncPortfolio, type Market, type PublicConfig } from './lib/api';
   import { loadClientId, loadPortfolio, resetPortfolio, savePortfolio } from './lib/portfolio-db';
   import {
     applyTrade,
     createInitialPortfolio,
     formatMoney,
     formatPercentFromBps,
+    markPositionsToMarket,
     summarizePortfolio,
+    PORTFOLIO_ID,
     type PortfolioSnapshot
   } from './lib/portfolio';
 
@@ -45,8 +47,17 @@
   let syncError = '';
   let syncMessage = 'Sync off';
   let activeView: 'landing' | 'desk' = 'landing';
+  let clientId = '';
+  let quoteTimer: ReturnType<typeof setInterval> | undefined;
 
   onMount(async () => {
+    try {
+      clientId = await loadClientId();
+    } catch (error) {
+      syncError = error instanceof Error ? error.message : 'Sync client unavailable';
+      syncMessage = 'Sync unavailable';
+    }
+
     try {
       config = await fetchPublicConfig();
     } catch (error) {
@@ -69,6 +80,14 @@
       portfolioError = error instanceof Error ? error.message : 'Local portfolio unavailable';
       portfolio = createInitialPortfolio(config?.startingCashCents ?? 1_000_000);
     }
+
+    await restoreSyncedPortfolio();
+    await refreshQuotes();
+    quoteTimer = setInterval(refreshQuotes, 30_000);
+  });
+
+  onDestroy(() => {
+    if (quoteTimer) clearInterval(quoteTimer);
   });
 
   $: summary = summarizePortfolio(portfolio ?? createInitialPortfolio(config?.startingCashCents ?? 1_000_000));
@@ -141,10 +160,14 @@
       return;
     }
 
+    await syncCurrentPortfolio(portfolio);
+  }
+
+  async function syncCurrentPortfolio(snapshot: PortfolioSnapshot) {
     isSyncing = true;
     try {
-      const synced = await syncPortfolio(await loadClientId(), portfolio);
-      await savePortfolio(synced);
+      const synced = await syncPortfolio(clientId || (await loadClientId()), snapshot);
+      await savePortfolio(synced, { touchUpdatedAt: false });
       portfolio = synced;
       syncMessage = `Synced ${formatUpdatedAt(synced.updatedAt)}`;
     } catch (error) {
@@ -152,6 +175,53 @@
       syncMessage = 'Sync failed';
     } finally {
       isSyncing = false;
+    }
+  }
+
+  async function restoreSyncedPortfolio() {
+    if (!portfolio || !clientId || configError) return;
+
+    try {
+      const synced = await fetchSyncedPortfolio(clientId, PORTFOLIO_ID);
+      if (!synced) {
+        syncMessage = 'Sync ready';
+        return;
+      }
+      if (new Date(synced.updatedAt).getTime() > new Date(portfolio.updatedAt).getTime()) {
+        await savePortfolio(synced, { touchUpdatedAt: false });
+        portfolio = synced;
+        syncMessage = `Restored ${formatUpdatedAt(synced.updatedAt)}`;
+        return;
+      }
+      syncMessage = 'Local portfolio current';
+    } catch (error) {
+      syncError = error instanceof Error ? error.message : 'Portfolio restore failed';
+      syncMessage = 'Sync unavailable';
+    }
+  }
+
+  async function refreshQuotes() {
+    if (markets.length === 0) return;
+
+    try {
+      const quotes = await fetchQuotes(markets.map((market) => market.assetId));
+      const byAsset = new Map(quotes.map((quote) => [quote.assetId, quote]));
+      markets = markets.map((market) => {
+        const quote = byAsset.get(market.assetId);
+        return quote
+          ? { ...market, priceCents: quote.priceCents, changeBps: quote.changeBps, source: quote.source, updatedAt: quote.updatedAt }
+          : market;
+      });
+      if (portfolio) {
+        const marked = markPositionsToMarket(portfolio, quotes);
+        if (marked !== portfolio) {
+          await savePortfolio(marked);
+          portfolio = marked;
+        }
+      }
+      marketsError = '';
+    } catch (error) {
+      marketsError = error instanceof Error ? error.message : 'Quote refresh failed';
     }
   }
 

@@ -21,9 +21,12 @@ export async function loadPortfolio(startingCashCents: number): Promise<Portfoli
   return seeded;
 }
 
-export async function savePortfolio(snapshot: PortfolioSnapshot): Promise<void> {
+export async function savePortfolio(
+  snapshot: PortfolioSnapshot,
+  options: { touchUpdatedAt?: boolean } = {}
+): Promise<void> {
   const db = await openDatabase();
-  await writePortfolio(db, { ...snapshot, updatedAt: new Date().toISOString() });
+  await writePortfolio(db, options.touchUpdatedAt === false ? snapshot : { ...snapshot, updatedAt: new Date().toISOString() });
   db.close();
 }
 

@@ -61,6 +61,12 @@ export type TradeInput = {
   feeCents?: number;
 };
 
+export type PriceUpdate = {
+  assetId: string;
+  priceCents: number;
+  updatedAt?: string;
+};
+
 export function createInitialPortfolio(startingCashCents: number, now = new Date()): PortfolioSnapshot {
   const timestamp = now.toISOString();
 
@@ -188,6 +194,34 @@ export function summarizePortfolio(snapshot: PortfolioSnapshot): PortfolioSummar
     localTransactionCount: snapshot.transactions.filter((transaction) => transaction.status === 'local')
       .length
   };
+}
+
+export function markPositionsToMarket(
+  snapshot: PortfolioSnapshot,
+  updates: PriceUpdate[],
+  now = new Date()
+): PortfolioSnapshot {
+  if (snapshot.positions.length === 0 || updates.length === 0) {
+    return snapshot;
+  }
+
+  const byAsset = new Map(updates.map((update) => [update.assetId, update]));
+  let changed = false;
+  const timestamp = now.toISOString();
+  const positions = snapshot.positions.map((position) => {
+    const update = byAsset.get(position.assetId);
+    if (!update || update.priceCents <= 0 || update.priceCents === position.lastPriceCents) {
+      return position;
+    }
+    changed = true;
+    return {
+      ...position,
+      lastPriceCents: update.priceCents,
+      updatedAt: update.updatedAt ?? timestamp
+    };
+  });
+
+  return changed ? { ...snapshot, positions, updatedAt: timestamp } : snapshot;
 }
 
 export function formatMoney(cents: number) {
