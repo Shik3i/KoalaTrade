@@ -12,9 +12,14 @@ See [ROADMAP.md](ROADMAP.md) for planned work.
 
 Release hardening for the Docker/GHCR pipeline.
 
+### Added
+
+- Deployment documentation and an `example/` Compose + Caddyfile for production-style runs (GHCR images, TLS, backups, updates, smoke tests).
+- Container healthchecks for the backend and frontend; dependents now wait for `service_healthy`.
+
 ### Changed
 
-- CI and Docker release workflows now use Node.js 24 and current major versions of the GitHub/Docker Actions.
+- CI and Docker release workflows now use Node.js 24 and current major versions of the GitHub/Docker Actions, with `concurrency`, per-job `timeout-minutes`, and least-privilege `permissions`.
 - Docker releases now run backend and frontend verification before publishing GHCR images.
 
 ## [0.1.0] - 2026-06-29
