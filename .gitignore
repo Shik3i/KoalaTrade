@@ -33,3 +33,6 @@ tmp/
 *.log
 backend/.env
 *.env
+
+# --- Local tooling ---
+.claude/
