@@ -1,7 +1,6 @@
 <script lang="ts">
   import {
     Activity,
-    Bell,
     CandlestickChart,
     CloudUpload,
     Layers3,
@@ -38,12 +37,13 @@
   let portfolio: PortfolioSnapshot | null = null;
   let portfolioError = '';
   let selectedAssetId = fallbackMarkets[0].assetId;
+  let marketQuery = '';
   let orderSide: 'buy' | 'sell' = 'buy';
   let orderQuantity = 1;
   let orderError = '';
   let isSyncing = false;
   let syncError = '';
-  let syncMessage = 'Sync is off until you choose it';
+  let syncMessage = 'Sync off';
 
   onMount(async () => {
     try {
@@ -62,59 +62,42 @@
       markets = fallbackMarkets;
     }
 
-    const startingCashCents = config?.startingCashCents ?? 1_000_000;
     try {
-      portfolio = await loadPortfolio(startingCashCents);
+      portfolio = await loadPortfolio(config?.startingCashCents ?? 1_000_000);
     } catch (error) {
       portfolioError = error instanceof Error ? error.message : 'Local portfolio unavailable';
-      portfolio = createInitialPortfolio(startingCashCents);
+      portfolio = createInitialPortfolio(config?.startingCashCents ?? 1_000_000);
     }
   });
 
   $: summary = summarizePortfolio(portfolio ?? createInitialPortfolio(config?.startingCashCents ?? 1_000_000));
-  $: equityLabel = formatMoney(summary.totalEquityCents);
-  $: returnLabel = formatPercentFromBps(summary.totalReturnBps);
-  $: syncLabel = portfolioError ? 'Fallback' : isSyncing ? 'Syncing' : summary.localTransactionCount > 0 ? 'Queued' : 'Synced';
   $: selectedMarket = markets.find((item) => item.assetId === selectedAssetId) ?? markets[0] ?? fallbackMarkets[0];
+  $: query = marketQuery.trim().toLowerCase();
+  $: filteredMarkets = query
+    ? markets.filter((market) => `${market.symbol} ${market.name} ${market.kind}`.toLowerCase().includes(query))
+    : markets;
   $: normalizedOrderQuantity = Number.isFinite(Number(orderQuantity)) ? Number(orderQuantity) : 0;
   $: estimatedOrderValue = Math.round(normalizedOrderQuantity * selectedMarket.priceCents);
-  $: positionRows = [
-    {
-      market: 'Cash',
-      exposure: formatMoney(summary.cashCents),
-      allocation: summary.totalEquityCents > 0 ? formatPercentFromBps(Math.round((summary.cashCents / summary.totalEquityCents) * 10_000)) : '0.00%',
-      state: 'Available'
-    },
-    {
-      market: 'Positions',
-      exposure: formatMoney(summary.positionsValueCents),
-      allocation: `${summary.openPositions} open`,
-      state: summary.openPositions > 0 ? 'Active' : 'None yet'
-    },
-    {
-      market: 'Pending sync',
-      exposure: `${summary.localTransactionCount} local`,
-      allocation: 'Opt-in',
-      state: summary.localTransactionCount > 0 ? 'Ready' : 'Clear'
-    }
+  $: syncLabel = portfolioError ? 'Fallback' : isSyncing ? 'Syncing' : summary.localTransactionCount > 0 ? 'Queued' : 'Synced';
+  $: positionList = portfolio?.positions ?? [];
+  $: transactionList = portfolio?.transactions.slice(0, 6) ?? [];
+  $: exposureRows = [
+    ['Cash', formatMoney(summary.cashCents), summary.totalEquityCents > 0 ? formatPercentFromBps(Math.round((summary.cashCents / summary.totalEquityCents) * 10_000)) : '0.00%'],
+    ['Positions', formatMoney(summary.positionsValueCents), `${summary.openPositions} open`],
+    ['Pending', `${summary.localTransactionCount} tx`, syncLabel]
   ];
-  $: activity = [
-    portfolio ? `Local portfolio opened ${formatUpdatedAt(portfolio.updatedAt)}` : 'Opening local portfolio',
-    portfolio?.transactions[0]
-      ? `${portfolio.transactions[0].side.toUpperCase()} ${portfolio.transactions[0].quantity} ${portfolio.transactions[0].symbol} stored locally`
-      : 'No simulated trades yet',
-    syncMessage,
-    marketsError ? 'Using local fallback market data' : `Market data source: ${config?.marketDataSource ?? selectedMarket.source}`,
-    config ? 'Backend config endpoint connected' : 'Running with local defaults'
+  $: systemItems = [
+    config ? `API online · ${config.marketDataSource}` : 'Local defaults',
+    marketsError ? 'Market fallback active' : `${markets.length} markets loaded`,
+    portfolio ? `Portfolio updated ${formatUpdatedAt(portfolio.updatedAt)}` : 'Opening portfolio',
+    syncMessage
   ];
 
   async function handleResetPortfolio() {
-    const startingCashCents = config?.startingCashCents ?? portfolio?.startingCashCents ?? 1_000_000;
-    portfolio = await resetPortfolio(startingCashCents);
-    portfolioError = '';
+    portfolio = await resetPortfolio(config?.startingCashCents ?? portfolio?.startingCashCents ?? 1_000_000);
     orderError = '';
     syncError = '';
-    syncMessage = 'Local portfolio reset';
+    syncMessage = 'Portfolio reset';
   }
 
   async function handleSubmitOrder() {
@@ -138,7 +121,7 @@
       await savePortfolio(nextPortfolio);
       portfolio = nextPortfolio;
       syncError = '';
-      syncMessage = 'Local trade queued for optional sync';
+      syncMessage = 'Trade queued';
     } catch (error) {
       orderError = error instanceof Error ? error.message : 'Unable to place simulated order';
     }
@@ -153,24 +136,20 @@
 
     isSyncing = true;
     try {
-      const clientId = await loadClientId();
-      const synced = await syncPortfolio(clientId, portfolio);
+      const synced = await syncPortfolio(await loadClientId(), portfolio);
       await savePortfolio(synced);
       portfolio = synced;
       syncMessage = `Synced ${formatUpdatedAt(synced.updatedAt)}`;
     } catch (error) {
       syncError = error instanceof Error ? error.message : 'Portfolio sync failed';
-      syncMessage = 'Sync failed; local state is unchanged';
+      syncMessage = 'Sync failed';
     } finally {
       isSyncing = false;
     }
   }
 
   function formatUpdatedAt(value: string) {
-    return new Intl.DateTimeFormat('en-US', {
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(new Date(value));
+    return new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit' }).format(new Date(value));
   }
 
   function marketTone(changeBps: number) {
@@ -180,213 +159,225 @@
   }
 </script>
 
-<main class="app-shell">
-  <aside class="sidebar" aria-label="Primary">
+<main class="terminal-shell">
+  <aside class="rail" aria-label="Primary">
     <div class="brand">
       <img src="/icons/koalatrade.svg" alt="" width="38" height="38" />
       <div>
         <strong>KoalaTrade</strong>
-        <span>Paper markets</span>
+        <span>Paper trading OS</span>
       </div>
     </div>
 
     <nav class="nav-list" aria-label="Trading sections">
-      <a class="nav-item active" href="/">
-        <LineChart size={18} />
-        Dashboard
-      </a>
-      <a class="nav-item" href="/">
-        <CandlestickChart size={18} />
-        Markets
-      </a>
-      <a class="nav-item" href="/">
-        <WalletCards size={18} />
-        Portfolio
-      </a>
-      <a class="nav-item" href="/">
-        <Trophy size={18} />
-        Leaderboard
-      </a>
+      <a class="nav-item active" href="/"><LineChart size={18} /> Desk</a>
+      <a class="nav-item" href="/"><CandlestickChart size={18} /> Markets</a>
+      <a class="nav-item" href="/"><WalletCards size={18} /> Portfolio</a>
+      <a class="nav-item" href="/"><Trophy size={18} /> Boards</a>
     </nav>
 
     <section class="privacy-panel" aria-label="Privacy status">
-      <ShieldCheck size={20} />
+      <ShieldCheck size={19} />
       <div>
         <strong>Local-first</strong>
-        <span>No CDN assets. Sync stays optional.</span>
+        <span>No CDN, no analytics, opt-in sync.</span>
       </div>
     </section>
   </aside>
 
-  <section class="workspace">
-    <header class="topbar">
+  <section class="workspace" aria-label="Trading workspace">
+    <header class="command-bar">
       <label class="search" aria-label="Search markets">
         <Search size={18} />
-        <input type="search" placeholder="Search stocks, crypto, events" />
+        <input bind:value={marketQuery} type="search" placeholder="Search BTC, ETF, gold, events" />
       </label>
-      <div class="topbar-actions">
+      <div class="command-actions">
         <span class:online={config} class="status-pill">{config ? 'API online' : 'Local mode'}</span>
-        <button class="icon-button" type="button" aria-label="Notifications">
-          <Bell size={18} />
+        <button class="icon-button" type="button" aria-label="Sync portfolio" title="Sync portfolio" disabled={isSyncing || !portfolio || !!configError} on:click={handleSyncPortfolio}>
+          <CloudUpload size={18} />
+        </button>
+        <button class="icon-button" type="button" aria-label="Reset portfolio" title="Reset portfolio" on:click={handleResetPortfolio}>
+          <RotateCcw size={18} />
         </button>
       </div>
     </header>
 
-    <section class="hero-strip" aria-label="Portfolio overview">
-      <div>
-        <p class="eyebrow">Virtual equity</p>
-        <h1>{equityLabel}</h1>
-        <span class="muted">Local vault ready for simulated trades</span>
+    <section class="metrics-strip" aria-label="Portfolio metrics">
+      <div class="metric primary">
+        <span>Equity</span>
+        <strong>{formatMoney(summary.totalEquityCents)}</strong>
       </div>
-      <div class="hero-metrics" aria-label="Portfolio metrics">
-        <div>
-          <span>Total</span>
-          <strong class:up={summary.totalReturnCents > 0} class:down={summary.totalReturnCents < 0}>
-            {returnLabel}
-          </strong>
-        </div>
-        <div>
-          <span>Cash</span>
-          <strong>{formatMoney(summary.cashCents)}</strong>
-        </div>
-        <div>
-          <span>Sync</span>
-          <strong>{configError ? 'Offline' : syncLabel}</strong>
-        </div>
+      <div class="metric">
+        <span>Return</span>
+        <strong class:up={summary.totalReturnCents > 0} class:down={summary.totalReturnCents < 0}>
+          {formatPercentFromBps(summary.totalReturnBps)}
+        </strong>
+      </div>
+      <div class="metric">
+        <span>Cash</span>
+        <strong>{formatMoney(summary.cashCents)}</strong>
+      </div>
+      <div class="metric">
+        <span>Sync</span>
+        <strong>{configError ? 'Offline' : syncLabel}</strong>
       </div>
     </section>
 
-    <section class="dashboard-grid">
-      <section class="market-panel panel" aria-label="Watchlist">
-        <div class="panel-heading">
+    <section class="desk-grid">
+      <section class="panel market-panel" aria-label="Markets">
+        <div class="panel-head">
           <div>
-            <p class="eyebrow">Watchlist</p>
-            <h2>Market pulse</h2>
+            <p class="eyebrow">Markets</p>
+            <h2>Watchlist</h2>
           </div>
-          <Activity size={19} />
+          <span>{filteredMarkets.length}</span>
         </div>
 
         <div class="market-list">
-          {#each markets as item}
-            <button
-              class:selected={selectedMarket.assetId === item.assetId}
-              class="market-row market-button"
-              type="button"
-              on:click={() => (selectedAssetId = item.assetId)}
-            >
-              <div>
-                <strong>{item.symbol}</strong>
-                <span>{item.name}</span>
-              </div>
-              <div class="market-price">
-                <strong>{formatMoney(item.priceCents)}</strong>
-                <span class={marketTone(item.changeBps)}>{formatPercentFromBps(item.changeBps)}</span>
-              </div>
+          {#each filteredMarkets as item}
+            <button class:selected={selectedMarket.assetId === item.assetId} class="market-row" type="button" on:click={() => (selectedAssetId = item.assetId)}>
+              <span class="symbol">{item.symbol}</span>
+              <span>{item.name}</span>
+              <strong>{formatMoney(item.priceCents)}</strong>
+              <em class={marketTone(item.changeBps)}>{formatPercentFromBps(item.changeBps)}</em>
             </button>
           {/each}
         </div>
       </section>
 
-      <section class="trade-panel panel" aria-label="Simulated order ticket">
-        <div class="panel-heading">
+      <section class="trade-stack">
+        <section class="instrument panel" aria-label="Selected market">
           <div>
-            <p class="eyebrow">Order</p>
-            <h2>{selectedMarket.symbol}</h2>
+            <p class="eyebrow">{selectedMarket.kind} · {selectedMarket.source}</p>
+            <h1>{selectedMarket.symbol}</h1>
+            <span>{selectedMarket.name}</span>
           </div>
-          <CandlestickChart size={19} />
-        </div>
-
-        <form class="order-form" on:submit|preventDefault={handleSubmitOrder}>
-          <div class="segmented" aria-label="Order side">
-            <button class:active={orderSide === 'buy'} type="button" on:click={() => (orderSide = 'buy')}>Buy</button>
-            <button class:active={orderSide === 'sell'} type="button" on:click={() => (orderSide = 'sell')}>Sell</button>
+          <div class="instrument-price">
+            <strong>{formatMoney(selectedMarket.priceCents)}</strong>
+            <span class={marketTone(selectedMarket.changeBps)}>{formatPercentFromBps(selectedMarket.changeBps)}</span>
           </div>
+        </section>
 
-          <label class="field">
-            <span>Quantity</span>
-            <input bind:value={orderQuantity} min="0.0001" step="0.0001" type="number" />
-          </label>
-
-          <div class="order-estimate">
-            <span>Estimated value</span>
-            <strong>{formatMoney(estimatedOrderValue)}</strong>
-          </div>
-
-          {#if orderError}
-            <p class="form-error">{orderError}</p>
-          {/if}
-
-          <button class="primary-button" type="submit">{orderSide === 'buy' ? 'Buy' : 'Sell'} {selectedMarket.symbol}</button>
-        </form>
-      </section>
-
-      <section class="chart-panel panel" aria-label="Equity curve">
-        <div class="panel-heading">
-          <div>
-            <p class="eyebrow">Equity curve</p>
-            <h2>No trades yet</h2>
-          </div>
-          <Layers3 size={19} />
-        </div>
-        <div class="chart-surface" aria-hidden="true">
-          <div class="chart-line"></div>
-        </div>
-      </section>
-
-      <section class="positions-panel panel" aria-label="Portfolio positions">
-        <div class="panel-heading">
-          <div>
-            <p class="eyebrow">Portfolio</p>
-            <h2>Local state</h2>
-          </div>
-          <div class="panel-actions">
-            <button class="icon-button" type="button" aria-label="Sync portfolio" title="Sync portfolio" disabled={isSyncing || !portfolio || !!configError} on:click={handleSyncPortfolio}>
-              <CloudUpload size={18} />
-            </button>
-            <button class="icon-button" type="button" aria-label="Reset portfolio" title="Reset portfolio" on:click={handleResetPortfolio}>
-              <RotateCcw size={18} />
-            </button>
-          </div>
-        </div>
-
-        <div class="position-table">
-          {#each positionRows as position}
-            <div class="position-row">
-              <span>{position.market}</span>
-              <strong>{position.exposure}</strong>
-              <span>{position.allocation}</span>
-              <em>{position.state}</em>
+        <section class="chart-panel panel" aria-label="Price surface">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Signal</p>
+              <h2>Session shape</h2>
             </div>
-          {/each}
-        </div>
-        {#if syncError}
-          <p class="form-error">{syncError}</p>
-        {/if}
+            <Layers3 size={19} />
+          </div>
+          <div class="chart-surface" aria-hidden="true">
+            <span></span><span></span><span></span><span></span>
+          </div>
+        </section>
+
+        <section class="order-panel panel" aria-label="Order ticket">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Order ticket</p>
+              <h2>{orderSide === 'buy' ? 'Buy' : 'Sell'} {selectedMarket.symbol}</h2>
+            </div>
+            <CandlestickChart size={19} />
+          </div>
+
+          <form class="order-form" on:submit|preventDefault={handleSubmitOrder}>
+            <div class="segmented" aria-label="Order side">
+              <button class:active={orderSide === 'buy'} type="button" on:click={() => (orderSide = 'buy')}>Buy</button>
+              <button class:active={orderSide === 'sell'} type="button" on:click={() => (orderSide = 'sell')}>Sell</button>
+            </div>
+            <label class="field">
+              <span>Quantity</span>
+              <input bind:value={orderQuantity} min="0.0001" step="0.0001" type="number" />
+            </label>
+            <div class="estimate">
+              <span>Estimated value</span>
+              <strong>{formatMoney(estimatedOrderValue)}</strong>
+            </div>
+            {#if orderError}
+              <p class="form-error">{orderError}</p>
+            {/if}
+            <button class="primary-button" type="submit">{orderSide === 'buy' ? 'Buy' : 'Sell'} {selectedMarket.symbol}</button>
+          </form>
+        </section>
       </section>
 
-      <section class="activity-panel panel" aria-label="Activity">
-        <div class="panel-heading">
-          <div>
-            <p class="eyebrow">System</p>
-            <h2>Readiness</h2>
+      <section class="side-stack">
+        <section class="panel" aria-label="Portfolio exposure">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Exposure</p>
+              <h2>Portfolio</h2>
+            </div>
+            <WalletCards size={19} />
           </div>
-          <ShieldCheck size={19} />
-        </div>
 
-        <ul>
-          {#each activity as item}
-            <li>{item}</li>
-          {/each}
-          {#if configError}
-            <li class="warning">{configError}</li>
-          {/if}
-          {#if portfolioError}
-            <li class="warning">{portfolioError}</li>
-          {/if}
-          {#if marketsError}
-            <li class="warning">{marketsError}</li>
-          {/if}
-        </ul>
+          <div class="exposure-list">
+            {#each exposureRows as row}
+              <div class="exposure-row">
+                <span>{row[0]}</span>
+                <strong>{row[1]}</strong>
+                <em>{row[2]}</em>
+              </div>
+            {/each}
+          </div>
+
+          <div class="holding-list">
+            {#if positionList.length === 0}
+              <p class="empty-state">No open positions. Place a simulated order to start the book.</p>
+            {:else}
+              {#each positionList as position}
+                <div class="holding-row">
+                  <strong>{position.symbol}</strong>
+                  <span>{position.quantity} · {formatMoney(position.lastPriceCents)}</span>
+                  <em>{position.kind}</em>
+                </div>
+              {/each}
+            {/if}
+          </div>
+        </section>
+
+        <section class="panel" aria-label="Recent transactions">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Ledger</p>
+              <h2>Recent orders</h2>
+            </div>
+            <Activity size={19} />
+          </div>
+
+          <div class="ledger-list">
+            {#if transactionList.length === 0}
+              <p class="empty-state">No simulated trades yet.</p>
+            {:else}
+              {#each transactionList as transaction}
+                <div class="ledger-row">
+                  <strong>{transaction.side.toUpperCase()} {transaction.symbol}</strong>
+                  <span>{transaction.quantity} @ {formatMoney(transaction.priceCents)}</span>
+                  <em>{transaction.status}</em>
+                </div>
+              {/each}
+            {/if}
+          </div>
+        </section>
+
+        <section class="panel system-panel" aria-label="System status">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">System</p>
+              <h2>Status</h2>
+            </div>
+            <ShieldCheck size={19} />
+          </div>
+          <ul>
+            {#each systemItems as item}
+              <li>{item}</li>
+            {/each}
+            {#if configError}<li class="warning">{configError}</li>{/if}
+            {#if portfolioError}<li class="warning">{portfolioError}</li>{/if}
+            {#if marketsError}<li class="warning">{marketsError}</li>{/if}
+            {#if syncError}<li class="warning">{syncError}</li>{/if}
+          </ul>
+        </section>
       </section>
     </section>
   </section>
