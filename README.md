@@ -103,7 +103,7 @@ All configuration is via environment variables — see [`.env.example`](.env.exa
 | GET | `/api/account/export` | Export account profile + account-bound portfolios |
 | DELETE | `/api/account/portfolio-data` | Delete account-bound portfolio data |
 | DELETE | `/api/account/` | Delete account |
-| `*` | `/api/admin/*` | Token-gated admin (settings, mappings, status, refresh) |
+| `*` | `/api/admin/*` | Token-gated admin (settings, mappings, slug diagnostics, status, refresh) |
 
 ## Documentation
 

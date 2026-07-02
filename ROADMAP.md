@@ -28,6 +28,7 @@ Today only the admin user exists; regular users are anonymous (browser-local por
 - [ ] **Audit log** for admin actions (mappings, user changes, refreshes)
 - [ ] **Feature flags / settings panel** — registration toggle, leaderboard on/off, maintenance mode, starting cash
 - [ ] **More eSports admin** — manual match/odds override, mark a match resolved, bulk-import team mappings, mapping "test" that shows which slugs resolve
+  - [x] Mapping test with generated Polymarket slug preview
 - [ ] **Observability** — structured request logging, `/metrics` (Prometheus), basic dashboards
 - [ ] **Backups** — scheduled SQLite backups + documented restore
 

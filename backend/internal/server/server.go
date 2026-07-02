@@ -114,6 +114,7 @@ func (s *Server) Routes() http.Handler {
 			r.Get("/mappings", s.handleListMappings)
 			r.Put("/mappings", s.handleUpsertMapping)
 			r.Delete("/mappings/{code}", s.handleDeleteMapping)
+			r.Post("/slug-preview", s.handleAdminSlugPreview)
 			r.Get("/status", s.handleAdminStatus)
 			r.Post("/refresh", s.handleAdminRefresh)
 		})

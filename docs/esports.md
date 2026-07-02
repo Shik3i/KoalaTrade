@@ -37,7 +37,8 @@ Open the shield icon in the top bar (requires `ADMIN_PASSWORD` to be set so an
 admin user is seeded). After logging in you can:
 
 - **Team mappings** — add/remove lolesports→Polymarket code mappings.
-- **Matches without odds** — a diagnostic list; clicking a team prefills a mapping.
+- **Matches without odds** — a diagnostic list with team names; clicking a team prefills a mapping.
+- **Slug diagnostics** — preview generated Polymarket slug candidates and live-test whether a pending mapping resolves to a moneyline event.
 - **Status & cache** — schedule age, match/odds/results counts; **Force-Refresh**.
 
 Endpoints (all token-gated except login):
@@ -48,6 +49,7 @@ Endpoints (all token-gated except login):
 | GET | `/api/admin/mappings` |
 | PUT | `/api/admin/mappings` |
 | DELETE | `/api/admin/mappings/{code}` |
+| POST | `/api/admin/slug-preview` |
 | GET | `/api/admin/status` |
 | POST | `/api/admin/refresh` |
 

@@ -70,6 +70,14 @@ export type TeamMapping = {
   updatedAt: string;
 };
 
+export type SlugDiagnostic = {
+  match: EsportsMatch;
+  slugs: string[];
+  found: boolean;
+  eventSlug: string;
+  polymarketUrl: string;
+};
+
 export type AdminStatus = {
   esports: {
     scheduleCached: boolean;
@@ -216,6 +224,18 @@ export async function deleteTeamMapping(token: string, originalCode: string): Pr
     headers: adminHeaders(token)
   });
   return (await adminJson<{ mappings: TeamMapping[] }>(response)).mappings ?? [];
+}
+
+export async function previewTeamMapping(
+  token: string,
+  input: { matchId: string; originalCode: string; polymarketCode: string; liveTest: boolean }
+): Promise<SlugDiagnostic> {
+  const response = await fetch('/api/admin/slug-preview', {
+    method: 'POST',
+    headers: { ...adminHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  return adminJson<SlugDiagnostic>(response);
 }
 
 export async function fetchAdminStatus(token: string): Promise<AdminStatus> {

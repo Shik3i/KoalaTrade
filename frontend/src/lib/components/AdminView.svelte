@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Link2, LogOut, RefreshCw, ShieldCheck, Trash2 } from '@lucide/svelte';
+  import { FlaskConical, Link2, LogOut, RefreshCw, ShieldCheck, Trash2 } from '@lucide/svelte';
   import {
     AdminAuthError,
     adminRefreshEsports,
@@ -7,8 +7,10 @@
     fetchAdminSettings,
     fetchAdminStatus,
     fetchTeamMappings,
+    previewTeamMapping,
     updateAdminSettings,
     type AdminSettings,
+    type SlugDiagnostic,
     upsertTeamMapping,
     type AdminStatus,
     type EsportsMatch,
@@ -30,6 +32,10 @@
   let settings: AdminSettings | null = null;
   let originalCode = '';
   let polymarketCode = '';
+  let selectedMatchId = '';
+  let slugDiagnostic: SlugDiagnostic | null = null;
+  let slugBusy = false;
+  let slugError = '';
   let error = '';
   let busy = false;
   let refreshing = false;
@@ -43,6 +49,10 @@
 
   // Matches that currently lack Polymarket odds → candidates for a mapping.
   $: noOddsMatches = matches.filter((m) => !m.hasOdds && m.team1.code !== 'TBD' && m.team2.code !== 'TBD');
+  $: selectedMatch = matches.find((m) => m.id === selectedMatchId) ?? noOddsMatches[0] ?? null;
+  $: mappingTeam = selectedMatch
+    ? [selectedMatch.team1, selectedMatch.team2].find((team) => team.code === originalCode.trim().toUpperCase()) ?? null
+    : null;
 
   async function handleLoginSubmit() {
     loginError = '';
@@ -83,6 +93,7 @@
       mappings = await upsertTeamMapping(token, originalCode.trim(), polymarketCode.trim());
       originalCode = '';
       polymarketCode = '';
+      slugDiagnostic = null;
     } catch (e) {
       handleError(e);
     } finally {
@@ -125,9 +136,30 @@
     }
   }
 
-  function prefill(code: string) {
+  async function testMapping(liveTest = true) {
+    if (!token || !selectedMatch || !originalCode.trim()) return;
+    slugBusy = true;
+    slugError = '';
+    try {
+      slugDiagnostic = await previewTeamMapping(token, {
+        matchId: selectedMatch.id,
+        originalCode: originalCode.trim(),
+        polymarketCode: polymarketCode.trim(),
+        liveTest
+      });
+    } catch (e) {
+      slugError = e instanceof Error ? e.message : 'Slug-Test fehlgeschlagen';
+    } finally {
+      slugBusy = false;
+    }
+  }
+
+  function prefill(match: EsportsMatch, code: string) {
+    selectedMatchId = match.id;
     originalCode = code;
     polymarketCode = '';
+    slugDiagnostic = null;
+    slugError = '';
   }
 </script>
 
@@ -181,8 +213,35 @@
         <span class="arrow">→</span>
         <input bind:value={polymarketCode} type="text" placeholder="Polymarket-Code (ES1)" />
         <button class="primary-button" type="submit" disabled={busy || !originalCode.trim() || !polymarketCode.trim()}>Speichern</button>
+        <button class="ghost-btn" type="button" disabled={slugBusy || !selectedMatch || !originalCode.trim()} on:click={() => testMapping(true)}>
+          <FlaskConical size={15} /> {slugBusy ? 'Teste …' : 'Slugs testen'}
+        </button>
       </form>
       {#if error}<p class="form-error">{error}</p>{/if}
+      {#if selectedMatch}
+        <div class="mapping-context">
+          <span>{selectedMatch.league}</span>
+          <strong>{selectedMatch.team1.code}</strong><em>{selectedMatch.team1.name}</em>
+          <span class="vs">vs</span>
+          <strong>{selectedMatch.team2.code}</strong><em>{selectedMatch.team2.name}</em>
+          {#if mappingTeam}<span class="candidate">Mapping für {mappingTeam.name}</span>{/if}
+        </div>
+      {/if}
+      {#if slugError}<p class="form-error">{slugError}</p>{/if}
+      {#if slugDiagnostic}
+        <div class="slug-diagnostic">
+          <div class="slug-result" class:found={slugDiagnostic.found}>
+            <span>{slugDiagnostic.found ? 'Treffer' : 'Kein Treffer'}</span>
+            <strong>{slugDiagnostic.found ? slugDiagnostic.eventSlug : `${slugDiagnostic.slugs.length} Kandidaten`}</strong>
+            {#if slugDiagnostic.polymarketUrl}<a href={slugDiagnostic.polymarketUrl} target="_blank" rel="noreferrer">Polymarket öffnen</a>{/if}
+          </div>
+          <div class="slug-list">
+            {#each slugDiagnostic.slugs.slice(0, 18) as slug}
+              <code class:hit={slug === slugDiagnostic.eventSlug}>{slug}</code>
+            {/each}
+          </div>
+        </div>
+      {/if}
 
       <div class="mapping-list">
         {#if mappings.length === 0}
@@ -208,9 +267,9 @@
           {#each noOddsMatches.slice(0, 30) as m (m.id)}
             <div class="noodds-row">
               <span class="lg">{m.league}</span>
-              <button type="button" on:click={() => prefill(m.team1.code)}>{m.team1.code}</button>
+              <button type="button" on:click={() => prefill(m, m.team1.code)}><strong>{m.team1.code}</strong><small>{m.team1.name}</small></button>
               <span class="vs">vs</span>
-              <button type="button" on:click={() => prefill(m.team2.code)}>{m.team2.code}</button>
+              <button type="button" on:click={() => prefill(m, m.team2.code)}><strong>{m.team2.code}</strong><small>{m.team2.name}</small></button>
             </div>
           {/each}
         {/if}
@@ -359,6 +418,79 @@
     flex: 0 0 auto;
   }
 
+  .mapping-context {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    margin: 0.5rem 0 0.75rem;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--bg-2);
+    font-size: 0.82rem;
+  }
+
+  .mapping-context span,
+  .mapping-context em {
+    color: var(--muted);
+    font-style: normal;
+  }
+
+  .mapping-context .candidate {
+    margin-left: auto;
+    color: var(--green);
+  }
+
+  .slug-diagnostic {
+    display: grid;
+    gap: 0.55rem;
+    margin: 0.75rem 0;
+  }
+
+  .slug-result {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid var(--red-soft);
+    border-radius: var(--r-sm);
+    background: var(--red-soft);
+  }
+
+  .slug-result.found {
+    border-color: var(--green-soft);
+    background: var(--green-soft);
+  }
+
+  .slug-result span {
+    color: var(--muted);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+  }
+
+  .slug-result a {
+    color: var(--green);
+  }
+
+  .slug-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    max-height: 7rem;
+    overflow-y: auto;
+  }
+
+  .slug-list code {
+    color: var(--muted);
+  }
+
+  .slug-list code.hit {
+    color: var(--green);
+    border: 1px solid var(--green-soft);
+  }
+
   .arrow {
     color: var(--muted);
   }
@@ -427,11 +559,23 @@
   }
 
   .noodds-row button {
-    padding: 0.2rem 0.55rem;
+    display: grid;
+    gap: 0.05rem;
+    min-width: 7.5rem;
+    padding: 0.25rem 0.55rem;
     border: 1px solid var(--line-2);
     border-radius: 6px;
     color: var(--text);
     background: var(--panel-3);
+    text-align: left;
+  }
+
+  .noodds-row button small {
+    color: var(--muted);
+    font-size: 0.68rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .noodds-row button:hover {

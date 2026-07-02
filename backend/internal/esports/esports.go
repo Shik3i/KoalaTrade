@@ -106,6 +106,14 @@ type Status struct {
 	TeamCount          int  `json:"teamCount"`
 }
 
+type SlugDiagnostic struct {
+	Match         Match    `json:"match"`
+	Slugs         []string `json:"slugs"`
+	Found         bool     `json:"found"`
+	EventSlug     string   `json:"eventSlug"`
+	PolymarketURL string   `json:"polymarketUrl"`
+}
+
 // Status reports cache state for the admin panel.
 func (s *Service) Status(ctx context.Context) Status {
 	s.ensureResultsLoaded(ctx)
@@ -287,6 +295,79 @@ func (s *Service) RefreshMatchOdds(ctx context.Context, matchID string) (Match, 
 	}
 	s.mu.Unlock()
 	return match, nil
+}
+
+func (s *Service) SlugDiagnostic(ctx context.Context, matchID, originalCode, polymarketCode string, liveTest bool) (SlugDiagnostic, error) {
+	match, err := s.matchByID(ctx, matchID)
+	if err != nil {
+		return SlugDiagnostic{}, err
+	}
+	dict := s.mappingDict(ctx)
+	if dict == nil {
+		dict = map[string]string{}
+	}
+	if strings.TrimSpace(originalCode) != "" && strings.TrimSpace(polymarketCode) != "" {
+		dict[strings.ToLower(strings.TrimSpace(originalCode))] = strings.TrimSpace(polymarketCode)
+	}
+
+	slugs := generateSlugs(&match, dict)
+	out := SlugDiagnostic{Match: match, Slugs: slugs}
+	if !liveTest || len(slugs) == 0 {
+		return out, nil
+	}
+
+	testMatch := match
+	testMatch.HasOdds = false
+	testMatch.PolymarketURL = ""
+	testMatch.Team1.ProbBps, testMatch.Team1.PriceCents = 0, 0
+	testMatch.Team2.ProbBps, testMatch.Team2.PriceCents = 0, 0
+	var lastErr error
+	for start := 0; start < len(slugs); start += 50 {
+		end := start + 50
+		if end > len(slugs) {
+			end = len(slugs)
+		}
+		events, err := s.fetchPolymarketEvents(ctx, slugs[start:end])
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		for _, event := range events {
+			applyOdds(&testMatch, event)
+			if testMatch.HasOdds {
+				out.Found = true
+				out.EventSlug = event.Slug
+				out.PolymarketURL = testMatch.PolymarketURL
+				return out, nil
+			}
+		}
+	}
+	if lastErr != nil {
+		return out, lastErr
+	}
+	return out, nil
+}
+
+func (s *Service) matchByID(ctx context.Context, matchID string) (Match, error) {
+	s.mu.Lock()
+	for _, match := range s.cache {
+		if match.ID == matchID {
+			s.mu.Unlock()
+			return match, nil
+		}
+	}
+	s.mu.Unlock()
+
+	matches, err := s.Matches(ctx)
+	if err != nil {
+		return Match{}, err
+	}
+	for _, match := range matches {
+		if match.ID == matchID {
+			return match, nil
+		}
+	}
+	return Match{}, ErrMatchNotFound
 }
 
 type teamsResponse struct {

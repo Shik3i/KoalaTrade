@@ -376,6 +376,27 @@ func (s *Server) handleDeleteMapping(w http.ResponseWriter, r *http.Request) {
 	s.handleListMappings(w, r)
 }
 
+type slugPreviewRequest struct {
+	MatchID        string `json:"matchId"`
+	OriginalCode   string `json:"originalCode"`
+	PolymarketCode string `json:"polymarketCode"`
+	LiveTest       bool   `json:"liveTest"`
+}
+
+func (s *Server) handleAdminSlugPreview(w http.ResponseWriter, r *http.Request) {
+	var req slugPreviewRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.MatchID) == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "valid match id is required"})
+		return
+	}
+	diagnostic, err := s.esports.SlugDiagnostic(r.Context(), req.MatchID, req.OriginalCode, req.PolymarketCode, req.LiveTest)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "slug preview failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, diagnostic)
+}
+
 func (s *Server) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"esports":          s.esports.Status(r.Context()),
