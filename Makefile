@@ -1,5 +1,10 @@
 # KoalaTrade — Development Makefile
 
+ifneq (,$(wildcard .env))
+    include .env
+    export
+endif
+
 .PHONY: dev-backend dev-frontend test-backend check-frontend build-backend build-frontend docker-build docker-up docker-down ci
 
 dev-backend:

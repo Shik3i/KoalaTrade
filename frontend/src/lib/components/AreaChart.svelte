@@ -84,7 +84,8 @@
     >
       <defs>
         <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stop-color={strokeColor} stop-opacity="0.28" />
+          <stop offset="0%" stop-color={strokeColor} stop-opacity="0.22" />
+          <stop offset="50%" stop-color={strokeColor} stop-opacity="0.04" />
           <stop offset="100%" stop-color={strokeColor} stop-opacity="0" />
         </linearGradient>
       </defs>
@@ -172,6 +173,7 @@
     box-shadow: var(--shadow);
     pointer-events: none;
     white-space: nowrap;
+    transition: left 120ms cubic-bezier(0.25, 1, 0.5, 1);
   }
 
   .tooltip strong {

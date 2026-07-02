@@ -56,6 +56,48 @@ func NewCoinGeckoProvider(baseURL, apiKey string, timeout time.Duration, fallbac
 				Symbol:  "BTC",
 				Name:    "Bitcoin",
 			},
+			"crypto:eth": {
+				AssetID: "crypto:eth",
+				CoinID:  "ethereum",
+				Symbol:  "ETH",
+				Name:    "Ethereum",
+			},
+			"crypto:sol": {
+				AssetID: "crypto:sol",
+				CoinID:  "solana",
+				Symbol:  "SOL",
+				Name:    "Solana",
+			},
+			"crypto:bnb": {
+				AssetID: "crypto:bnb",
+				CoinID:  "binancecoin",
+				Symbol:  "BNB",
+				Name:    "Binance Coin",
+			},
+			"crypto:xrp": {
+				AssetID: "crypto:xrp",
+				CoinID:  "ripple",
+				Symbol:  "XRP",
+				Name:    "Ripple",
+			},
+			"crypto:ada": {
+				AssetID: "crypto:ada",
+				CoinID:  "cardano",
+				Symbol:  "ADA",
+				Name:    "Cardano",
+			},
+			"crypto:doge": {
+				AssetID: "crypto:doge",
+				CoinID:  "dogecoin",
+				Symbol:  "DOGE",
+				Name:    "Dogecoin",
+			},
+			"crypto:link": {
+				AssetID: "crypto:link",
+				CoinID:  "chainlink",
+				Symbol:  "LINK",
+				Name:    "Chainlink",
+			},
 		},
 	}
 }

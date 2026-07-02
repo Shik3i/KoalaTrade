@@ -1,12 +1,12 @@
 package server
 
 import (
-	"math"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/Shik3i/KoalaTrade/backend/internal/marketdata"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -39,9 +39,8 @@ var historyRanges = map[string]rangeSpec{
 	"1Y": {points: 180, step: 48 * time.Hour, vol: 0.0089},
 }
 
-// handleMarketHistory serves a deterministic, mock OHLCV price history for a
-// single asset. The series is anchored so its final close equals the asset's
-// current price, which keeps the chart consistent with the live quote.
+// handleMarketHistory serves the real historical quotes from the SQLite database
+// aggregated into OHLCV candles matching the requested range.
 func (s *Server) handleMarketHistory(w http.ResponseWriter, r *http.Request) {
 	// assetIds contain a colon (e.g. crypto:btc); the client percent-encodes it,
 	// so decode the path param before matching.
@@ -56,103 +55,118 @@ func (s *Server) handleMarketHistory(w http.ResponseWriter, r *http.Request) {
 		spec = historyRanges[rng]
 	}
 
-	markets, err := s.marketData.Markets(r.Context())
+	// Calculate cutoff based on range
+	var cutoff time.Time
+	now := time.Now().UTC()
+	switch rng {
+	case "1H":
+		cutoff = now.Add(-time.Hour)
+	case "1D":
+		cutoff = now.Add(-24 * time.Hour)
+	case "1W":
+		cutoff = now.Add(-7 * 24 * time.Hour)
+	case "1M":
+		cutoff = now.Add(-30 * 24 * time.Hour)
+	case "1Y":
+		cutoff = now.Add(-365 * 24 * time.Hour)
+	default:
+		cutoff = now.Add(-24 * time.Hour)
+	}
+
+	// Load quotes from SQLite database
+	historyQuotes, err := s.db.GetHistory(r.Context(), assetID, cutoff)
 	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "market data unavailable"})
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "history unavailable: " + err.Error()})
 		return
 	}
 
-	var price int64
-	found := false
-	for _, m := range markets {
-		if m.AssetID == assetID {
-			price = m.PriceCents
-			found = true
-			break
+	// Aggregate raw quotes into OHLCV candles
+	candles := aggregateCandles(historyQuotes, spec.step)
+
+	// Fetch current live price and anchor the final candle
+	markets, err := s.marketData.Markets(r.Context())
+	if err == nil {
+		var price int64
+		found := false
+		for _, m := range markets {
+			if m.AssetID == assetID {
+				price = m.PriceCents
+				found = true
+				break
+			}
 		}
-	}
-	if !found {
-		writeJSON(w, http.StatusNotFound, errorResponse{Error: "unknown asset id"})
-		return
+		if found && price > 0 {
+			if len(candles) > 0 {
+				last := &candles[len(candles)-1]
+				if now.Sub(last.Time) < spec.step {
+					last.Close = price
+					if last.High < price {
+						last.High = price
+					}
+					if last.Low > price {
+						last.Low = price
+					}
+				} else {
+					candles = append(candles, candle{
+						Time:   now.Truncate(spec.step),
+						Open:   last.Close,
+						High:   price,
+						Low:    price,
+						Close:  price,
+						Volume: 100,
+					})
+				}
+			}
+		}
 	}
 
 	writeJSON(w, http.StatusOK, historyResponse{
 		AssetID: assetID,
 		Range:   rng,
-		Candles: generateCandles(assetID, rng, price, spec),
+		Candles: candles,
 	})
 }
 
-func generateCandles(assetID, rng string, price int64, spec rangeSpec) []candle {
-	if price <= 0 {
-		price = 1
-	}
-	n := spec.points
-
-	// xorshift64 seeded via FNV-1a over (assetID|range) so each asset/range
-	// pair yields a stable but distinct walk across reloads.
-	seed := uint64(1469598103934665603)
-	for _, c := range assetID + "|" + rng {
-		seed ^= uint64(c)
-		seed *= 1099511628211
-	}
-	if seed == 0 {
-		seed = 0x9e3779b97f4a7c15
-	}
-	next := func() float64 {
-		seed ^= seed << 13
-		seed ^= seed >> 7
-		seed ^= seed << 17
-		return float64(seed>>11) / float64(uint64(1)<<53)
+func aggregateCandles(quotes []marketdata.Quote, step time.Duration) []candle {
+	if len(quotes) == 0 {
+		return []candle{}
 	}
 
-	drift := (next() - 0.5) * spec.vol * 0.4
-	cum := 1.0
-	cums := make([]float64, n)
-	for i := 0; i < n; i++ {
-		shock := (next()*2-1)*spec.vol + drift
-		cum *= 1 + shock
-		if cum < 0.2 {
-			cum = 0.2
-		}
-		cums[i] = cum
-	}
+	var candles []candle
+	var currentCandle *candle
+	var bucketStart time.Time
 
-	cur := float64(price)
-	endC := cums[n-1]
-	closes := make([]float64, n)
-	for i := 0; i < n; i++ {
-		closes[i] = cur * cums[i] / endC
-	}
+	for _, q := range quotes {
+		t := q.UpdatedAt.Truncate(step)
 
-	now := time.Now().UTC()
-	candles := make([]candle, n)
-	for i := 0; i < n; i++ {
-		c := closes[i]
-		o := c * (1 - (next()-0.5)*spec.vol)
-		if i > 0 {
-			o = closes[i-1]
-		}
-		hi := math.Max(o, c) * (1 + next()*spec.vol*0.8)
-		lo := math.Min(o, c) * (1 - next()*spec.vol*0.8)
-		candles[i] = candle{
-			Time:   now.Add(-time.Duration(n-1-i) * spec.step),
-			Open:   int64(math.Round(o)),
-			High:   int64(math.Round(hi)),
-			Low:    int64(math.Max(1, math.Round(lo))),
-			Close:  int64(math.Round(c)),
-			Volume: int64(1000 + next()*9000),
+		if currentCandle == nil || t.After(bucketStart) {
+			if currentCandle != nil {
+				candles = append(candles, *currentCandle)
+			}
+			bucketStart = t
+			currentCandle = &candle{
+				Time:   t,
+				Open:   q.PriceCents,
+				High:   q.PriceCents,
+				Low:    q.PriceCents,
+				Close:  q.PriceCents,
+				Volume: 100,
+			}
+		} else {
+			if q.PriceCents > currentCandle.High {
+				currentCandle.High = q.PriceCents
+			}
+			if q.PriceCents < currentCandle.Low {
+				currentCandle.Low = q.PriceCents
+			}
+			currentCandle.Close = q.PriceCents
+			currentCandle.Volume += 100
 		}
 	}
 
-	// Anchor the final candle exactly to the live price.
-	last := &candles[n-1]
-	last.Close = price
-	if last.High < price {
-		last.High = price
+	if currentCandle != nil {
+		candles = append(candles, *currentCandle)
 	}
-	if last.Low > price {
-		last.Low = price
-	}
+
 	return candles
 }

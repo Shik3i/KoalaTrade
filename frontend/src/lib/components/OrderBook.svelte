@@ -44,32 +44,38 @@
   $: spreadBps = priceCents > 0 ? ((spread / priceCents) * 10_000).toFixed(1) : '0.0';
 </script>
 
-<div class="book">
-  <div class="book-head"><span>Preis</span><span>Größe ({symbol})</span></div>
+{#if priceCents > 0}
+  <div class="book">
+    <div class="book-head"><span>Preis</span><span>Größe ({symbol})</span></div>
 
-  <div class="book-side ask">
-    {#each asks as row}
-      <div class="row" style={`--depth:${row.depthPct}%`}>
-        <span class="px">{formatMoney(row.priceCents)}</span>
-        <strong>{row.size.toFixed(3)}</strong>
-      </div>
-    {/each}
-  </div>
+    <div class="book-side ask">
+      {#each asks as row}
+        <div class="row" style={`--depth:${row.depthPct}%`}>
+          <span class="px">{formatMoney(row.priceCents)}</span>
+          <strong>{row.size.toFixed(3)}</strong>
+        </div>
+      {/each}
+    </div>
 
-  <div class="book-mid">
-    <strong>{formatMoney(priceCents)}</strong>
-    <span>Spread {formatMoney(spread)} · {spreadBps} bps</span>
-  </div>
+    <div class="book-mid">
+      <strong>{formatMoney(priceCents)}</strong>
+      <span>Spread {formatMoney(spread)} · {spreadBps} bps</span>
+    </div>
 
-  <div class="book-side bid">
-    {#each bids as row}
-      <div class="row" style={`--depth:${row.depthPct}%`}>
-        <span class="px">{formatMoney(row.priceCents)}</span>
-        <strong>{row.size.toFixed(3)}</strong>
-      </div>
-    {/each}
+    <div class="book-side bid">
+      {#each bids as row}
+        <div class="row" style={`--depth:${row.depthPct}%`}>
+          <span class="px">{formatMoney(row.priceCents)}</span>
+          <strong>{row.size.toFixed(3)}</strong>
+        </div>
+      {/each}
+    </div>
   </div>
-</div>
+{:else}
+  <div class="book empty-state" style="padding: 1.5rem; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 8px; font-size: 0.8rem;">
+    <span>Orderbuch inaktiv (Warte auf Live-Daten...)</span>
+  </div>
+{/if}
 
 <style>
   .book {

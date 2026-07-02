@@ -48,6 +48,7 @@ type Provider interface {
 type Store interface {
 	UpsertMarkets(ctx context.Context, markets []Market) error
 	FreshQuotes(ctx context.Context, assetIDs []string, now time.Time) ([]Quote, error)
+	LatestQuotes(ctx context.Context, assetIDs []string) ([]Quote, error)
 	StoreQuotes(ctx context.Context, quotes []Quote) error
 }
 
@@ -85,6 +86,35 @@ func (s *Service) Markets(ctx context.Context) ([]Market, error) {
 
 	if s.store != nil {
 		_ = s.store.UpsertMarkets(ctx, markets)
+
+		// Load latest quotes from database to populate prices/change rates
+		assetIDs := make([]string, len(markets))
+		for i, m := range markets {
+			assetIDs[i] = m.AssetID
+		}
+
+		storedQuotes, err := s.store.LatestQuotes(ctx, assetIDs)
+		if err == nil {
+			quotesMap := make(map[string]Quote, len(storedQuotes))
+			for _, q := range storedQuotes {
+				quotesMap[q.AssetID] = q
+			}
+
+			s.mu.Lock()
+			for i, m := range markets {
+				if q, ok := quotesMap[m.AssetID]; ok {
+					markets[i].PriceCents = q.PriceCents
+					markets[i].ChangeBPS = q.ChangeBPS
+					markets[i].UpdatedAt = q.UpdatedAt
+
+					// Warm memory cache if empty
+					if _, cacheOk := s.cache[m.AssetID]; !cacheOk {
+						s.cache[m.AssetID] = q
+					}
+				}
+			}
+			s.mu.Unlock()
+		}
 	}
 
 	return markets, nil
@@ -183,6 +213,22 @@ func (s *Service) Quotes(ctx context.Context, assetIDs []string) ([]Quote, error
 
 		fresh, err := s.provider.Quotes(ctx, missing)
 		if err != nil {
+			if s.store != nil {
+				stored, storedErr := s.store.LatestQuotes(ctx, missing)
+				if storedErr == nil && len(stored) > 0 {
+					s.mu.Lock()
+					for _, quote := range stored {
+						s.cache[quote.AssetID] = quote
+						quotes = append(quotes, quote)
+					}
+					s.mu.Unlock()
+
+					sort.Slice(quotes, func(i, j int) bool {
+						return quotes[i].Symbol < quotes[j].Symbol
+					})
+					return quotes, nil
+				}
+			}
 			return nil, err
 		}
 

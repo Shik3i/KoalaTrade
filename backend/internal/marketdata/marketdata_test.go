@@ -7,7 +7,7 @@ import (
 )
 
 func TestServiceQuotesCachesProviderResults(t *testing.T) {
-	provider := NewMockProvider()
+	provider := NewRegistryProvider()
 	service := NewService(provider, time.Minute)
 
 	first, err := service.Quotes(context.Background(), []string{"crypto:btc", "crypto:btc"})
@@ -65,17 +65,18 @@ func TestServiceQuotesUsesPersistentCacheBeforeProvider(t *testing.T) {
 
 func TestServiceRefreshAllStoresFreshQuotes(t *testing.T) {
 	store := &memoryStore{}
-	service := NewService(NewMockProvider(), time.Minute, store)
+	service := NewService(NewRegistryProvider(), time.Minute, store)
 
 	quotes, err := service.RefreshAll(context.Background())
 	if err != nil {
 		t.Fatalf("refresh all: %v", err)
 	}
-	if len(quotes) != 6 {
-		t.Fatalf("expected 6 quotes, got %d", len(quotes))
+	expectedLen := len(NewRegistryProvider().fixtureMarkets())
+	if len(quotes) != expectedLen {
+		t.Fatalf("expected %d quotes, got %d", expectedLen, len(quotes))
 	}
-	if len(store.quotes) != 6 {
-		t.Fatalf("expected stored quotes, got %d", len(store.quotes))
+	if len(store.quotes) != expectedLen {
+		t.Fatalf("expected stored %d quotes, got %d", expectedLen, len(store.quotes))
 	}
 	for _, quote := range quotes {
 		if quote.CachedUntil.IsZero() {
@@ -120,6 +121,24 @@ func (s *memoryStore) FreshQuotes(ctx context.Context, assetIDs []string, now ti
 		if quote.CachedUntil.After(now) {
 			byID[quote.AssetID] = quote
 		}
+	}
+
+	quotes := make([]Quote, 0, len(assetIDs))
+	for _, assetID := range assetIDs {
+		if quote, ok := byID[assetID]; ok {
+			quotes = append(quotes, quote)
+		}
+	}
+	return quotes, nil
+}
+
+func (s *memoryStore) LatestQuotes(ctx context.Context, assetIDs []string) ([]Quote, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	byID := make(map[string]Quote, len(s.quotes))
+	for _, quote := range s.quotes {
+		byID[quote.AssetID] = quote
 	}
 
 	quotes := make([]Quote, 0, len(assetIDs))

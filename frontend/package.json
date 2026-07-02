@@ -13,6 +13,8 @@
     "check": "svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/outfit": "^5.2.8",
     "@lucide/svelte": "^1.22.0",
     "svelte": "^5.0.0"
   },

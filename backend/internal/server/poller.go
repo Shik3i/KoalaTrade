@@ -7,25 +7,11 @@ import (
 )
 
 func (s *Server) StartMarketDataPoller(ctx context.Context, logger *slog.Logger) {
-	interval := time.Duration(s.cfg.MarketDataPollSeconds) * time.Second
-	if interval <= 0 {
-		return
-	}
-
-	windowSecs := s.cfg.MarketDataRefreshWindowSecs
-	if windowSecs < s.cfg.MarketDataPollSeconds {
-		windowSecs = s.cfg.MarketDataPollSeconds
-	}
-	ticksPerWindow := windowSecs / s.cfg.MarketDataPollSeconds
-	if ticksPerWindow < 1 {
-		ticksPerWindow = 1
-	}
-
 	go func() {
-		// Warm the cache once at startup, then refresh in staggered batches.
+		// Warm the cache once at startup, then refresh in 3-second intervals.
 		s.warmupMarketData(ctx, logger)
 
-		ticker := time.NewTicker(interval)
+		ticker := time.NewTicker(3 * time.Second)
 		defer ticker.Stop()
 
 		cursor := 0
@@ -34,7 +20,7 @@ func (s *Server) StartMarketDataPoller(ctx context.Context, logger *slog.Logger)
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				cursor = s.pollStaggered(ctx, logger, cursor, ticksPerWindow)
+				cursor = s.pollSingle(ctx, logger, cursor)
 			}
 		}
 	}()
@@ -76,10 +62,10 @@ func (s *Server) warmupMarketData(ctx context.Context, logger *slog.Logger) {
 	logger.Info("market data warmup completed", "quotes", len(quotes))
 }
 
-// pollStaggered refreshes the next slice of assets so that, over ticksPerWindow
-// ticks, every asset is refreshed exactly once. This spreads provider calls
-// evenly across the refresh window to respect free-tier per-minute rate limits.
-func (s *Server) pollStaggered(ctx context.Context, logger *slog.Logger, cursor, ticksPerWindow int) int {
+// pollSingle fetches a single asset quote at a time in a round-robin loop.
+// Waiting exactly 3 seconds between each poll ensures we never exceed 20 requests
+// per minute, staying safely under the 30 requests/minute API limit.
+func (s *Server) pollSingle(ctx context.Context, logger *slog.Logger, cursor int) int {
 	refreshCtx, cancel := context.WithTimeout(ctx, time.Duration(s.cfg.MarketDataHTTPTimeout+5)*time.Second)
 	defer cancel()
 
@@ -92,25 +78,51 @@ func (s *Server) pollStaggered(ctx context.Context, logger *slog.Logger, cursor,
 	}
 
 	n := len(markets)
-	batch := (n + ticksPerWindow - 1) / ticksPerWindow // ceil(n / ticksPerWindow)
-	if batch < 1 {
-		batch = 1
-	}
 	if cursor >= n {
 		cursor = 0
 	}
 
-	ids := make([]string, 0, batch)
-	for i := 0; i < batch && i < n; i++ {
-		ids = append(ids, markets[(cursor+i)%n].AssetID)
-	}
-
-	quotes, err := s.marketData.Refresh(refreshCtx, ids)
+	assetID := markets[cursor].AssetID
+	quotes, err := s.marketData.Refresh(refreshCtx, []string{assetID})
 	if err != nil {
-		logger.Warn("market data poll failed", "error", err, "batch", len(ids))
-		return cursor
+		logger.Warn("market data poll failed", "error", err, "asset_id", assetID)
+	} else {
+		logger.Info("market data poll completed", "refreshed", len(quotes), "asset_id", assetID, "cursor", cursor)
 	}
-	logger.Info("market data poll completed", "refreshed", len(quotes), "of", n, "cursor", cursor)
 
-	return (cursor + batch) % n
+	return (cursor + 1) % n
+}
+
+// StartEsportsTeamsPoller runs a background poller that updates the team list in the database once a day (24 hours).
+func (s *Server) StartEsportsTeamsPoller(ctx context.Context, logger *slog.Logger) {
+	go func() {
+		// Stagger the first poll by 15 seconds to avoid slowing down startup warmup
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(15 * time.Second):
+			logger.Info("esports teams initial poll started")
+			if _, err := s.esports.Teams(ctx); err != nil {
+				logger.Warn("initial esports teams poll failed", "error", err)
+			} else {
+				logger.Info("esports teams initial poll completed")
+			}
+		}
+
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				logger.Info("running esports teams daily poll")
+				if _, err := s.esports.Teams(ctx); err != nil {
+					logger.Warn("daily esports teams poll failed", "error", err)
+				} else {
+					logger.Info("daily esports teams poll completed")
+				}
+			}
+		}
+	}()
 }

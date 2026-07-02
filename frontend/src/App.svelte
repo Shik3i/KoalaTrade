@@ -63,6 +63,7 @@
     computePerformance,
     createInitialPortfolio,
     formatMoney,
+    formatPrice,
     formatPercentFromBps,
     markPositionsToMarket,
     resolveEventPosition,
@@ -70,15 +71,6 @@
     PORTFOLIO_ID,
     type PortfolioSnapshot
   } from './lib/portfolio';
-
-  const fallbackMarkets: Market[] = [
-    { assetId: 'crypto:btc', symbol: 'BTC', name: 'Bitcoin', kind: 'crypto', source: 'local', priceCents: 6_142_020, changeBps: 280, updatedAt: new Date(0).toISOString() },
-    { assetId: 'etf:spy', symbol: 'SPY', name: 'S&P 500 ETF', kind: 'etf', source: 'local', priceCents: 54_618, changeBps: 40, updatedAt: new Date(0).toISOString() },
-    { assetId: 'commodity:gld', symbol: 'GLD', name: 'Gold Trust', kind: 'commodity', source: 'local', priceCents: 21_492, changeBps: -20, updatedAt: new Date(0).toISOString() },
-    { assetId: 'event:pmkt', symbol: 'PMKT', name: 'Polymarket event markets', kind: 'event', source: 'local', priceCents: 62, changeBps: 0, updatedAt: new Date(0).toISOString() },
-    { assetId: 'event:lolesports-t1', symbol: 'LOL-T1', name: 'LoL Esports: T1 match winner', kind: 'event', source: 'local', priceCents: 64, changeBps: 180, updatedAt: new Date(0).toISOString() },
-    { assetId: 'event:lolesports-geng', symbol: 'LOL-GEN', name: 'LoL Esports: Gen.G match winner', kind: 'event', source: 'local', priceCents: 41, changeBps: -120, updatedAt: new Date(0).toISOString() }
-  ];
 
   const ORDER_FEE_BPS = 8;
   const QUANTITY_STEP = 0.0001;
@@ -110,12 +102,12 @@
 
   let config: PublicConfig | null = null;
   let configError = '';
-  let markets: Market[] = fallbackMarkets;
+  let markets: Market[] = [];
   let marketsError = '';
   let marketsLoading = true;
   let portfolio: PortfolioSnapshot | null = null;
   let portfolioError = '';
-  let selectedAssetId = fallbackMarkets[0].assetId;
+  let selectedAssetId = '';
   let marketQuery = '';
   let marketFilter: MarketFilter = 'all';
   let orderSide: 'buy' | 'sell' = 'buy';
@@ -189,11 +181,11 @@
     try {
       markets = await fetchMarkets();
       if (!markets.some((market) => market.assetId === selectedAssetId)) {
-        selectedAssetId = markets[0]?.assetId ?? fallbackMarkets[0].assetId;
+        selectedAssetId = markets[0]?.assetId ?? '';
       }
     } catch (error) {
       marketsError = error instanceof Error ? error.message : 'Marktdaten nicht verfügbar';
-      markets = fallbackMarkets;
+      markets = [];
     } finally {
       marketsLoading = false;
     }
@@ -205,7 +197,7 @@
       portfolio = createInitialPortfolio(config?.startingCashCents ?? 1_000_000);
     }
 
-    limitPriceInput = selectedMarket.priceCents / 100;
+    limitPriceInput = selectedMarket ? selectedMarket.priceCents / 100 : 0;
     await restoreSyncedPortfolio(!!user);
     await refreshQuotes();
     await loadHistory();
@@ -218,8 +210,8 @@
   });
 
   $: summary = summarizePortfolio(portfolio ?? createInitialPortfolio(config?.startingCashCents ?? 1_000_000));
-  $: selectedMarket = markets.find((item) => item.assetId === selectedAssetId) ?? markets[0] ?? fallbackMarkets[0];
-  $: isEvent = selectedMarket.kind === 'event';
+  $: selectedMarket = markets.find((item) => item.assetId === selectedAssetId) ?? markets[0];
+  $: isEvent = selectedMarket ? selectedMarket.kind === 'event' : false;
   $: query = marketQuery.trim().toLowerCase();
   $: filteredMarkets = markets.filter((market) => {
     const matchesFilter = marketFilter === 'all' || market.kind === marketFilter;
@@ -228,9 +220,9 @@
   });
 
   $: effectivePriceCents =
-    orderType === 'market' ? selectedMarket.priceCents : Math.max(0, Math.round(Number(limitPriceInput) * 100));
+    orderType === 'market' ? (selectedMarket ? selectedMarket.priceCents : 0) : Math.max(0, Math.round(Number(limitPriceInput) * 100));
   $: normalizedOrderQuantity = Number.isFinite(Number(orderQuantity)) ? Number(orderQuantity) : 0;
-  $: selectedPosition = positionList.find((position) => position.assetId === selectedMarket.assetId);
+  $: selectedPosition = selectedMarket ? positionList.find((position) => position.assetId === selectedMarket.assetId) : undefined;
   $: selectedPositionQuantity = selectedPosition?.quantity ?? 0;
   $: estimatedOrderValue = Math.round(normalizedOrderQuantity * effectivePriceCents);
   $: estimatedOrderFee = Math.max(0, Math.round((estimatedOrderValue * ORDER_FEE_BPS) / 10_000));
@@ -245,7 +237,7 @@
     normalizedOrderQuantity <= orderLimitQuantity &&
     (orderSide === 'buy' ? estimatedOrderTotal <= summary.cashCents : selectedPositionQuantity >= normalizedOrderQuantity);
   $: orderPowerLabel = orderSide === 'buy' ? 'Kaufkraft' : 'Verfügbar';
-  $: orderPowerValue = orderSide === 'buy' ? formatMoney(summary.cashCents) : `${formatQuantity(selectedPositionQuantity)} ${selectedMarket.symbol}`;
+  $: orderPowerValue = orderSide === 'buy' ? formatMoney(summary.cashCents) : `${formatQuantity(selectedPositionQuantity)} ${selectedMarket ? selectedMarket.symbol : ''}`;
   $: positionList = portfolio?.positions ?? [];
   $: transactionList = portfolio?.transactions.slice(0, 6) ?? [];
   $: positionRows = positionList.map((position) => {
@@ -978,11 +970,11 @@
 
     <section class="market-tape" aria-label="Market tape">
       {#each markets.slice(0, 6) as item, index}
-        <button class:active={selectedMarket.assetId === item.assetId} type="button" on:click={() => selectMarket(item.assetId, true)}>
+        <button class:active={selectedMarket && selectedMarket.assetId === item.assetId} type="button" on:click={() => selectMarket(item.assetId, true)}>
           <span class="tape-key">{index + 1}</span>
           <strong>{item.symbol}</strong>
-          <span class="tape-price">{formatMoney(item.priceCents)}</span>
-          <em class={marketTone(item.changeBps)}>{formatPercentFromBps(item.changeBps)}</em>
+          <span class="tape-price">{formatPrice(item.priceCents)}</span>
+          <em class={item.priceCents > 0 ? marketTone(item.changeBps) : ''}>{item.priceCents > 0 ? formatPercentFromBps(item.changeBps) : '—'}</em>
         </button>
       {/each}
     </section>
@@ -1007,10 +999,10 @@
               <p class="empty-state">Keine Märkte für diesen Filter.</p>
             {:else}
               {#each filteredMarkets as item}
-                <button class:selected={selectedMarket.assetId === item.assetId} class="market-row" type="button" on:click={() => selectMarket(item.assetId)}>
+                <button class:selected={selectedMarket && selectedMarket.assetId === item.assetId} class="market-row" type="button" on:click={() => selectMarket(item.assetId)}>
                   <span class="asset"><strong>{item.symbol}</strong><small>{item.kind}</small></span>
-                  <span class="price">{formatMoney(item.priceCents)}</span>
-                  <em class={marketTone(item.changeBps)}>{formatPercentFromBps(item.changeBps)}</em>
+                  <span class="price">{formatPrice(item.priceCents)}</span>
+                  <em class={item.priceCents > 0 ? marketTone(item.changeBps) : ''}>{item.priceCents > 0 ? formatPercentFromBps(item.changeBps) : '—'}</em>
                 </button>
               {/each}
             {/if}
@@ -1019,15 +1011,24 @@
 
         <section class="market-stage">
           <section class="instrument-strip panel" aria-label="Selected market">
-            <div class="instrument-id">
-              <p class="eyebrow">{selectedMarket.kind} · {selectedMarket.source}</p>
-              <h1>{selectedMarket.symbol}</h1>
-              <span>{selectedMarket.name}</span>
-            </div>
-            <div class="instrument-price">
-              <strong>{formatMoney(selectedMarket.priceCents)}</strong>
-              <span class={marketTone(selectedMarket.changeBps)}>{formatPercentFromBps(selectedMarket.changeBps)} heute</span>
-            </div>
+            {#if selectedMarket}
+              <div class="instrument-id">
+                <p class="eyebrow">{selectedMarket.kind} · {selectedMarket.source}</p>
+                <h1>{selectedMarket.symbol}</h1>
+                <span>{selectedMarket.name}</span>
+              </div>
+              <div class="instrument-price">
+                <strong>{formatPrice(selectedMarket.priceCents)}</strong>
+                <span class={selectedMarket.priceCents > 0 ? marketTone(selectedMarket.changeBps) : ''}>
+                  {selectedMarket.priceCents > 0 ? formatPercentFromBps(selectedMarket.changeBps) + ' heute' : '—'}
+                </span>
+              </div>
+            {:else}
+              <div class="instrument-id">
+                <p class="eyebrow">—</p>
+                <h1>Kein Markt ausgewählt</h1>
+              </div>
+            {/if}
             <div class="instrument-stats">
               <span>Equity <strong>{formatMoney(summary.totalEquityCents)}</strong></span>
               <span>Cash <strong>{formatMoney(summary.cashCents)}</strong></span>
@@ -1039,7 +1040,11 @@
             <div class="chart-toolbar">
               <div>
                 <p class="eyebrow">Chart · {chartRange}</p>
-                <h2>{formatMoney(selectedMarket.priceCents)} <em class={changeColor(rangeChangeBps)}>{formatSignedMoney(rangeChangeCents)} ({formatPercentFromBps(rangeChangeBps)})</em></h2>
+                {#if selectedMarket && selectedMarket.priceCents > 0}
+                  <h2>{formatMoney(selectedMarket.priceCents)} <em class={changeColor(rangeChangeBps)}>{formatSignedMoney(rangeChangeCents)} ({formatPercentFromBps(rangeChangeBps)})</em></h2>
+                {:else}
+                  <h2>—</h2>
+                {/if}
               </div>
               <div class="chart-controls">
                 <button class="sma-toggle" class:active={showSma} type="button" on:click={() => (showSma = !showSma)}>SMA 14</button>

@@ -9,7 +9,7 @@ import (
 
 func TestFinnhubProviderQuotes(t *testing.T) {
 	var sawToken bool
-	provider := NewFinnhubProvider("https://finnhub.test/api/v1", "demo-key", time.Second, NewMockProvider())
+	provider := NewFinnhubProvider("https://finnhub.test/api/v1", "demo-key", time.Second, NewRegistryProvider())
 	provider.client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Path != "/api/v1/quote" {
 			t.Fatalf("unexpected path %s", r.URL.Path)
@@ -43,7 +43,7 @@ func TestFinnhubProviderQuotes(t *testing.T) {
 }
 
 func TestFinnhubProviderFallsBackWithoutKey(t *testing.T) {
-	provider := NewFinnhubProvider("https://finnhub.test/api/v1", "", time.Second, NewMockProvider())
+	provider := NewFinnhubProvider("https://finnhub.test/api/v1", "", time.Second, NewRegistryProvider())
 	quotes, err := provider.Quotes(context.Background(), []string{"etf:spy"})
 	if err != nil {
 		t.Fatalf("quotes: %v", err)
@@ -51,7 +51,7 @@ func TestFinnhubProviderFallsBackWithoutKey(t *testing.T) {
 	if len(quotes) != 1 {
 		t.Fatalf("expected 1 fallback quote, got %d", len(quotes))
 	}
-	if quotes[0].Source != "mock" {
-		t.Fatalf("expected mock fallback source, got %q", quotes[0].Source)
+	if quotes[0].Source != "finnhub" {
+		t.Fatalf("expected finnhub fallback source, got %q", quotes[0].Source)
 	}
 }

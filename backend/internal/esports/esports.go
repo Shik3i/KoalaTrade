@@ -66,6 +66,19 @@ type Store interface {
 }
 
 const resultsMetaKey = "esports_results"
+const teamsMetaKey = "esports_teams"
+
+var fallbackTeams = []TeamInfo{
+	{Code: "G2", Name: "G2 Esports", League: "LEC", Image: ""},
+	{Code: "FNC", Name: "Fnatic", League: "LEC", Image: ""},
+	{Code: "VIT", Name: "Team Vitality", League: "LEC", Image: ""},
+	{Code: "KC", Name: "Karmine Corp", League: "LEC", Image: ""},
+	{Code: "T1", Name: "T1", League: "LCK", Image: ""},
+	{Code: "GEN", Name: "Gen.G", League: "LCK", Image: ""},
+	{Code: "EINS", Name: "Eintracht Spandau", League: "Prime League", Image: ""},
+	{Code: "MOUZ", Name: "MOUZ", League: "Prime League", Image: ""},
+	{Code: "NNO", Name: "NNO Prime", League: "Prime League", Image: ""},
+}
 
 type Service struct {
 	apiKey   string
@@ -75,13 +88,15 @@ type Service struct {
 	ttl      time.Duration
 	store    Store
 
-	mu            sync.Mutex
-	cache         []Match
-	cachedAt      time.Time
-	teamsCache    []TeamInfo
-	teamsCachedAt time.Time
-	results       map[string]Result
-	resultsLoaded bool
+	mu               sync.Mutex
+	cache            []Match
+	cachedAt         time.Time
+	scheduleCache    []Match
+	scheduleCachedAt time.Time
+	teamsCache       []TeamInfo
+	teamsCachedAt    time.Time
+	results          map[string]Result
+	resultsLoaded    bool
 }
 
 func NewService(apiKey, lolBaseURL, polyBaseURL string, timeout, ttl time.Duration, store Store) *Service {
@@ -227,14 +242,33 @@ func (s *Service) Matches(ctx context.Context) ([]Match, error) {
 	}
 	s.mu.Unlock()
 
-	matches, err := s.fetchSchedule(ctx)
-	if err != nil {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if s.cache != nil {
-			return s.cache, nil
+	var matches []Match
+	var err error
+
+	s.mu.Lock()
+	useCachedSchedule := s.scheduleCache != nil && time.Since(s.scheduleCachedAt) < 6*time.Hour
+	if useCachedSchedule {
+		matches = make([]Match, len(s.scheduleCache))
+		copy(matches, s.scheduleCache)
+	}
+	s.mu.Unlock()
+
+	if !useCachedSchedule {
+		matches, err = s.fetchSchedule(ctx)
+		if err != nil {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if s.cache != nil {
+				return s.cache, nil
+			}
+			return nil, err
 		}
-		return nil, err
+
+		s.mu.Lock()
+		s.scheduleCache = make([]Match, len(matches))
+		copy(s.scheduleCache, matches)
+		s.scheduleCachedAt = time.Now()
+		s.mu.Unlock()
 	}
 
 	s.attachOdds(ctx, matches)
@@ -384,11 +418,48 @@ type teamsResponse struct {
 	} `json:"data"`
 }
 
+func (s *Service) ensureTeamsLoaded(ctx context.Context) {
+	s.mu.Lock()
+	if s.teamsCache != nil || s.store == nil {
+		s.mu.Unlock()
+		return
+	}
+	s.mu.Unlock()
+
+	raw, ok, err := s.store.GetMeta(ctx, teamsMetaKey)
+	if err == nil && ok {
+		var loaded []TeamInfo
+		s.mu.Lock()
+		if json.Unmarshal([]byte(raw), &loaded) == nil && loaded != nil {
+			s.teamsCache = loaded
+			s.teamsCachedAt = time.Now()
+		}
+		s.mu.Unlock()
+	}
+}
+
+func (s *Service) getFallbackTeams(ctx context.Context) []TeamInfo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.teamsCache == nil {
+		s.teamsCache = fallbackTeams
+		s.teamsCachedAt = time.Now()
+		if s.store != nil {
+			if encoded, err := json.Marshal(fallbackTeams); err == nil {
+				_ = s.store.SetMeta(ctx, teamsMetaKey, string(encoded))
+			}
+		}
+	}
+	return s.teamsCache
+}
+
 // Teams returns the catalogue of active eSports teams (for the favorites picker),
 // trimmed and deduplicated, served from a TTL cache.
 func (s *Service) Teams(ctx context.Context) ([]TeamInfo, error) {
+	s.ensureTeamsLoaded(ctx)
+
 	s.mu.Lock()
-	if s.teamsCache != nil && time.Since(s.teamsCachedAt) < s.ttl {
+	if s.teamsCache != nil && time.Since(s.teamsCachedAt) < 24*time.Hour {
 		cached := s.teamsCache
 		s.mu.Unlock()
 		return cached, nil
@@ -397,27 +468,22 @@ func (s *Service) Teams(ctx context.Context) ([]TeamInfo, error) {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.lolBase+"/persisted/gw/getTeams?hl=en-GB", nil)
 	if err != nil {
-		return nil, err
+		return s.getFallbackTeams(ctx), nil
 	}
 	req.Header.Set("x-api-key", s.apiKey)
 
 	resp, err := s.http.Do(req)
 	if err != nil {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if s.teamsCache != nil {
-			return s.teamsCache, nil
-		}
-		return nil, err
+		return s.getFallbackTeams(ctx), nil
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("lolesports teams status %d", resp.StatusCode)
+		return s.getFallbackTeams(ctx), nil
 	}
 
 	var payload teamsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, err
+		return s.getFallbackTeams(ctx), nil
 	}
 
 	seen := map[string]struct{}{}
@@ -448,6 +514,13 @@ func (s *Service) Teams(ctx context.Context) ([]TeamInfo, error) {
 	s.teamsCache = teams
 	s.teamsCachedAt = time.Now()
 	s.mu.Unlock()
+
+	if s.store != nil {
+		if encoded, err := json.Marshal(teams); err == nil {
+			_ = s.store.SetMeta(ctx, teamsMetaKey, string(encoded))
+		}
+	}
+
 	return teams, nil
 }
 

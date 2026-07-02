@@ -132,6 +132,14 @@ func (s *SQLite) configure() error {
 			updated_at TEXT NOT NULL,
 			cached_until TEXT NOT NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS asset_history (
+			asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+			timestamp TEXT NOT NULL,
+			price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
+			PRIMARY KEY (asset_id, timestamp)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_asset_history_timestamp
+			ON asset_history(timestamp);`,
 		`CREATE INDEX IF NOT EXISTS idx_asset_quotes_cached_until
 			ON asset_quotes(cached_until);`,
 		`CREATE TABLE IF NOT EXISTS portfolios (

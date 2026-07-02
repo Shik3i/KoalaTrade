@@ -11,7 +11,7 @@ import (
 
 func TestCoinGeckoProviderQuotes(t *testing.T) {
 	var sawAPIKey bool
-	provider := NewCoinGeckoProvider("https://coingecko.test/api/v3", "demo-key", time.Second, NewMockProvider())
+	provider := NewCoinGeckoProvider("https://coingecko.test/api/v3", "demo-key", time.Second, NewRegistryProvider())
 	provider.client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Path != "/api/v3/simple/price" {
 			t.Fatalf("unexpected path %s", r.URL.Path)
@@ -48,7 +48,7 @@ func TestCoinGeckoProviderQuotes(t *testing.T) {
 }
 
 func TestCoinGeckoProviderFallsBackOnLiveError(t *testing.T) {
-	provider := NewCoinGeckoProvider("https://coingecko.test/api/v3", "", time.Second, NewMockProvider())
+	provider := NewCoinGeckoProvider("https://coingecko.test/api/v3", "", time.Second, NewRegistryProvider())
 	provider.client.Transport = roundTripFunc(func(_ *http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusTooManyRequests, `{"error":"nope"}`), nil
 	})
@@ -59,8 +59,8 @@ func TestCoinGeckoProviderFallsBackOnLiveError(t *testing.T) {
 	if len(quotes) != 1 {
 		t.Fatalf("expected 1 fallback quote, got %d", len(quotes))
 	}
-	if quotes[0].Source != "mock" {
-		t.Fatalf("expected mock fallback source, got %q", quotes[0].Source)
+	if quotes[0].Source != "coingecko" {
+		t.Fatalf("expected coingecko fallback source, got %q", quotes[0].Source)
 	}
 }
 

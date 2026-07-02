@@ -376,3 +376,10 @@ export function formatMoney(cents: number) {
 export function formatPercentFromBps(bps: number) {
   return `${(bps / 100).toFixed(2)}%`;
 }
+
+export function formatPrice(cents: number | undefined | null) {
+  if (cents === undefined || cents === null || cents <= 0) {
+    return '—';
+  }
+  return formatMoney(cents);
+}

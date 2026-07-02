@@ -30,23 +30,23 @@ type loginFailure struct {
 }
 
 func New(cfg config.Config, db *storage.SQLite) *Server {
-	provider := marketdata.Provider(marketdata.NewMockProvider())
-	if cfg.MarketDataProvider == "coingecko" || cfg.MarketDataProvider == "live" {
-		provider = marketdata.NewCoinGeckoProvider(
-			cfg.CoinGeckoBaseURL,
-			cfg.CoinGeckoAPIKey,
-			time.Duration(cfg.MarketDataHTTPTimeout)*time.Second,
-			provider,
-		)
-	}
-	if cfg.MarketDataProvider == "finnhub" || cfg.MarketDataProvider == "live" {
-		provider = marketdata.NewFinnhubProvider(
-			cfg.FinnhubBaseURL,
-			cfg.FinnhubAPIKey,
-			time.Duration(cfg.MarketDataHTTPTimeout)*time.Second,
-			provider,
-		)
-	}
+	provider := marketdata.Provider(marketdata.NewRegistryProvider())
+	
+	// Unconditionally wrap with CoinGecko and Finnhub providers.
+	// They will dynamically load quotes if API keys/network are available,
+	// and automatically fall back to the RegistryProvider on failure.
+	provider = marketdata.NewCoinGeckoProvider(
+		cfg.CoinGeckoBaseURL,
+		cfg.CoinGeckoAPIKey,
+		time.Duration(cfg.MarketDataHTTPTimeout)*time.Second,
+		provider,
+	)
+	provider = marketdata.NewFinnhubProvider(
+		cfg.FinnhubBaseURL,
+		cfg.FinnhubAPIKey,
+		time.Duration(cfg.MarketDataHTTPTimeout)*time.Second,
+		provider,
+	)
 
 	secret := []byte(cfg.AuthSecret)
 	if len(secret) == 0 {
