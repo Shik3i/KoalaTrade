@@ -27,6 +27,10 @@
   import Toasts from './lib/components/Toasts.svelte';
   import {
     adminLogin,
+    changePassword,
+    deleteAccount,
+    deletePortfolioData,
+    exportAccount,
     fetchMe,
     fetchEsportsMatches,
     fetchEsportsResults,
@@ -41,6 +45,7 @@
     refreshMatchOdds,
     register,
     syncPortfolio,
+    updateAccount,
     type Candle,
     type ChartRange,
     type EsportsMatch,
@@ -446,6 +451,46 @@
     } finally {
       authBusy = false;
     }
+  }
+
+  async function handleUpdateAccount(displayName: string) {
+    const next = await updateAccount(displayName);
+    user = next;
+    toast.success('Profil gespeichert', next.displayName);
+  }
+
+  async function handleChangePassword(currentPassword: string, newPassword: string) {
+    await changePassword(currentPassword, newPassword);
+    toast.success('Passwort geändert');
+  }
+
+  async function handleExportAccount() {
+    const payload = await exportAccount();
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `koalatrade-export-${payload.user.username}-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    toast.success('Export erstellt', `${payload.portfolios.length} Portfolio-Snapshot${payload.portfolios.length === 1 ? '' : 's'}`);
+  }
+
+  async function handleDeletePortfolioData(password: string) {
+    await deletePortfolioData(password);
+    portfolio = await resetPortfolio(config?.startingCashCents ?? portfolio?.startingCashCents ?? 1_000_000);
+    syncMessage = 'Portfolio-Daten gelöscht';
+    toast.success('Portfolio-Daten gelöscht', 'Serverdaten entfernt und lokale Kopie zurückgesetzt.');
+  }
+
+  async function handleDeleteAccount(password: string) {
+    await deleteAccount(password);
+    user = null;
+    adminToken = null;
+    localStorage.removeItem(ADMIN_TOKEN_KEY);
+    toast.success('Account gelöscht', 'Serverseitige Account-Daten wurden entfernt.');
   }
 
   async function loadTeams() {
@@ -1245,6 +1290,11 @@
           onLogin={handleUserLogin}
           onRegister={handleUserRegister}
           onLogout={handleUserLogout}
+          onUpdateAccount={handleUpdateAccount}
+          onChangePassword={handleChangePassword}
+          onExportAccount={handleExportAccount}
+          onDeletePortfolioData={handleDeletePortfolioData}
+          onDeleteAccount={handleDeleteAccount}
         />
       </section>
     {:else}

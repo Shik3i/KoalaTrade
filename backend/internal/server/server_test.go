@@ -249,6 +249,126 @@ func TestAuthenticatedPortfolioSyncCanRestoreByUser(t *testing.T) {
 	}
 }
 
+func TestAccountManagement(t *testing.T) {
+	app := newTestServer(t)
+	router := app.Routes()
+	cookie := registerUser(t, router, "accountuser", "long-enough-password")
+
+	update := httptest.NewRequest(http.MethodPatch, "/api/account/", bytes.NewBufferString(`{"displayName":"Captain Paper"}`))
+	update.Header.Set("Content-Type", "application/json")
+	update.AddCookie(cookie)
+	updateRes := httptest.NewRecorder()
+	router.ServeHTTP(updateRes, update)
+	if updateRes.Code != http.StatusOK {
+		t.Fatalf("expected update status %d, got %d body=%s", http.StatusOK, updateRes.Code, updateRes.Body.String())
+	}
+	if got := updateRes.Body.String(); !strings.Contains(got, `"displayName":"Captain Paper"`) {
+		t.Fatalf("expected updated display name, got %s", got)
+	}
+
+	change := httptest.NewRequest(http.MethodPut, "/api/account/password", bytes.NewBufferString(`{"currentPassword":"long-enough-password","newPassword":"new-long-enough-password"}`))
+	change.Header.Set("Content-Type", "application/json")
+	change.AddCookie(cookie)
+	changeRes := httptest.NewRecorder()
+	router.ServeHTTP(changeRes, change)
+	if changeRes.Code != http.StatusOK {
+		t.Fatalf("expected password status %d, got %d body=%s", http.StatusOK, changeRes.Code, changeRes.Body.String())
+	}
+
+	oldLogin := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewBufferString(`{"username":"accountuser","password":"long-enough-password"}`))
+	oldLogin.Header.Set("Content-Type", "application/json")
+	oldLoginRes := httptest.NewRecorder()
+	router.ServeHTTP(oldLoginRes, oldLogin)
+	if oldLoginRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected old password to fail with %d, got %d", http.StatusUnauthorized, oldLoginRes.Code)
+	}
+
+	newLogin := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewBufferString(`{"username":"accountuser","password":"new-long-enough-password"}`))
+	newLogin.Header.Set("Content-Type", "application/json")
+	newLoginRes := httptest.NewRecorder()
+	router.ServeHTTP(newLoginRes, newLogin)
+	if newLoginRes.Code != http.StatusOK {
+		t.Fatalf("expected new password login status %d, got %d body=%s", http.StatusOK, newLoginRes.Code, newLoginRes.Body.String())
+	}
+}
+
+func TestAccountExportAndDeletePortfolioData(t *testing.T) {
+	app := newTestServer(t)
+	router := app.Routes()
+	cookie := registerUser(t, router, "exportuser", "long-enough-password")
+
+	body := `{
+		"id":"local-default",
+		"schemaVersion":1,
+		"startingCashCents":1000000,
+		"cashCents":770000,
+		"positions":[],
+		"transactions":[],
+		"createdAt":"2026-06-29T14:00:00Z",
+		"updatedAt":"2026-06-29T14:00:00Z"
+	}`
+	put := httptest.NewRequest(http.MethodPut, "/api/sync/portfolio", bytes.NewBufferString(body))
+	put.Header.Set("Content-Type", "application/json")
+	put.Header.Set("X-Koala-Client-ID", "client-12345678")
+	put.AddCookie(cookie)
+	putRes := httptest.NewRecorder()
+	router.ServeHTTP(putRes, put)
+	if putRes.Code != http.StatusOK {
+		t.Fatalf("expected sync status %d, got %d body=%s", http.StatusOK, putRes.Code, putRes.Body.String())
+	}
+
+	exportReq := httptest.NewRequest(http.MethodGet, "/api/account/export", nil)
+	exportReq.AddCookie(cookie)
+	exportRes := httptest.NewRecorder()
+	router.ServeHTTP(exportRes, exportReq)
+	if exportRes.Code != http.StatusOK {
+		t.Fatalf("expected export status %d, got %d body=%s", http.StatusOK, exportRes.Code, exportRes.Body.String())
+	}
+	if got := exportRes.Body.String(); !strings.Contains(got, `"username":"exportuser"`) || !strings.Contains(got, `"cashCents":770000`) {
+		t.Fatalf("expected exported user portfolio, got %s", got)
+	}
+
+	del := httptest.NewRequest(http.MethodDelete, "/api/account/portfolio-data", bytes.NewBufferString(`{"password":"long-enough-password"}`))
+	del.Header.Set("Content-Type", "application/json")
+	del.AddCookie(cookie)
+	delRes := httptest.NewRecorder()
+	router.ServeHTTP(delRes, del)
+	if delRes.Code != http.StatusOK {
+		t.Fatalf("expected delete portfolio status %d, got %d body=%s", http.StatusOK, delRes.Code, delRes.Body.String())
+	}
+
+	get := httptest.NewRequest(http.MethodGet, "/api/sync/portfolio?id=local-default", nil)
+	get.AddCookie(cookie)
+	getRes := httptest.NewRecorder()
+	router.ServeHTTP(getRes, get)
+	if getRes.Code != http.StatusNotFound {
+		t.Fatalf("expected deleted account portfolio status %d, got %d body=%s", http.StatusNotFound, getRes.Code, getRes.Body.String())
+	}
+}
+
+func TestDeleteAccountClearsSession(t *testing.T) {
+	app := newTestServer(t)
+	router := app.Routes()
+	cookie := registerUser(t, router, "deleteuser", "long-enough-password")
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/account/", bytes.NewBufferString(`{"password":"long-enough-password"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected delete account status %d, got %d body=%s", http.StatusOK, res.Code, res.Body.String())
+	}
+
+	me := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	me.AddCookie(cookie)
+	meRes := httptest.NewRecorder()
+	router.ServeHTTP(meRes, me)
+	if meRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected deleted account session status %d, got %d", http.StatusUnauthorized, meRes.Code)
+	}
+}
+
 func sessionCookie(t *testing.T, res *httptest.ResponseRecorder) *http.Cookie {
 	t.Helper()
 	for _, cookie := range res.Result().Cookies() {
@@ -258,6 +378,18 @@ func sessionCookie(t *testing.T, res *httptest.ResponseRecorder) *http.Cookie {
 	}
 	t.Fatalf("expected %s cookie, got %v", sessionCookieName, res.Result().Cookies())
 	return nil
+}
+
+func registerUser(t *testing.T, router http.Handler, username, password string) *http.Cookie {
+	t.Helper()
+	register := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewBufferString(`{"username":"`+username+`","password":"`+password+`"}`))
+	register.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, register)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected register status %d, got %d body=%s", http.StatusOK, res.Code, res.Body.String())
+	}
+	return sessionCookie(t, res)
 }
 
 func newTestServer(t *testing.T) *Server {

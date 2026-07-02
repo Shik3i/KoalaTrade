@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { LogIn, LogOut, Search, Star, Trophy, UserCircle2 } from '@lucide/svelte';
+  import { Download, KeyRound, LogIn, LogOut, Search, Star, Trash2, Trophy, UserCircle2 } from '@lucide/svelte';
   import type { EsportsTeamInfo, SessionUser } from '../api';
   import { MAX_FAVORITE_TEAMS } from '../preferences';
   import { formatMoney } from '../portfolio';
@@ -20,12 +20,26 @@
   export let onLogin: (username: string, password: string) => Promise<void>;
   export let onRegister: (username: string, password: string) => Promise<void>;
   export let onLogout: () => Promise<void>;
+  export let onUpdateAccount: (displayName: string) => Promise<void>;
+  export let onChangePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  export let onExportAccount: () => Promise<void>;
+  export let onDeletePortfolioData: (password: string) => Promise<void>;
+  export let onDeleteAccount: (password: string) => Promise<void>;
 
   let teamQuery = '';
   let authMode: 'login' | 'register' = 'login';
   let username = '';
   let password = '';
   let authError = '';
+  let displayName = '';
+  let currentPassword = '';
+  let newPassword = '';
+  let profileError = '';
+  let passwordError = '';
+  let dangerPassword = '';
+  let dangerError = '';
+  let busyAction: '' | 'profile' | 'password' | 'export' | 'portfolio' | 'account' = '';
+  let loadedUserId = '';
 
   $: q = teamQuery.trim().toLowerCase();
   $: results = (q
@@ -36,6 +50,10 @@
     (code) => teams.find((team) => team.code === code) ?? { code, name: code, league: '', image: '' }
   );
   $: atLimit = favoriteTeams.length >= MAX_FAVORITE_TEAMS;
+  $: if (user?.id !== loadedUserId) {
+    loadedUserId = user?.id ?? '';
+    displayName = user?.displayName ?? '';
+  }
 
   async function submitAuth() {
     authError = '';
@@ -48,6 +66,70 @@
       password = '';
     } catch (error) {
       authError = error instanceof Error ? error.message : 'Anmeldung fehlgeschlagen';
+    }
+  }
+
+  async function saveProfile() {
+    profileError = '';
+    busyAction = 'profile';
+    try {
+      await onUpdateAccount(displayName);
+    } catch (error) {
+      profileError = error instanceof Error ? error.message : 'Profil konnte nicht gespeichert werden';
+    } finally {
+      busyAction = '';
+    }
+  }
+
+  async function savePassword() {
+    passwordError = '';
+    busyAction = 'password';
+    try {
+      await onChangePassword(currentPassword, newPassword);
+      currentPassword = '';
+      newPassword = '';
+    } catch (error) {
+      passwordError = error instanceof Error ? error.message : 'Passwort konnte nicht geändert werden';
+    } finally {
+      busyAction = '';
+    }
+  }
+
+  async function exportData() {
+    dangerError = '';
+    busyAction = 'export';
+    try {
+      await onExportAccount();
+    } catch (error) {
+      dangerError = error instanceof Error ? error.message : 'Export fehlgeschlagen';
+    } finally {
+      busyAction = '';
+    }
+  }
+
+  async function deletePortfolioData() {
+    dangerError = '';
+    busyAction = 'portfolio';
+    try {
+      await onDeletePortfolioData(dangerPassword);
+      dangerPassword = '';
+    } catch (error) {
+      dangerError = error instanceof Error ? error.message : 'Portfolio-Daten konnten nicht gelöscht werden';
+    } finally {
+      busyAction = '';
+    }
+  }
+
+  async function deleteAccount() {
+    dangerError = '';
+    busyAction = 'account';
+    try {
+      await onDeleteAccount(dangerPassword);
+      dangerPassword = '';
+    } catch (error) {
+      dangerError = error instanceof Error ? error.message : 'Account konnte nicht gelöscht werden';
+    } finally {
+      busyAction = '';
     }
   }
 </script>
@@ -67,6 +149,39 @@
       <div class="account-row">
         <span>{user.username} · {user.role}</span>
         <button class="ghost-btn" type="button" disabled={authBusy} on:click={onLogout}><LogOut size={15} /> Logout</button>
+      </div>
+      <div class="account-management">
+        <form class="mini-form" on:submit|preventDefault={saveProfile}>
+          <div class="panel-head slim"><div><p class="eyebrow">Account</p><h3>Profil</h3></div><UserCircle2 size={16} /></div>
+          <label class="field"><span>Display Name</span><input bind:value={displayName} type="text" autocomplete="name" /></label>
+          {#if profileError}<p class="form-error">{profileError}</p>{/if}
+          <button class="primary-button" type="submit" disabled={busyAction === 'profile' || displayName.trim().length < 2}>
+            {busyAction === 'profile' ? 'Speichere …' : 'Profil speichern'}
+          </button>
+        </form>
+
+        <form class="mini-form" on:submit|preventDefault={savePassword}>
+          <div class="panel-head slim"><div><p class="eyebrow">Security</p><h3>Passwort</h3></div><KeyRound size={16} /></div>
+          <label class="field"><span>Aktuelles Passwort</span><input bind:value={currentPassword} type="password" autocomplete="current-password" /></label>
+          <label class="field"><span>Neues Passwort</span><input bind:value={newPassword} type="password" autocomplete="new-password" /></label>
+          {#if passwordError}<p class="form-error">{passwordError}</p>{/if}
+          <button class="primary-button" type="submit" disabled={busyAction === 'password' || currentPassword.length < 10 || newPassword.length < 10}>
+            {busyAction === 'password' ? 'Ändere …' : 'Passwort ändern'}
+          </button>
+        </form>
+
+        <section class="mini-form danger-zone">
+          <div class="panel-head slim"><div><p class="eyebrow">Daten</p><h3>Export & Delete</h3></div><Trash2 size={16} /></div>
+          <div class="danger-actions">
+            <button class="ghost-btn" type="button" disabled={busyAction === 'export'} on:click={exportData}><Download size={15} /> Export</button>
+          </div>
+          <label class="field"><span>Passwort für Löschaktionen</span><input bind:value={dangerPassword} type="password" autocomplete="current-password" /></label>
+          {#if dangerError}<p class="form-error">{dangerError}</p>{/if}
+          <div class="danger-actions">
+            <button class="ghost-btn danger" type="button" disabled={busyAction === 'portfolio' || dangerPassword.length < 10} on:click={deletePortfolioData}>Portfolio-Daten löschen</button>
+            <button class="ghost-btn danger" type="button" disabled={busyAction === 'account' || dangerPassword.length < 10} on:click={deleteAccount}>Account löschen</button>
+          </div>
+        </section>
       </div>
     {:else}
       <form class="auth-form" on:submit|preventDefault={submitAuth}>
@@ -193,7 +308,9 @@
   }
 
   .account-row,
+  .account-management,
   .auth-form,
+  .mini-form,
   .field {
     display: grid;
     gap: 0.55rem;
@@ -213,6 +330,29 @@
     margin-top: 0.9rem;
   }
 
+  .account-management {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin-top: 0.9rem;
+  }
+
+  .mini-form {
+    align-content: start;
+    padding: 0.8rem;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--bg-2);
+  }
+
+  .panel-head.slim {
+    margin-bottom: 0.1rem;
+  }
+
+  .panel-head.slim h3 {
+    margin: 0;
+    font-size: 1rem;
+  }
+
   .compact-segment {
     max-width: 18rem;
   }
@@ -230,11 +370,23 @@
     background: var(--panel-3);
   }
 
+  .ghost-btn.danger {
+    color: var(--red);
+    border-color: var(--red-soft);
+    background: var(--red-soft);
+  }
+
   .primary-button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 0.4rem;
+  }
+
+  .danger-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
   }
 
   .league-chips,
@@ -403,6 +555,10 @@
   @media (max-width: 560px) {
     .account-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .account-management {
+      grid-template-columns: 1fr;
     }
   }
 </style>

@@ -98,6 +98,11 @@ All configuration is via environment variables — see [`.env.example`](.env.exa
 | POST | `/api/auth/login` | User login → HttpOnly session cookie; admins also receive a bearer token |
 | POST | `/api/auth/logout` | Clear session cookie |
 | GET | `/api/auth/me` | Current authenticated user |
+| PATCH | `/api/account/` | Update display name |
+| PUT | `/api/account/password` | Change password |
+| GET | `/api/account/export` | Export account profile + account-bound portfolios |
+| DELETE | `/api/account/portfolio-data` | Delete account-bound portfolio data |
+| DELETE | `/api/account/` | Delete account |
 | `*` | `/api/admin/*` | Token-gated admin (settings, mappings, status, refresh) |
 
 ## Documentation

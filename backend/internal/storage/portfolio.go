@@ -189,6 +189,32 @@ func (s *SQLite) PortfolioByUser(ctx context.Context, userID, clientPortfolioID 
 	return s.portfolio(ctx, id)
 }
 
+func (s *SQLite) PortfoliosByUser(ctx context.Context, userID string) ([]Portfolio, error) {
+	var ids []string
+	if err := s.db.SelectContext(ctx, &ids, `SELECT id FROM portfolios
+		WHERE user_id = ?
+		ORDER BY updated_at DESC`, userID); err != nil {
+		return nil, fmt.Errorf("select portfolios by user: %w", err)
+	}
+	portfolios := make([]Portfolio, 0, len(ids))
+	for _, id := range ids {
+		portfolio, err := s.portfolio(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		portfolios = append(portfolios, portfolio)
+	}
+	return portfolios, nil
+}
+
+func (s *SQLite) DeletePortfoliosByUser(ctx context.Context, userID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM portfolios WHERE user_id = ?`, userID)
+	if err != nil {
+		return fmt.Errorf("delete user portfolios: %w", err)
+	}
+	return nil
+}
+
 func (s *SQLite) portfolio(ctx context.Context, id string) (Portfolio, error) {
 	var row portfolioRow
 	if err := s.db.GetContext(ctx, &row, `SELECT

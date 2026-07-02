@@ -98,6 +98,15 @@ func (s *Server) Routes() http.Handler {
 		r.Post("/auth/logout", s.handleLogout)
 		r.Get("/auth/me", s.handleMe)
 
+		r.Route("/account", func(r chi.Router) {
+			r.Use(s.requireUser)
+			r.Patch("/", s.handleUpdateAccount)
+			r.Put("/password", s.handleChangePassword)
+			r.Get("/export", s.handleExportAccount)
+			r.Delete("/portfolio-data", s.handleDeletePortfolioData)
+			r.Delete("/", s.handleDeleteAccount)
+		})
+
 		r.Route("/admin", func(r chi.Router) {
 			r.Use(s.requireAdmin)
 			r.Get("/settings", s.handleAdminSettings)

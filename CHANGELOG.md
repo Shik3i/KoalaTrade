@@ -9,6 +9,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - End-user accounts with registration/login/logout/me endpoints, HttpOnly cookie sessions, roles, registration toggle, and account-bound portfolio sync.
+- Account management for display names, password changes, account export, portfolio-data deletion, and account deletion.
 
 ## [0.1.2] - 2026-06-29
 

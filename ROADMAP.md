@@ -20,7 +20,7 @@ Today only the admin user exists; regular users are anonymous (browser-local por
   - [ ] Optional invite-code / allowlist mode
 - [x] **Roles & permissions** — `user` vs `admin`; gate admin UI by role from the token
 - [x] **Account ⇄ portfolio migration** — bind the current device-local portfolio to an account on first login; resolve conflicts with the existing sync model
-- [ ] **Account management** — change password, change display name, delete account (GDPR-friendly export/delete)
+- [x] **Account management** — change password, change display name, delete account (GDPR-friendly export/delete)
 
 ## v0.3.0 — Admin & Operations
 

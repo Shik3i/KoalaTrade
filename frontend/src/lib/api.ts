@@ -15,6 +15,12 @@ export type SessionUser = {
   role: 'user' | 'admin';
 };
 
+export type AccountExport = {
+  exportedAt: string;
+  user: SessionUser;
+  portfolios: PortfolioSnapshot[];
+};
+
 export type Market = {
   assetId: string;
   symbol: string;
@@ -120,6 +126,56 @@ export async function fetchMe(): Promise<SessionUser | null> {
   if (response.status === 401) return null;
   if (!response.ok) throw new Error(`Session request failed with ${response.status}`);
   return ((await response.json()) as { user: SessionUser }).user;
+}
+
+async function accountJson<T>(response: Response): Promise<T> {
+  if (response.status === 401) throw new Error('Sitzung abgelaufen oder Passwort falsch');
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(payload?.error ?? `Request fehlgeschlagen (${response.status})`);
+  }
+  return (await response.json()) as T;
+}
+
+export async function updateAccount(displayName: string): Promise<SessionUser> {
+  const response = await fetch('/api/account/', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ displayName })
+  });
+  return (await accountJson<{ user: SessionUser }>(response)).user;
+}
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  const response = await fetch('/api/account/password', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ currentPassword, newPassword })
+  });
+  await accountJson<{ ok: boolean }>(response);
+}
+
+export async function exportAccount(): Promise<AccountExport> {
+  const response = await fetch('/api/account/export', { headers: { Accept: 'application/json' } });
+  return accountJson<AccountExport>(response);
+}
+
+export async function deletePortfolioData(password: string): Promise<void> {
+  const response = await fetch('/api/account/portfolio-data', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ password })
+  });
+  await accountJson<{ ok: boolean }>(response);
+}
+
+export async function deleteAccount(password: string): Promise<void> {
+  const response = await fetch('/api/account/', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ password })
+  });
+  await accountJson<{ ok: boolean }>(response);
 }
 
 export async function adminLogin(username: string, password: string): Promise<{ token: string; expiresAt: string }> {

@@ -96,6 +96,38 @@ func (s *SQLite) UpdateUserRole(ctx context.Context, id, role string) error {
 	return nil
 }
 
+func (s *SQLite) UpdateUserDisplayName(ctx context.Context, id, displayName string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE user_profiles
+		SET display_name = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+		WHERE id = ?
+	`, strings.TrimSpace(displayName), id)
+	if err != nil {
+		return fmt.Errorf("update user display name: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLite) UpdateUserPasswordHash(ctx context.Context, id, passwordHash string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE user_profiles
+		SET password_hash = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+		WHERE id = ?
+	`, passwordHash, id)
+	if err != nil {
+		return fmt.Errorf("update user password: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLite) DeleteUser(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM user_profiles WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete user: %w", err)
+	}
+	return nil
+}
+
 func normalizeUsername(username string) string {
 	return strings.ToLower(strings.TrimSpace(username))
 }

@@ -160,6 +160,11 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, _ *http.Request) {
+	clearSessionCookie(w)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    "",
@@ -168,7 +173,6 @@ func (s *Server) handleLogout(w http.ResponseWriter, _ *http.Request) {
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
