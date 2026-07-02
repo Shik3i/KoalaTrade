@@ -5,6 +5,14 @@ export type PublicConfig = {
   environment: string;
   startingCashCents: number;
   marketDataSource: string;
+  registrationOpen: boolean;
+};
+
+export type SessionUser = {
+  id: string;
+  username: string;
+  displayName: string;
+  role: 'user' | 'admin';
 };
 
 export type Market = {
@@ -69,15 +77,55 @@ export type AdminStatus = {
   marketDataSource: string;
 };
 
-export async function adminLogin(username: string, password: string): Promise<{ token: string; expiresAt: string }> {
+export type AdminSettings = {
+  registrationOpen: boolean;
+};
+
+type LoginPayload = { token?: string; expiresAt: string; user: SessionUser };
+
+export async function login(username: string, password: string): Promise<LoginPayload> {
   const response = await fetch('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ username, password })
   });
   if (response.status === 401) throw new Error('Falsche Zugangsdaten');
+  if (response.status === 429) throw new Error('Zu viele Versuche. Bitte später erneut probieren.');
   if (!response.ok) throw new Error(`Login fehlgeschlagen (${response.status})`);
-  return (await response.json()) as { token: string; expiresAt: string };
+  return (await response.json()) as LoginPayload;
+}
+
+export async function register(username: string, password: string): Promise<LoginPayload> {
+  const response = await fetch('/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ username, password })
+  });
+  if (response.status === 403) throw new Error('Registrierung ist aktuell geschlossen');
+  if (response.status === 409) throw new Error('Benutzername ist bereits vergeben');
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(payload?.error ?? `Registrierung fehlgeschlagen (${response.status})`);
+  }
+  return (await response.json()) as LoginPayload;
+}
+
+export async function logout(): Promise<void> {
+  const response = await fetch('/api/auth/logout', { method: 'POST', headers: { Accept: 'application/json' } });
+  if (!response.ok) throw new Error(`Logout fehlgeschlagen (${response.status})`);
+}
+
+export async function fetchMe(): Promise<SessionUser | null> {
+  const response = await fetch('/api/auth/me', { headers: { Accept: 'application/json' } });
+  if (response.status === 401) return null;
+  if (!response.ok) throw new Error(`Session request failed with ${response.status}`);
+  return ((await response.json()) as { user: SessionUser }).user;
+}
+
+export async function adminLogin(username: string, password: string): Promise<{ token: string; expiresAt: string }> {
+  const payload = await login(username, password);
+  if (!payload.token) throw new Error('Admin-Rolle erforderlich');
+  return { token: payload.token, expiresAt: payload.expiresAt };
 }
 
 function adminHeaders(token: string) {
@@ -117,6 +165,20 @@ export async function deleteTeamMapping(token: string, originalCode: string): Pr
 export async function fetchAdminStatus(token: string): Promise<AdminStatus> {
   const response = await fetch('/api/admin/status', { headers: adminHeaders(token) });
   return adminJson<AdminStatus>(response);
+}
+
+export async function fetchAdminSettings(token: string): Promise<AdminSettings> {
+  const response = await fetch('/api/admin/settings', { headers: adminHeaders(token) });
+  return adminJson<AdminSettings>(response);
+}
+
+export async function updateAdminSettings(token: string, settings: AdminSettings): Promise<AdminSettings> {
+  const response = await fetch('/api/admin/settings', {
+    method: 'PUT',
+    headers: { ...adminHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings)
+  });
+  return adminJson<AdminSettings>(response);
 }
 
 export async function adminRefreshEsports(token: string): Promise<number> {

@@ -10,16 +10,16 @@ This roadmap covers what we want to build **after** merging and releasing **v0.1
 
 Today only the admin user exists; regular users are anonymous (browser-local portfolio + device-scoped sync). The next milestone makes real user accounts a first-class concept.
 
-- [ ] **Registration / login workflow** for end users
-  - [ ] `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`
-  - [ ] Reuse the existing PBKDF2 + token primitives (`internal/auth`); move tokens to secure, `HttpOnly`, `SameSite` cookies instead of `localStorage`
-  - [ ] Frontend register/login views + authenticated app state
-  - [ ] Password rules, rate limiting, and lockout on repeated failures
-- [ ] **Admin toggle: registration on/off**
-  - [ ] Setting persisted in `app_meta` (e.g. `registration_open`), exposed via `/api/config` and editable in the admin area
+- [x] **Registration / login workflow** for end users
+  - [x] `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`
+  - [x] Reuse the existing PBKDF2 + token primitives (`internal/auth`); move tokens to secure, `HttpOnly`, `SameSite` cookies instead of `localStorage`
+  - [x] Frontend register/login views + authenticated app state
+  - [x] Password rules, rate limiting, and lockout on repeated failures
+- [x] **Admin toggle: registration on/off**
+  - [x] Setting persisted in `app_meta` (e.g. `registration_open`), exposed via `/api/config` and editable in the admin area
   - [ ] Optional invite-code / allowlist mode
-- [ ] **Roles & permissions** — `user` vs `admin` (and room for `moderator`); gate admin UI by role from the token
-- [ ] **Account ⇄ portfolio migration** — bind the current device-local portfolio to an account on first login; resolve conflicts with the existing sync model
+- [x] **Roles & permissions** — `user` vs `admin`; gate admin UI by role from the token
+- [x] **Account ⇄ portfolio migration** — bind the current device-local portfolio to an account on first login; resolve conflicts with the existing sync model
 - [ ] **Account management** — change password, change display name, delete account (GDPR-friendly export/delete)
 
 ## v0.3.0 — Admin & Operations

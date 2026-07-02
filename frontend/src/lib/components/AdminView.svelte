@@ -4,8 +4,11 @@
     AdminAuthError,
     adminRefreshEsports,
     deleteTeamMapping,
+    fetchAdminSettings,
     fetchAdminStatus,
     fetchTeamMappings,
+    updateAdminSettings,
+    type AdminSettings,
     upsertTeamMapping,
     type AdminStatus,
     type EsportsMatch,
@@ -24,6 +27,7 @@
 
   let mappings: TeamMapping[] = [];
   let status: AdminStatus | null = null;
+  let settings: AdminSettings | null = null;
   let originalCode = '';
   let polymarketCode = '';
   let error = '';
@@ -57,7 +61,7 @@
     if (!token) return;
     error = '';
     try {
-      [mappings, status] = await Promise.all([fetchTeamMappings(token), fetchAdminStatus(token)]);
+      [mappings, status, settings] = await Promise.all([fetchTeamMappings(token), fetchAdminStatus(token), fetchAdminSettings(token)]);
     } catch (e) {
       handleError(e);
     }
@@ -108,6 +112,19 @@
     }
   }
 
+  async function toggleRegistration() {
+    if (!token || !settings) return;
+    busy = true;
+    error = '';
+    try {
+      settings = await updateAdminSettings(token, { registrationOpen: !settings.registrationOpen });
+    } catch (e) {
+      handleError(e);
+    } finally {
+      busy = false;
+    }
+  }
+
   function prefill(code: string) {
     originalCode = code;
     polymarketCode = '';
@@ -143,6 +160,14 @@
           <div><span>Ergebnisse</span><strong>{status.esports.resultsCount}</strong></div>
           <div><span>Teams</span><strong>{status.esports.teamCount}</strong></div>
           <div><span>Marktdaten</span><strong>{status.marketDataSource}</strong></div>
+        </div>
+      {/if}
+      {#if settings}
+        <div class="settings-row">
+          <span>Registrierung</span>
+          <button class:active={settings.registrationOpen} type="button" disabled={busy} on:click={toggleRegistration}>
+            {settings.registrationOpen ? 'Offen' : 'Geschlossen'}
+          </button>
         </div>
       {/if}
     </section>
@@ -261,6 +286,33 @@
     display: grid;
     grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 0.5rem;
+  }
+
+  .settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 0.86rem;
+  }
+
+  .settings-row button {
+    min-height: 2rem;
+    padding: 0 0.8rem;
+    border: 1px solid var(--line-2);
+    border-radius: 999px;
+    color: var(--text);
+    background: var(--panel-3);
+  }
+
+  .settings-row button.active {
+    color: var(--green);
+    border-color: var(--green-soft);
+    background: var(--green-soft);
   }
 
   .status-grid div {

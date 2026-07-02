@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { Search, Star, Trophy, UserCircle2 } from '@lucide/svelte';
-  import type { EsportsTeamInfo } from '../api';
+  import { LogIn, LogOut, Search, Star, Trophy, UserCircle2 } from '@lucide/svelte';
+  import type { EsportsTeamInfo, SessionUser } from '../api';
   import { MAX_FAVORITE_TEAMS } from '../preferences';
   import { formatMoney } from '../portfolio';
 
@@ -12,10 +12,20 @@
   export let clientId = '';
   export let equityCents = 0;
   export let startingCents = 0;
+  export let user: SessionUser | null = null;
+  export let registrationOpen = true;
+  export let authBusy = false;
   export let onToggleTeam: (code: string) => void;
   export let onToggleLeague: (id: string) => void;
+  export let onLogin: (username: string, password: string) => Promise<void>;
+  export let onRegister: (username: string, password: string) => Promise<void>;
+  export let onLogout: () => Promise<void>;
 
   let teamQuery = '';
+  let authMode: 'login' | 'register' = 'login';
+  let username = '';
+  let password = '';
+  let authError = '';
 
   $: q = teamQuery.trim().toLowerCase();
   $: results = (q
@@ -26,17 +36,52 @@
     (code) => teams.find((team) => team.code === code) ?? { code, name: code, league: '', image: '' }
   );
   $: atLimit = favoriteTeams.length >= MAX_FAVORITE_TEAMS;
+
+  async function submitAuth() {
+    authError = '';
+    try {
+      if (authMode === 'register') {
+        await onRegister(username, password);
+      } else {
+        await onLogin(username, password);
+      }
+      password = '';
+    } catch (error) {
+      authError = error instanceof Error ? error.message : 'Anmeldung fehlgeschlagen';
+    }
+  }
 </script>
 
 <div class="profile">
   <section class="panel account">
     <div class="panel-head"><div><p class="eyebrow">Profil</p><h2>Dein Account</h2></div><UserCircle2 size={18} /></div>
     <div class="account-grid">
+      <div><span>Status</span><strong>{user ? user.displayName : 'Lokal'}</strong></div>
       <div><span>Equity</span><strong>{formatMoney(equityCents)}</strong></div>
       <div><span>Startkapital</span><strong>{formatMoney(startingCents)}</strong></div>
       <div><span>Favoriten</span><strong>{favoriteTeams.length}/{MAX_FAVORITE_TEAMS}</strong></div>
       <div><span>Client-ID</span><strong class="mono">{clientId ? clientId.slice(0, 8) : '—'}</strong></div>
     </div>
+
+    {#if user}
+      <div class="account-row">
+        <span>{user.username} · {user.role}</span>
+        <button class="ghost-btn" type="button" disabled={authBusy} on:click={onLogout}><LogOut size={15} /> Logout</button>
+      </div>
+    {:else}
+      <form class="auth-form" on:submit|preventDefault={submitAuth}>
+        <div class="segmented compact-segment">
+          <button class:active={authMode === 'login'} type="button" on:click={() => (authMode = 'login')}>Login</button>
+          <button class:active={authMode === 'register'} type="button" disabled={!registrationOpen} on:click={() => (authMode = 'register')}>Registrieren</button>
+        </div>
+        <label class="field"><span>Benutzername</span><input bind:value={username} type="text" autocomplete="username" /></label>
+        <label class="field"><span>Passwort</span><input bind:value={password} type="password" autocomplete={authMode === 'login' ? 'current-password' : 'new-password'} /></label>
+        {#if authError}<p class="form-error">{authError}</p>{/if}
+        <button class="primary-button" type="submit" disabled={authBusy || username.trim().length < 3 || password.length < 10}>
+          <LogIn size={15} /> {authMode === 'register' ? 'Account erstellen' : 'Einloggen'}
+        </button>
+      </form>
+    {/if}
   </section>
 
   <section class="panel">
@@ -118,7 +163,7 @@
 
   .account-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 0.6rem;
   }
 
@@ -145,6 +190,51 @@
   .mono {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 0.95rem;
+  }
+
+  .account-row,
+  .auth-form,
+  .field {
+    display: grid;
+    gap: 0.55rem;
+  }
+
+  .account-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 0.8rem;
+    color: var(--muted);
+    font-size: 0.86rem;
+  }
+
+  .auth-form {
+    max-width: 26rem;
+    margin-top: 0.9rem;
+  }
+
+  .compact-segment {
+    max-width: 18rem;
+  }
+
+  .ghost-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 2.1rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--line-2);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 0.82rem;
+    background: var(--panel-3);
+  }
+
+  .primary-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
   }
 
   .league-chips,

@@ -94,8 +94,11 @@ All configuration is via environment variables — see [`.env.example`](.env.exa
 | GET | `/api/esports/teams` | Team catalogue |
 | GET | `/api/esports/results?ids=` | Settled results (bet resolution) |
 | GET/PUT | `/api/sync/portfolio` | Opt-in device-scoped portfolio sync |
-| POST | `/api/auth/login` | Admin login → bearer token |
-| `*` | `/api/admin/*` | Token-gated admin (mappings, status, refresh) |
+| POST | `/api/auth/register` | Create user account → HttpOnly session cookie |
+| POST | `/api/auth/login` | User login → HttpOnly session cookie; admins also receive a bearer token |
+| POST | `/api/auth/logout` | Clear session cookie |
+| GET | `/api/auth/me` | Current authenticated user |
+| `*` | `/api/admin/*` | Token-gated admin (settings, mappings, status, refresh) |
 
 ## Documentation
 

@@ -18,6 +18,7 @@ type configResponse struct {
 	Environment       string `json:"environment"`
 	StartingCashCents int64  `json:"startingCashCents"`
 	MarketDataSource  string `json:"marketDataSource"`
+	RegistrationOpen  bool   `json:"registrationOpen"`
 }
 
 type marketsResponse struct {
@@ -44,12 +45,13 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, status)
 }
 
-func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, configResponse{
 		AppName:           s.cfg.AppName,
 		Environment:       s.cfg.Environment,
 		StartingCashCents: s.cfg.StartingCashCents,
 		MarketDataSource:  s.cfg.MarketDataProvider,
+		RegistrationOpen:  s.registrationOpen(r.Context()),
 	})
 }
 

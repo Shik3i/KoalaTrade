@@ -179,6 +179,16 @@ func (s *SQLite) PortfolioByClient(ctx context.Context, clientID, clientPortfoli
 	return s.portfolio(ctx, id)
 }
 
+func (s *SQLite) PortfolioByUser(ctx context.Context, userID, clientPortfolioID string) (Portfolio, error) {
+	var id string
+	if err := s.db.GetContext(ctx, &id, `SELECT id FROM portfolios
+		WHERE user_id = ? AND client_portfolio_id = ?
+		ORDER BY updated_at DESC LIMIT 1`, userID, clientPortfolioID); err != nil {
+		return Portfolio{}, fmt.Errorf("select portfolio by user: %w", err)
+	}
+	return s.portfolio(ctx, id)
+}
+
 func (s *SQLite) portfolio(ctx context.Context, id string) (Portfolio, error) {
 	var row portfolioRow
 	if err := s.db.GetContext(ctx, &row, `SELECT

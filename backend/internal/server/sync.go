@@ -68,6 +68,7 @@ func (s *Server) handlePutPortfolioSync(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "valid client id is required"})
 		return
 	}
+	user, hasUser := s.currentUser(r)
 
 	var payload portfolioSyncRequest
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxSyncBodyBytes))
@@ -81,6 +82,9 @@ func (s *Server) handlePutPortfolioSync(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
 		return
+	}
+	if hasUser {
+		portfolio.UserID = user.ID
 	}
 
 	if err := s.db.UpsertPortfolio(r.Context(), portfolio); err != nil {
@@ -97,18 +101,24 @@ func (s *Server) handlePutPortfolioSync(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleGetPortfolioSync(w http.ResponseWriter, r *http.Request) {
-	clientID, ok := validToken(r.Header.Get(clientIDHeader))
-	if !ok {
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "valid client id is required"})
-		return
-	}
 	clientPortfolioID, ok := validToken(r.URL.Query().Get("id"))
 	if !ok {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "valid portfolio id is required"})
 		return
 	}
 
-	portfolio, err := s.db.PortfolioByClient(r.Context(), clientID, clientPortfolioID)
+	var portfolio storage.Portfolio
+	var err error
+	if user, ok := s.currentUser(r); ok {
+		portfolio, err = s.db.PortfolioByUser(r.Context(), user.ID, clientPortfolioID)
+	} else {
+		clientID, ok := validToken(r.Header.Get(clientIDHeader))
+		if !ok {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "valid client id is required"})
+			return
+		}
+		portfolio, err = s.db.PortfolioByClient(r.Context(), clientID, clientPortfolioID)
+	}
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, errorResponse{Error: "portfolio not found"})
 		return

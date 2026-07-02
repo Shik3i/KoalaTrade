@@ -6,7 +6,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-See [ROADMAP.md](ROADMAP.md) for planned work.
+### Added
+
+- End-user accounts with registration/login/logout/me endpoints, HttpOnly cookie sessions, roles, registration toggle, and account-bound portfolio sync.
 
 ## [0.1.2] - 2026-06-29
 

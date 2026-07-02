@@ -3,10 +3,27 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 )
+
+const (
+	RoleUser  = "user"
+	RoleAdmin = "admin"
+)
+
+type UserProfile struct {
+	ID           string `db:"id" json:"id"`
+	Username     string `db:"username" json:"username"`
+	DisplayName  string `db:"display_name" json:"displayName"`
+	Role         string `db:"role" json:"role"`
+	PasswordHash string `db:"password_hash" json:"-"`
+	Disabled     bool   `db:"disabled" json:"disabled"`
+	CreatedAt    string `db:"created_at" json:"createdAt"`
+	UpdatedAt    string `db:"updated_at" json:"updatedAt"`
+}
 
 // CountUsers reports how many admin/user profiles exist (used for one-time seeding).
 func (s *SQLite) CountUsers(ctx context.Context) (int, error) {
@@ -18,29 +35,69 @@ func (s *SQLite) CountUsers(ctx context.Context) (int, error) {
 }
 
 // CreateUser inserts a user profile with a pre-hashed password.
-func (s *SQLite) CreateUser(ctx context.Context, id, username, passwordHash string) error {
+func (s *SQLite) CreateUser(ctx context.Context, id, username, passwordHash, role string) error {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
+	username = normalizeUsername(username)
+	if role == "" {
+		role = RoleUser
+	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO user_profiles (id, username, password_hash, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?)
-	`, id, username, passwordHash, now, now)
+		INSERT INTO user_profiles (id, username, display_name, password_hash, role, disabled, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+	`, id, username, username, passwordHash, role, now, now)
 	if err != nil {
 		return fmt.Errorf("create user: %w", err)
 	}
 	return nil
 }
 
-// GetUserPasswordHash returns the stored password hash for a username.
-func (s *SQLite) GetUserPasswordHash(ctx context.Context, username string) (string, bool, error) {
-	var hash string
-	err := s.db.GetContext(ctx, &hash, `SELECT password_hash FROM user_profiles WHERE username = ?`, username)
+func (s *SQLite) UserByUsername(ctx context.Context, username string) (UserProfile, bool, error) {
+	var user UserProfile
+	err := s.db.GetContext(ctx, &user, `SELECT
+		id, username, COALESCE(display_name, username) AS display_name, role,
+		COALESCE(password_hash, '') AS password_hash, disabled, created_at, updated_at
+		FROM user_profiles WHERE username = ?`, normalizeUsername(username))
 	if err == sql.ErrNoRows {
-		return "", false, nil
+		return UserProfile{}, false, nil
 	}
 	if err != nil {
-		return "", false, fmt.Errorf("get user: %w", err)
+		return UserProfile{}, false, fmt.Errorf("get user by username: %w", err)
 	}
-	return hash, true, nil
+	return user, true, nil
+}
+
+func (s *SQLite) UserByID(ctx context.Context, id string) (UserProfile, bool, error) {
+	var user UserProfile
+	err := s.db.GetContext(ctx, &user, `SELECT
+		id, username, COALESCE(display_name, username) AS display_name, role,
+		COALESCE(password_hash, '') AS password_hash, disabled, created_at, updated_at
+		FROM user_profiles WHERE id = ?`, id)
+	if err == sql.ErrNoRows {
+		return UserProfile{}, false, nil
+	}
+	if err != nil {
+		return UserProfile{}, false, fmt.Errorf("get user by id: %w", err)
+	}
+	return user, true, nil
+}
+
+func (s *SQLite) UpdateUserRole(ctx context.Context, id, role string) error {
+	if role != RoleUser && role != RoleAdmin {
+		return errors.New("invalid role")
+	}
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE user_profiles
+		SET role = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+		WHERE id = ?
+	`, role, id)
+	if err != nil {
+		return fmt.Errorf("update user role: %w", err)
+	}
+	return nil
+}
+
+func normalizeUsername(username string) string {
+	return strings.ToLower(strings.TrimSpace(username))
 }
 
 type TeamMapping struct {

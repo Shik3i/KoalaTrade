@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -97,10 +98,17 @@ func (s *SQLite) configure() error {
 		`CREATE TABLE IF NOT EXISTS user_profiles (
 			id TEXT PRIMARY KEY,
 			username TEXT UNIQUE,
+			display_name TEXT,
 			password_hash TEXT,
+			role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+			disabled INTEGER NOT NULL DEFAULT 0 CHECK (disabled IN (0, 1)),
 			created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
 			updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 		);`,
+		`ALTER TABLE user_profiles ADD COLUMN display_name TEXT;`,
+		`ALTER TABLE user_profiles ADD COLUMN role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin'));`,
+		`ALTER TABLE user_profiles ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0 CHECK (disabled IN (0, 1));`,
+		`UPDATE user_profiles SET display_name = username WHERE display_name IS NULL OR display_name = '';`,
 		`CREATE TABLE IF NOT EXISTS assets (
 			id TEXT PRIMARY KEY,
 			kind TEXT NOT NULL CHECK (kind IN ('stock', 'etf', 'crypto', 'commodity', 'event')),
@@ -216,7 +224,7 @@ func (s *SQLite) configure() error {
 
 	for _, statement := range statements {
 		if _, err := conn.ExecContext(ctx, statement); err != nil {
-			if err == sql.ErrNoRows {
+			if err == sql.ErrNoRows || strings.Contains(err.Error(), "duplicate column name") {
 				continue
 			}
 			return fmt.Errorf("configure sqlite: %w", err)

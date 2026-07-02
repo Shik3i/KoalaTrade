@@ -27,6 +27,7 @@
   import Toasts from './lib/components/Toasts.svelte';
   import {
     adminLogin,
+    fetchMe,
     fetchEsportsMatches,
     fetchEsportsResults,
     fetchEsportsTeams,
@@ -35,7 +36,10 @@
     fetchPublicConfig,
     fetchQuotes,
     fetchSyncedPortfolio,
+    login,
+    logout,
     refreshMatchOdds,
+    register,
     syncPortfolio,
     type Candle,
     type ChartRange,
@@ -43,7 +47,8 @@
     type EsportsTeam,
     type EsportsTeamInfo,
     type Market,
-    type PublicConfig
+    type PublicConfig,
+    type SessionUser
   } from './lib/api';
   import { loadClientId, loadPortfolio, loadPreferences, resetPortfolio, savePortfolio, savePreferences } from './lib/portfolio-db';
   import { DEFAULT_LEAGUES, MAX_FAVORITE_TEAMS, defaultPreferences, type Preferences } from './lib/preferences';
@@ -119,6 +124,8 @@
   let activeView: AppView = 'landing';
   const ADMIN_TOKEN_KEY = 'koala-admin-token';
   let adminToken: string | null = null;
+  let user: SessionUser | null = null;
+  let authBusy = false;
   let clientId = '';
   let quoteTimer: ReturnType<typeof setInterval> | undefined;
   let showShortcuts = false;
@@ -157,6 +164,12 @@
     adminToken = localStorage.getItem(ADMIN_TOKEN_KEY);
 
     try {
+      user = await fetchMe();
+    } catch {
+      user = null;
+    }
+
+    try {
       clientId = await loadClientId();
     } catch (error) {
       toast.error('Sync nicht verfügbar', error instanceof Error ? error.message : undefined);
@@ -188,7 +201,7 @@
     }
 
     limitPriceInput = selectedMarket.priceCents / 100;
-    await restoreSyncedPortfolio();
+    await restoreSyncedPortfolio(!!user);
     await refreshQuotes();
     await loadHistory();
     void settleResolvedBets();
@@ -383,6 +396,7 @@
   async function handleAdminLogin(username: string, password: string) {
     const { token } = await adminLogin(username, password);
     adminToken = token;
+    user = await fetchMe();
     localStorage.setItem(ADMIN_TOKEN_KEY, token);
     toast.success('Angemeldet', 'Admin-Bereich entsperrt.');
   }
@@ -390,6 +404,48 @@
   function handleAdminLogout() {
     adminToken = null;
     localStorage.removeItem(ADMIN_TOKEN_KEY);
+  }
+
+  async function handleUserLogin(username: string, password: string) {
+    authBusy = true;
+    try {
+      const payload = await login(username, password);
+      user = payload.user;
+      if (payload.token) {
+        adminToken = payload.token;
+        localStorage.setItem(ADMIN_TOKEN_KEY, payload.token);
+      }
+      const restored = await restoreSyncedPortfolio(true);
+      if (restored !== 'restored') await handleSyncPortfolio();
+      toast.success('Eingeloggt', 'Portfolio ist mit deinem Account verbunden.');
+    } finally {
+      authBusy = false;
+    }
+  }
+
+  async function handleUserRegister(username: string, password: string) {
+    authBusy = true;
+    try {
+      const payload = await register(username, password);
+      user = payload.user;
+      await handleSyncPortfolio();
+      toast.success('Account erstellt', 'Dein lokales Portfolio wurde übernommen.');
+    } finally {
+      authBusy = false;
+    }
+  }
+
+  async function handleUserLogout() {
+    authBusy = true;
+    try {
+      await logout();
+      user = null;
+      adminToken = null;
+      localStorage.removeItem(ADMIN_TOKEN_KEY);
+      toast.info('Ausgeloggt', 'Lokales Portfolio bleibt auf diesem Gerät.');
+    } finally {
+      authBusy = false;
+    }
   }
 
   async function loadTeams() {
@@ -584,23 +640,35 @@
     }
   }
 
-  async function restoreSyncedPortfolio() {
-    if (!portfolio || !clientId || configError) return;
+  function isPristinePortfolio(snapshot: PortfolioSnapshot) {
+    return (
+      snapshot.positions.length === 0 &&
+      snapshot.transactions.length === 0 &&
+      snapshot.cashCents === snapshot.startingCashCents
+    );
+  }
+
+  async function restoreSyncedPortfolio(preferRemoteIfPristine = false): Promise<'restored' | 'missing' | 'kept' | 'unavailable'> {
+    if (!portfolio || !clientId || configError) return 'unavailable';
     try {
       const synced = await fetchSyncedPortfolio(clientId, PORTFOLIO_ID);
       if (!synced) {
         syncMessage = 'Sync bereit';
-        return;
+        return 'missing';
       }
-      if (new Date(synced.updatedAt).getTime() > new Date(portfolio.updatedAt).getTime()) {
+      const remoteIsNewer = new Date(synced.updatedAt).getTime() > new Date(portfolio.updatedAt).getTime();
+      const shouldRestore = remoteIsNewer || (preferRemoteIfPristine && isPristinePortfolio(portfolio));
+      if (shouldRestore) {
         await savePortfolio(synced, { touchUpdatedAt: false });
         portfolio = synced;
         syncMessage = `Wiederhergestellt ${formatUpdatedAt(synced.updatedAt)}`;
-        return;
+        return 'restored';
       }
       syncMessage = 'Lokales Portfolio aktuell';
+      return 'kept';
     } catch {
       syncMessage = 'Sync nicht verfügbar';
+      return 'unavailable';
     }
   }
 
@@ -1167,10 +1235,16 @@
           {teamsLoading}
           {leagueOptions}
           {clientId}
+          {user}
+          registrationOpen={config?.registrationOpen ?? true}
+          {authBusy}
           equityCents={summary.totalEquityCents}
           startingCents={portfolio?.startingCashCents ?? 0}
           onToggleTeam={toggleFavoriteTeam}
           onToggleLeague={toggleDefaultLeague}
+          onLogin={handleUserLogin}
+          onRegister={handleUserRegister}
+          onLogout={handleUserLogout}
         />
       </section>
     {:else}

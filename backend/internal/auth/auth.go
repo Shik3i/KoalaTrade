@@ -1,5 +1,5 @@
-// Package auth provides password hashing (stdlib PBKDF2) and signed bearer
-// tokens (HMAC-SHA256) for the admin area — no external dependencies.
+// Package auth provides password hashing (stdlib PBKDF2) and signed tokens
+// (HMAC-SHA256) for account sessions — no external dependencies.
 package auth
 
 import (
@@ -63,14 +63,28 @@ func VerifyPassword(password, stored string) bool {
 }
 
 type tokenPayload struct {
-	Sub string `json:"sub"`
-	Exp int64  `json:"exp"`
+	Sub      string `json:"sub"`
+	Username string `json:"username,omitempty"`
+	Role     string `json:"role,omitempty"`
+	Exp      int64  `json:"exp"`
+}
+
+type Claims struct {
+	Subject  string
+	Username string
+	Role     string
+	Expires  time.Time
 }
 
 // SignToken returns base64(payload).base64(hmac) signed with secret.
 func SignToken(secret []byte, subject string, ttl time.Duration) (string, time.Time, error) {
+	return SignSessionToken(secret, subject, "", "", ttl)
+}
+
+// SignSessionToken returns base64(payload).base64(hmac) signed with secret.
+func SignSessionToken(secret []byte, subject, username, role string, ttl time.Duration) (string, time.Time, error) {
 	expires := time.Now().Add(ttl).UTC()
-	payload, err := json.Marshal(tokenPayload{Sub: subject, Exp: expires.Unix()})
+	payload, err := json.Marshal(tokenPayload{Sub: subject, Username: username, Role: role, Exp: expires.Unix()})
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -80,29 +94,43 @@ func SignToken(secret []byte, subject string, ttl time.Duration) (string, time.T
 
 // VerifyToken validates the signature and expiry, returning the subject.
 func VerifyToken(secret []byte, token string) (string, error) {
+	claims, err := VerifySessionToken(secret, token)
+	if err != nil {
+		return "", err
+	}
+	return claims.Subject, nil
+}
+
+// VerifySessionToken validates the signature and expiry, returning all claims.
+func VerifySessionToken(secret []byte, token string) (Claims, error) {
 	encoded, sig, found := strings.Cut(token, ".")
 	if !found {
-		return "", errors.New("malformed token")
+		return Claims{}, errors.New("malformed token")
 	}
 	gotSig, err := b64.DecodeString(sig)
 	if err != nil {
-		return "", errors.New("malformed signature")
+		return Claims{}, errors.New("malformed signature")
 	}
 	if !hmac.Equal(gotSig, sign(secret, encoded)) {
-		return "", errors.New("invalid signature")
+		return Claims{}, errors.New("invalid signature")
 	}
 	raw, err := b64.DecodeString(encoded)
 	if err != nil {
-		return "", errors.New("malformed payload")
+		return Claims{}, errors.New("malformed payload")
 	}
 	var payload tokenPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		return "", errors.New("malformed payload")
+		return Claims{}, errors.New("malformed payload")
 	}
 	if time.Now().Unix() > payload.Exp {
-		return "", errors.New("token expired")
+		return Claims{}, errors.New("token expired")
 	}
-	return payload.Sub, nil
+	return Claims{
+		Subject:  payload.Sub,
+		Username: payload.Username,
+		Role:     payload.Role,
+		Expires:  time.Unix(payload.Exp, 0).UTC(),
+	}, nil
 }
 
 func sign(secret []byte, message string) []byte {

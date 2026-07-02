@@ -477,7 +477,7 @@ h2 {
   box-shadow: var(--shadow);
 }
 
-.landing-bands article :global(svg) {
+.landing-bands article svg {
   color: var(--green);
 }
 
@@ -1058,7 +1058,7 @@ h2 {
 }
 
 /* order book panel wrapper */
-.orderbook :global(.book),
+.orderbook .book,
 .event-card {
   font-variant-numeric: tabular-nums;
 }

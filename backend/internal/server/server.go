@@ -3,6 +3,7 @@ package server
 import (
 	"crypto/rand"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/Shik3i/KoalaTrade/backend/internal/config"
@@ -19,6 +20,13 @@ type Server struct {
 	marketData *marketdata.Service
 	esports    *esports.Service
 	authSecret []byte
+	loginMu    sync.Mutex
+	loginFails map[string]loginFailure
+}
+
+type loginFailure struct {
+	Count     int
+	LockedTil time.Time
 }
 
 func New(cfg config.Config, db *storage.SQLite) *Server {
@@ -50,6 +58,7 @@ func New(cfg config.Config, db *storage.SQLite) *Server {
 		cfg:        cfg,
 		db:         db,
 		authSecret: secret,
+		loginFails: make(map[string]loginFailure),
 		marketData: marketdata.NewService(provider, time.Duration(cfg.MarketDataCacheSeconds)*time.Second, db),
 		esports: esports.NewService(
 			cfg.LolesportsAPIKey,
@@ -84,10 +93,15 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/sync/portfolio", s.handleGetPortfolioSync)
 		r.Put("/sync/portfolio", s.handlePutPortfolioSync)
 
+		r.Post("/auth/register", s.handleRegister)
 		r.Post("/auth/login", s.handleLogin)
+		r.Post("/auth/logout", s.handleLogout)
+		r.Get("/auth/me", s.handleMe)
 
 		r.Route("/admin", func(r chi.Router) {
 			r.Use(s.requireAdmin)
+			r.Get("/settings", s.handleAdminSettings)
+			r.Put("/settings", s.handleUpdateAdminSettings)
 			r.Get("/mappings", s.handleListMappings)
 			r.Put("/mappings", s.handleUpsertMapping)
 			r.Delete("/mappings/{code}", s.handleDeleteMapping)
