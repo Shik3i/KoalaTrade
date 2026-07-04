@@ -30,7 +30,7 @@ KOALATRADE_DOMAIN=trade.example.com
 AUTH_SECRET=replace-with-a-long-random-secret
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=replace-with-a-strong-password
-MARKET_DATA_PROVIDER=mock
+FINNHUB_API_KEY=your-finnhub-key
 ```
 
 Start the stack:
@@ -53,13 +53,12 @@ Set these before exposing the service:
 | `AUTH_SECRET` | Keeps admin sessions valid across restarts and signs tokens |
 | `ADMIN_PASSWORD` | Enables the admin area with a real password |
 
-Optional live-data settings:
+Live-data settings (providers are always active; keys unlock live prices):
 
 | Variable | Why |
 |---|---|
-| `MARKET_DATA_PROVIDER` | `mock`, `coingecko`, `finnhub`, or `live` |
-| `COINGECKO_API_KEY` | Crypto live-data API key |
-| `FINNHUB_API_KEY` | Stocks/ETF/commodity live-data API key |
+| `FINNHUB_API_KEY` | Required for live stock/ETF/commodity prices (121 assets show `—` without it) |
+| `COINGECKO_API_KEY` | Optional crypto Demo-API key (crypto works without a key) |
 | `POLYMARKET_API_KEY` | Optional Polymarket API key |
 
 ## Data And Backups

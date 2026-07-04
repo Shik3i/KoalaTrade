@@ -8,7 +8,6 @@ import (
 
 const defaultStartingCashCents int64 = 1_000_000
 const defaultMarketDataCacheSeconds = 60
-const defaultMarketDataPollSeconds = 60
 
 // Full cycle over which every asset is refreshed exactly once. The poller
 // staggers asset refreshes evenly across this window so the per-minute provider
@@ -27,9 +26,7 @@ type Config struct {
 	Port                        int
 	Environment                 string
 	StartingCashCents           int64
-	MarketDataProvider          string
 	MarketDataCacheSeconds      int
-	MarketDataPollSeconds       int
 	MarketDataRefreshWindowSecs int
 	MarketDataHTTPTimeout       int
 	CoinGeckoBaseURL            string
@@ -52,9 +49,7 @@ func Load() Config {
 		Port:                        getEnvInt("PORT", 8080),
 		Environment:                 getEnv("APP_ENV", "development"),
 		StartingCashCents:           getEnvInt64("STARTING_CASH_CENTS", defaultStartingCashCents),
-		MarketDataProvider:          getEnv("MARKET_DATA_PROVIDER", "mock"),
 		MarketDataCacheSeconds:      getEnvInt("MARKET_DATA_CACHE_SECONDS", defaultMarketDataCacheSeconds),
-		MarketDataPollSeconds:       getEnvInt("MARKET_DATA_POLL_SECONDS", defaultMarketDataPollSeconds),
 		MarketDataRefreshWindowSecs: getEnvInt("MARKET_DATA_REFRESH_WINDOW_SECONDS", defaultMarketDataRefreshWindowSeconds),
 		MarketDataHTTPTimeout:       getEnvInt("MARKET_DATA_HTTP_TIMEOUT_SECONDS", 5),
 		CoinGeckoBaseURL:            getEnv("COINGECKO_BASE_URL", ""),

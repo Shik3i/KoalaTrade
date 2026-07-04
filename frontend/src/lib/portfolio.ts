@@ -106,7 +106,7 @@ export function applyTrade(
   if (input.side === 'buy') {
     const totalCostCents = grossCents + feeCents;
     if (totalCostCents > cashCents) {
-      throw new Error('Not enough cash for this simulated order');
+      throw new Error('Not enough cash for this order');
     }
 
     cashCents -= totalCostCents;
@@ -134,7 +134,7 @@ export function applyTrade(
     }
   } else {
     if (!existing || existing.quantity < input.quantity) {
-      throw new Error('Not enough position size for this simulated sell');
+      throw new Error('Not enough position size for this sell');
     }
 
     cashCents += grossCents - feeCents;

@@ -28,7 +28,6 @@ func TestHealthz(t *testing.T) {
 		Port:                   8080,
 		Environment:            "test",
 		StartingCashCents:      1_000_000,
-		MarketDataProvider:     "mock",
 		MarketDataCacheSeconds: 60,
 		MarketDataHTTPTimeout:  5,
 	}, db)
@@ -60,7 +59,6 @@ func TestMarkets(t *testing.T) {
 		Port:                   8080,
 		Environment:            "test",
 		StartingCashCents:      1_000_000,
-		MarketDataProvider:     "mock",
 		MarketDataCacheSeconds: 60,
 		MarketDataHTTPTimeout:  5,
 	}, db)
@@ -476,7 +474,6 @@ func newTestServer(t *testing.T) *Server {
 		Port:                   8080,
 		Environment:            "test",
 		StartingCashCents:      1_000_000,
-		MarketDataProvider:     "mock",
 		MarketDataCacheSeconds: 60,
 		MarketDataHTTPTimeout:  5,
 	}, db)

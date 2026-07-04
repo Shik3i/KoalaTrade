@@ -50,9 +50,19 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		AppName:           s.cfg.AppName,
 		Environment:       s.cfg.Environment,
 		StartingCashCents: s.cfg.StartingCashCents,
-		MarketDataSource:  s.cfg.MarketDataProvider,
+		MarketDataSource:  s.marketDataSource(),
 		RegistrationOpen:  s.registrationOpen(r.Context()),
 	})
+}
+
+// marketDataSource reports which live providers are actually wired up, so the UI
+// never shows a misleading placeholder like "mock". CoinGecko is always active
+// (crypto needs no key); Finnhub is active only when an API key is configured.
+func (s *Server) marketDataSource() string {
+	if strings.TrimSpace(s.cfg.FinnhubAPIKey) != "" {
+		return "finnhub+coingecko"
+	}
+	return "coingecko"
 }
 
 func (s *Server) handleMarkets(w http.ResponseWriter, r *http.Request) {

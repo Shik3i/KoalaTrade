@@ -32,7 +32,7 @@ External APIs: esports-api.lolesports.com · gamma-api.polymarket.com · finnhub
 |---|---|
 | `config` | Environment configuration |
 | `server` | chi router, handlers, middleware, pollers, admin |
-| `marketdata` | Provider interface (mock/CoinGecko/Finnhub), quote cache |
+| `marketdata` | Provider interface (registry catalogue → CoinGecko → Finnhub), quote cache |
 | `esports` | Schedule, Polymarket odds, slug mapping, results, status |
 | `storage` | SQLite access (portfolios, snapshots, mappings, users, meta) |
 | `auth` | Password hashing + signed tokens |
@@ -40,7 +40,7 @@ External APIs: esports-api.lolesports.com · gamma-api.polymarket.com · finnhub
 ## Frontend layout (`frontend/src/`)
 
 - `App.svelte` — shell, views (Trade/Portfolio/Markets/eSports/Profile/Admin), state.
-- `lib/components/` — `AreaChart`, `OrderBook`, `Sparkline`, `EsportsView`, `ProfileView`, `AdminView`, `Toasts`.
+- `lib/components/` — `AreaChart`, `EsportsView`, `ProfileView`, `AdminView`, `Toasts`.
 - `lib/` — `api.ts` (typed client), `portfolio.ts` (trade engine + analytics), `portfolio-db.ts` (IndexedDB), `preferences.ts`, `toast.ts`.
 
 ## Rate limiting

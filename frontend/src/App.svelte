@@ -20,7 +20,6 @@
   import AdminView from './lib/components/AdminView.svelte';
   import AreaChart from './lib/components/AreaChart.svelte';
   import EsportsView from './lib/components/EsportsView.svelte';
-  import OrderBook from './lib/components/OrderBook.svelte';
   import ProfileView from './lib/components/ProfileView.svelte';
   import Toasts from './lib/components/Toasts.svelte';
   import {
@@ -266,6 +265,7 @@
     const pnlBps = costBasisCents > 0 ? Math.round((pnlCents / costBasisCents) * 10_000) : 0;
     return { ...position, marketValueCents, pnlCents, pnlBps };
   });
+  $: selectedPositionRow = positionRows.find((row) => row.assetId === selectedMarket.assetId);
   $: sortedPositionRows = [...positionRows].sort((a, b) =>
     positionSort === 'pnl' ? b.pnlCents - a.pnlCents : b.marketValueCents - a.marketValueCents
   );
@@ -1073,10 +1073,27 @@
         </section>
 
         <aside class="execution-column" aria-label="Execution">
-          <section class="panel orderbook" aria-label="Order book">
-            <div class="panel-head"><div><p class="eyebrow">Illustrativ</p><h2>Orderbuch</h2></div><Activity size={18} /></div>
-            <OrderBook priceCents={selectedMarket.priceCents} symbol={selectedMarket.symbol} />
-            <p class="panel-note">Simulierte Tiefe – keine echten L2-Daten.</p>
+          <section class="panel market-detail" aria-label="Marktdetails">
+            <div class="panel-head"><div><p class="eyebrow">Live · {selectedMarket.source || '—'}</p><h2>Marktdetails</h2></div><Activity size={18} /></div>
+            <div class="detail-grid">
+              <div><span>Preis</span><strong>{formatPrice(selectedMarket.priceCents)}</strong></div>
+              <div><span>24h</span><strong class={selectedMarket.priceCents > 0 ? changeColor(selectedMarket.changeBps) : ''}>{selectedMarket.priceCents > 0 ? formatPercentFromBps(selectedMarket.changeBps) : '—'}</strong></div>
+              <div><span>Typ</span><strong>{selectedMarket.kind}</strong></div>
+              <div><span>Aktualisiert</span><strong>{selectedMarket.updatedAt ? formatUpdatedAt(selectedMarket.updatedAt) : '—'}</strong></div>
+            </div>
+            {#if selectedPositionRow}
+              <div class="detail-position">
+                <p class="eyebrow">Deine Position</p>
+                <div class="detail-grid">
+                  <div><span>Menge</span><strong>{formatQuantity(selectedPositionRow.quantity)}</strong></div>
+                  <div><span>Ø-Einstand</span><strong>{formatMoney(selectedPositionRow.averageCostCents)}</strong></div>
+                  <div><span>Marktwert</span><strong>{formatMoney(selectedPositionRow.marketValueCents)}</strong></div>
+                  <div><span>P&amp;L</span><strong class={changeColor(selectedPositionRow.pnlCents)}>{formatSignedMoney(selectedPositionRow.pnlCents)}</strong></div>
+                </div>
+              </div>
+            {:else}
+              <p class="panel-note">Noch keine Position in {selectedMarket.symbol}.</p>
+            {/if}
           </section>
 
           <section class="order-panel panel" aria-label="Order ticket">

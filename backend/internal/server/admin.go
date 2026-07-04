@@ -400,7 +400,7 @@ func (s *Server) handleAdminSlugPreview(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"esports":          s.esports.Status(r.Context()),
-		"marketDataSource": s.cfg.MarketDataProvider,
+		"marketDataSource": s.marketDataSource(),
 	})
 }
 

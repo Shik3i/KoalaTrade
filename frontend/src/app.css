@@ -1129,9 +1129,38 @@ h4 {
   font-size: 1.05rem;
 }
 
-/* order book panel wrapper */
-.orderbook .book {
+/* market detail panel */
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
   font-variant-numeric: tabular-nums;
+}
+
+.detail-grid > div {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--bg-2);
+}
+
+.detail-grid span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.detail-grid strong {
+  font-size: 0.95rem;
+}
+
+.detail-position {
+  margin-top: 0.85rem;
+  display: grid;
+  gap: 0.5rem;
 }
 
 /* ---------- scrollable views (portfolio, markets) ---------- */

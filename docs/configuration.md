@@ -15,15 +15,15 @@ to `.env` (git-ignored) and adjust. Docker Compose loads `.env` automatically.
 
 ## Market data
 
+Providers are always wired up (Finnhub → CoinGecko → registry fallback); there is no provider-selection switch. A layer produces live data only when reachable/keyed.
+
 | Variable | Default | Description |
 |---|---|---|
-| `MARKET_DATA_PROVIDER` | `mock` | `mock`, `coingecko`, `finnhub`, or `live` (overlay both) |
 | `MARKET_DATA_CACHE_SECONDS` | `60` | Quote cache TTL |
-| `MARKET_DATA_POLL_SECONDS` | `60` | Poll tick interval |
-| `MARKET_DATA_REFRESH_WINDOW_SECONDS` | `900` | Full window over which all assets are refreshed once (staggered to respect per-minute rate limits) |
+| `MARKET_DATA_REFRESH_WINDOW_SECONDS` | `900` | Full window over which all assets are refreshed once (poller staggers evenly to respect per-minute rate limits) |
 | `MARKET_DATA_HTTP_TIMEOUT_SECONDS` | `5` | Upstream HTTP timeout |
-| `COINGECKO_BASE_URL` / `COINGECKO_API_KEY` | — | CoinGecko overlay (BTC) |
-| `FINNHUB_BASE_URL` / `FINNHUB_API_KEY` | — | Finnhub overlay (SPY/GLD) |
+| `COINGECKO_BASE_URL` / `COINGECKO_API_KEY` | — | CoinGecko (crypto); key optional (Demo API) |
+| `FINNHUB_BASE_URL` / `FINNHUB_API_KEY` | — | Finnhub (stocks/ETFs/commodities); key required for live equity prices |
 
 ## eSports
 
