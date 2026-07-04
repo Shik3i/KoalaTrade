@@ -99,6 +99,50 @@ func TestSQLiteStoresFreshMarketQuotes(t *testing.T) {
 	}
 }
 
+// Regression: reopening the database (i.e. a server restart) must NOT wipe
+// accumulated asset history. The legacy-schema migration is idempotent.
+func TestSQLiteHistorySurvivesReopen(t *testing.T) {
+	path := t.TempDir() + "/koalatrade.db"
+	ctx := context.Background()
+	now := time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC)
+
+	store, err := OpenSQLite(path)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	markets := []marketdata.Market{{
+		AssetID: "crypto:btc", Symbol: "BTC", Name: "Bitcoin",
+		Kind: marketdata.AssetKindCrypto, Source: "mock", UpdatedAt: now,
+	}}
+	if err := store.UpsertMarkets(ctx, markets); err != nil {
+		t.Fatalf("upsert markets: %v", err)
+	}
+	if err := store.StoreQuotes(ctx, []marketdata.Quote{{
+		AssetID: "crypto:btc", Symbol: "BTC", PriceCents: 6_123_456, ChangeBPS: 140,
+		Source: "mock", UpdatedAt: now, CachedUntil: now.Add(time.Minute),
+	}}); err != nil {
+		t.Fatalf("store quotes: %v", err)
+	}
+	_ = store.Close()
+
+	// Reopen the same file — configure() runs again.
+	reopened, err := OpenSQLite(path)
+	if err != nil {
+		t.Fatalf("reopen sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+
+	// Use the 1D tier (≈1000-day retention) so the assertion doesn't depend on
+	// the wall clock the way the short-lived 5M tier would.
+	history, err := reopened.GetHistory(ctx, "crypto:btc", "1D", now.Add(-72*time.Hour))
+	if err != nil {
+		t.Fatalf("get history: %v", err)
+	}
+	if len(history) == 0 {
+		t.Fatal("expected history to survive reopen, got none")
+	}
+}
+
 func TestSQLitePortfolioTablesAcceptNormalizedHoldings(t *testing.T) {
 	store, err := OpenSQLite(t.TempDir() + "/koalatrade.db")
 	if err != nil {

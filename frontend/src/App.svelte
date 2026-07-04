@@ -4,7 +4,6 @@
     ArrowLeft,
     CandlestickChart,
     CloudUpload,
-    Gauge,
     LineChart,
     Keyboard,
     RotateCcw,
@@ -23,7 +22,6 @@
   import EsportsView from './lib/components/EsportsView.svelte';
   import OrderBook from './lib/components/OrderBook.svelte';
   import ProfileView from './lib/components/ProfileView.svelte';
-  import Sparkline from './lib/components/Sparkline.svelte';
   import Toasts from './lib/components/Toasts.svelte';
   import {
     adminLogin,
@@ -76,12 +74,19 @@
   const QUANTITY_STEP = 0.0001;
   const chartRanges: ChartRange[] = ['1H', '1D', '1W', '1M', '1Y'];
   const quantityPresets = [0.25, 0.5, 0.75, 1] as const;
-  const orderTypes = [
-    { id: 'market', label: 'Market' },
-    { id: 'limit', label: 'Limit' },
-    { id: 'stop', label: 'Stop' }
-  ] as const;
-  type OrderType = (typeof orderTypes)[number]['id'];
+
+  // Safe placeholder so template/reactive access never dereferences `undefined`
+  // when markets fail to load (e.g. backend offline) — avoids a blank screen.
+  const EMPTY_MARKET: Market = {
+    assetId: '',
+    symbol: '—',
+    name: 'Keine Marktdaten',
+    kind: 'stock',
+    source: '',
+    priceCents: 0,
+    changeBps: 0,
+    updatedAt: ''
+  };
 
   const marketFilters = [
     { id: 'all', label: 'Alle' },
@@ -111,9 +116,7 @@
   let marketQuery = '';
   let marketFilter: MarketFilter = 'all';
   let orderSide: 'buy' | 'sell' = 'buy';
-  let orderType: OrderType = 'market';
   let orderQuantity: number | string = 1;
-  let limitPriceInput = 0;
   let orderError = '';
   let isSyncing = false;
   let syncMessage = 'Sync bereit';
@@ -126,6 +129,9 @@
   let clientId = '';
   let quoteTimer: ReturnType<typeof setInterval> | undefined;
   let showShortcuts = false;
+  let showResetConfirm = false;
+  let showOnboarding = false;
+  const ONBOARDING_KEY = 'koala-onboarded';
 
   // Chart state
   let chartRange: ChartRange = '1D';
@@ -197,21 +203,35 @@
       portfolio = createInitialPortfolio(config?.startingCashCents ?? 1_000_000);
     }
 
-    limitPriceInput = selectedMarket ? selectedMarket.priceCents / 100 : 0;
     await restoreSyncedPortfolio(!!user);
     await refreshQuotes();
     await loadHistory();
     void settleResolvedBets();
     quoteTimer = setInterval(refreshQuotes, 30_000);
+
+    // Show the one-time welcome the first time someone opens the app.
+    try {
+      showOnboarding = localStorage.getItem(ONBOARDING_KEY) !== '1';
+    } catch {
+      showOnboarding = false;
+    }
   });
+
+  function dismissOnboarding() {
+    showOnboarding = false;
+    try {
+      localStorage.setItem(ONBOARDING_KEY, '1');
+    } catch {
+      // Best-effort; a private window just sees the welcome again next time.
+    }
+  }
 
   onDestroy(() => {
     if (quoteTimer) clearInterval(quoteTimer);
   });
 
   $: summary = summarizePortfolio(portfolio ?? createInitialPortfolio(config?.startingCashCents ?? 1_000_000));
-  $: selectedMarket = markets.find((item) => item.assetId === selectedAssetId) ?? markets[0];
-  $: isEvent = selectedMarket ? selectedMarket.kind === 'event' : false;
+  $: selectedMarket = markets.find((item) => item.assetId === selectedAssetId) ?? markets[0] ?? EMPTY_MARKET;
   $: query = marketQuery.trim().toLowerCase();
   $: filteredMarkets = markets.filter((market) => {
     const matchesFilter = marketFilter === 'all' || market.kind === marketFilter;
@@ -219,10 +239,9 @@
     return matchesFilter && matchesQuery;
   });
 
-  $: effectivePriceCents =
-    orderType === 'market' ? (selectedMarket ? selectedMarket.priceCents : 0) : Math.max(0, Math.round(Number(limitPriceInput) * 100));
+  $: effectivePriceCents = selectedMarket.priceCents;
   $: normalizedOrderQuantity = Number.isFinite(Number(orderQuantity)) ? Number(orderQuantity) : 0;
-  $: selectedPosition = selectedMarket ? positionList.find((position) => position.assetId === selectedMarket.assetId) : undefined;
+  $: selectedPosition = positionList.find((position) => position.assetId === selectedMarket.assetId);
   $: selectedPositionQuantity = selectedPosition?.quantity ?? 0;
   $: estimatedOrderValue = Math.round(normalizedOrderQuantity * effectivePriceCents);
   $: estimatedOrderFee = Math.max(0, Math.round((estimatedOrderValue * ORDER_FEE_BPS) / 10_000));
@@ -359,8 +378,10 @@
     }
 
     if (settled.length > 0) {
-      await savePortfolio(snapshot);
+      // Assign synchronously before awaiting the write so a concurrent flow
+      // (e.g. the 30s quote refresh) can't read a stale snapshot and clobber it.
       portfolio = snapshot;
+      await savePortfolio(snapshot);
       for (const item of settled) {
         if (item.won) {
           toast.success('Wette gewonnen', `${item.symbol} → +${formatMoney(item.quantity * 100)}`);
@@ -555,8 +576,8 @@
     if (updates.length === 0) return;
     const marked = markPositionsToMarket(portfolio, updates);
     if (marked !== portfolio) {
-      await savePortfolio(marked);
       portfolio = marked;
+      await savePortfolio(marked);
     }
   }
 
@@ -581,8 +602,8 @@
         priceCents: team.priceCents,
         feeCents
       });
-      await savePortfolio(next);
       portfolio = next;
+      await savePortfolio(next);
       toast.success('Wette platziert', `${contracts}× ${team.code} @ ${formatMoney(team.priceCents)}`);
     } catch (error) {
       toast.error('Wette fehlgeschlagen', error instanceof Error ? error.message : undefined);
@@ -607,8 +628,8 @@
         priceCents: position.lastPriceCents,
         feeCents
       });
-      await savePortfolio(next);
       portfolio = next;
+      await savePortfolio(next);
       toast.success('Cash-out', `${position.symbol} für ${formatMoney(grossCents - feeCents)}`);
     } catch (error) {
       toast.error('Cash-out fehlgeschlagen', error instanceof Error ? error.message : undefined);
@@ -616,6 +637,7 @@
   }
 
   async function handleResetPortfolio() {
+    showResetConfirm = false;
     portfolio = await resetPortfolio(config?.startingCashCents ?? portfolio?.startingCashCents ?? 1_000_000);
     orderError = '';
     toast.info('Portfolio zurückgesetzt', 'Startkapital wiederhergestellt.');
@@ -628,7 +650,7 @@
       return;
     }
     if (effectivePriceCents <= 0) {
-      orderError = 'Bitte einen gültigen Limit-Preis eingeben';
+      orderError = 'Kein gültiger Marktpreis verfügbar';
       return;
     }
     if (!canSubmitOrder) {
@@ -648,8 +670,8 @@
         priceCents: effectivePriceCents,
         feeCents: estimatedOrderFee
       });
-      await savePortfolio(nextPortfolio);
       portfolio = nextPortfolio;
+      await savePortfolio(nextPortfolio);
       toast.success(
         `${orderSide === 'buy' ? 'Kauf' : 'Verkauf'} ausgeführt`,
         `${formatQuantity(normalizedOrderQuantity)} ${selectedMarket.symbol} @ ${formatMoney(effectivePriceCents)}`
@@ -723,8 +745,8 @@
       if (portfolio) {
         const marked = markPositionsToMarket(portfolio, quotes);
         if (marked !== portfolio) {
-          await savePortfolio(marked);
           portfolio = marked;
+          await savePortfolio(marked);
         }
       }
       marketsError = '';
@@ -741,33 +763,6 @@
       result.push(window.reduce((sum, value) => sum + value, 0) / window.length);
     }
     return result;
-  }
-
-  function miniSeries(market: Market): number[] {
-    const n = 18;
-    const base = market.priceCents || 1;
-    const drift = market.changeBps / 10_000;
-    const start = base / (1 + drift || 1);
-    let seed = 0;
-    for (const ch of market.assetId) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
-    const out: number[] = [];
-    for (let i = 0; i < n; i++) {
-      seed = (seed * 1_103_515_245 + 12_345) & 0x7fffffff;
-      const t = i / (n - 1);
-      const noise = (seed / 0x7fffffff - 0.5) * (Math.abs(drift) || 0.01) * base * 0.55;
-      out.push(start + (base - start) * t + noise);
-    }
-    out[n - 1] = base;
-    return out;
-  }
-
-  function resolutionLabel(market: Market) {
-    let seed = 0;
-    for (const ch of market.assetId) seed = (seed * 17 + ch.charCodeAt(0)) >>> 0;
-    const days = 2 + (seed % 21);
-    const date = new Date();
-    date.setDate(date.getDate() + days);
-    return { days, label: new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: 'short' }).format(date) };
   }
 
   function formatUpdatedAt(value: string) {
@@ -806,10 +801,14 @@
   }
 
   function selectMarket(assetId: string, jumpToTrade = false) {
+    // eSports event markets aren't in the tradable catalogue; route them to the
+    // eSports desk instead of silently falling back to an unrelated stock.
+    if (assetId.startsWith('event:')) {
+      setActiveView('esports');
+      return;
+    }
     selectedAssetId = assetId;
     orderError = '';
-    const market = markets.find((item) => item.assetId === assetId);
-    if (market) limitPriceInput = market.priceCents / 100;
     if (jumpToTrade) setActiveView('trade');
   }
 
@@ -870,7 +869,7 @@
         <h1>Märkte meistern, ohne echtes Geld zu riskieren.</h1>
         <p>
           KoalaTrade vereint Aktien, ETFs, Crypto, Rohstoffe und eSports-Eventmärkte in einem schnellen Paper-Trading-Desk —
-          zum Lernen, Üben und Wettbewerben.
+          zum Lernen und Üben, ganz ohne echtes Risiko.
         </p>
         <div class="landing-actions">
           <button class="primary-button" type="button" on:click={() => setActiveView('trade')}>Desk starten</button>
@@ -889,13 +888,13 @@
             <strong>{selectedMarket.symbol}</strong>
             <span>{selectedMarket.name}</span>
           </div>
-          <strong>{formatMoney(selectedMarket.priceCents)}</strong>
-          <em class={marketTone(selectedMarket.changeBps)}>{formatPercentFromBps(selectedMarket.changeBps)}</em>
+          <strong>{formatPrice(selectedMarket.priceCents)}</strong>
+          <em class={selectedMarket.priceCents > 0 ? marketTone(selectedMarket.changeBps) : ''}>{selectedMarket.priceCents > 0 ? formatPercentFromBps(selectedMarket.changeBps) : '—'}</em>
         </div>
 
         <div class="preview-chart">
           <AreaChart
-            series={candles.length ? candles.map((c) => c.close) : miniSeries(selectedMarket)}
+            series={candles.map((c) => c.close)}
             height={210}
             formatValue={formatMoney}
           />
@@ -962,7 +961,7 @@
         <button class="icon-button" type="button" aria-label="Portfolio synchronisieren" title="Sync" disabled={isSyncing || !portfolio || !!configError} on:click={handleSyncPortfolio}>
           <CloudUpload size={18} />
         </button>
-        <button class="icon-button" type="button" aria-label="Portfolio zurücksetzen" title="Reset" on:click={handleResetPortfolio}>
+        <button class="icon-button" type="button" aria-label="Portfolio zurücksetzen" title="Reset" on:click={() => (showResetConfirm = true)}>
           <RotateCcw size={18} />
         </button>
       </div>
@@ -1074,53 +1073,22 @@
         </section>
 
         <aside class="execution-column" aria-label="Execution">
-          {#if isEvent}
-            <section class="panel event-card" aria-label="Event market">
-              <div class="panel-head"><div><p class="eyebrow">Prediction</p><h2>Wahrscheinlichkeit</h2></div><Gauge size={18} /></div>
-              <div class="event-prob">
-                <div class="prob-yes" style={`--p:${Math.min(100, Math.round(selectedMarket.priceCents))}%`}>
-                  <span>Yes</span><strong>{Math.round(selectedMarket.priceCents)}%</strong>
-                </div>
-                <div class="prob-no" style={`--p:${Math.max(0, 100 - Math.round(selectedMarket.priceCents))}%`}>
-                  <span>No</span><strong>{Math.max(0, 100 - Math.round(selectedMarket.priceCents))}%</strong>
-                </div>
-              </div>
-              <div class="event-meta">
-                <span>Auflösung <strong>{resolutionLabel(selectedMarket).label}</strong></span>
-                <span>in <strong>{resolutionLabel(selectedMarket).days} Tagen</strong></span>
-              </div>
-              <p class="event-hint">Yes-Kontrakt zu {formatMoney(selectedMarket.priceCents)} · Auszahlung {formatMoney(10_000)} bei Win.</p>
-            </section>
-          {:else}
-            <section class="panel orderbook" aria-label="Order book">
-              <div class="panel-head"><div><p class="eyebrow">Tiefe</p><h2>Orderbuch</h2></div><Activity size={18} /></div>
-              <OrderBook priceCents={selectedMarket.priceCents} symbol={selectedMarket.symbol} />
-            </section>
-          {/if}
+          <section class="panel orderbook" aria-label="Order book">
+            <div class="panel-head"><div><p class="eyebrow">Illustrativ</p><h2>Orderbuch</h2></div><Activity size={18} /></div>
+            <OrderBook priceCents={selectedMarket.priceCents} symbol={selectedMarket.symbol} />
+            <p class="panel-note">Simulierte Tiefe – keine echten L2-Daten.</p>
+          </section>
 
           <section class="order-panel panel" aria-label="Order ticket">
             <div class="panel-head">
-              <div><p class="eyebrow">Order-Ticket</p><h2>{isEvent ? (orderSide === 'buy' ? 'Buy Yes' : 'Sell Yes') : orderSide === 'buy' ? 'Kaufen' : 'Verkaufen'} {selectedMarket.symbol}</h2></div>
+              <div><p class="eyebrow">Order-Ticket · Market</p><h2>{orderSide === 'buy' ? 'Kaufen' : 'Verkaufen'} {selectedMarket.symbol}</h2></div>
               <Zap size={18} />
             </div>
             <form class="order-form" on:submit|preventDefault={handleSubmitOrder}>
               <div class="segmented" aria-label="Order-Seite">
-                <button class:active={orderSide === 'buy'} type="button" on:click={() => setOrderSide('buy')}>{isEvent ? 'Yes' : 'Kaufen'}</button>
-                <button class:active={orderSide === 'sell'} class="sell" type="button" on:click={() => setOrderSide('sell')}>{isEvent ? 'No' : 'Verkaufen'}</button>
+                <button class:active={orderSide === 'buy'} type="button" on:click={() => setOrderSide('buy')}>Kaufen</button>
+                <button class:active={orderSide === 'sell'} class="sell" type="button" on:click={() => setOrderSide('sell')}>Verkaufen</button>
               </div>
-
-              <div class="order-types" aria-label="Order-Typ">
-                {#each orderTypes as type}
-                  <button class:active={orderType === type.id} type="button" on:click={() => (orderType = type.id)}>{type.label}</button>
-                {/each}
-              </div>
-
-              {#if orderType !== 'market'}
-                <label class="field">
-                  <span>{orderType === 'limit' ? 'Limit-Preis' : 'Stop-Preis'} ($)</span>
-                  <input bind:value={limitPriceInput} min="0" step="0.01" type="number" />
-                </label>
-              {/if}
 
               <label class="field">
                 <span>Menge</span>
@@ -1136,7 +1104,7 @@
               <div class="order-power"><span>{orderPowerLabel}</span><strong>{orderPowerValue}</strong></div>
 
               <div class="order-summary">
-                <div><span>{orderType === 'market' ? 'Marktpreis' : orderType === 'limit' ? 'Limit-Preis' : 'Stop-Preis'}</span><strong>{formatMoney(effectivePriceCents)}</strong></div>
+                <div><span>Marktpreis</span><strong>{formatMoney(effectivePriceCents)}</strong></div>
                 <div><span>Bruttowert</span><strong>{formatMoney(estimatedOrderValue)}</strong></div>
                 <div><span>Gebühr ({(ORDER_FEE_BPS / 100).toFixed(2)}%)</span><strong>{formatMoney(estimatedOrderFee)}</strong></div>
                 <div class="total"><span>{orderSide === 'buy' ? 'Cash-Belastung' : 'Cash-Gutschrift'}</span><strong>{formatMoney(estimatedOrderTotal)}</strong></div>
@@ -1144,7 +1112,7 @@
 
               {#if orderError}<p class="form-error">{orderError}</p>{/if}
               <button class="primary-button" class:danger={orderSide === 'sell'} type="submit" disabled={!canSubmitOrder}>
-                {isEvent ? (orderSide === 'buy' ? 'Buy Yes' : 'Sell Yes') : orderSide === 'buy' ? 'Kaufen' : 'Verkaufen'} {selectedMarket.symbol}
+                {orderSide === 'buy' ? 'Kaufen' : 'Verkaufen'} {selectedMarket.symbol}
               </button>
             </form>
           </section>
@@ -1247,10 +1215,9 @@
                   <div><strong>{item.symbol}</strong><small>{item.name}</small></div>
                   <span class="kind-tag">{item.kind}</span>
                 </div>
-                <Sparkline values={miniSeries(item)} tone={marketTone(item.changeBps)} height={42} />
                 <div class="card-bottom">
-                  <strong>{formatMoney(item.priceCents)}</strong>
-                  <em class={marketTone(item.changeBps)}>{formatPercentFromBps(item.changeBps)}</em>
+                  <strong>{formatPrice(item.priceCents)}</strong>
+                  <em class={item.priceCents > 0 ? marketTone(item.changeBps) : ''}>{item.priceCents > 0 ? formatPercentFromBps(item.changeBps) : '—'}</em>
                 </div>
               </button>
             {/each}
@@ -1335,6 +1302,36 @@
           <li><kbd>?</kbd><span>Diese Hilfe</span></li>
         </ul>
         <button class="primary-button" type="button" on:click={() => (showShortcuts = false)}>Schließen</button>
+      </div>
+    </div>
+  {/if}
+
+  {#if showResetConfirm}
+    <div class="shortcuts-overlay">
+      <button class="shortcuts-backdrop" type="button" aria-label="Schließen" on:click={() => (showResetConfirm = false)}></button>
+      <div class="shortcuts-card" role="dialog" aria-label="Portfolio zurücksetzen" aria-modal="true">
+        <div class="panel-head"><div><p class="eyebrow">Bestätigen</p><h2>Portfolio zurücksetzen?</h2></div><RotateCcw size={18} /></div>
+        <p class="confirm-text">Alle Positionen, Trades und dein Verlauf werden gelöscht und das Startkapital von {formatMoney(portfolio?.startingCashCents ?? config?.startingCashCents ?? 1_000_000)} wiederhergestellt. Das kann nicht rückgängig gemacht werden.</p>
+        <div class="confirm-actions">
+          <button class="ghost-button" type="button" on:click={() => (showResetConfirm = false)}>Abbrechen</button>
+          <button class="primary-button danger" type="button" on:click={handleResetPortfolio}>Zurücksetzen</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if showOnboarding}
+    <div class="shortcuts-overlay">
+      <button class="shortcuts-backdrop" type="button" aria-label="Schließen" on:click={dismissOnboarding}></button>
+      <div class="shortcuts-card onboarding-card" role="dialog" aria-label="Willkommen" aria-modal="true">
+        <div class="panel-head"><div><p class="eyebrow">Willkommen bei KoalaTrade</p><h2>Paper-Trading in 30 Sekunden</h2></div><Sparkles size={18} /></div>
+        <ul class="onboarding-list">
+          <li><WalletCards size={16} /><span>Du startest mit <strong>{formatMoney(config?.startingCashCents ?? 1_000_000)}</strong> Spielgeld – <strong>kein echtes Risiko</strong>.</span></li>
+          <li><CandlestickChart size={16} /><span>Handle Aktien, ETFs, Krypto und Rohstoffe zum Live-Marktpreis über das Order-Ticket.</span></li>
+          <li><Trophy size={16} /><span>Wette im <strong>eSports</strong>-Bereich auf LoL-Matches – Yes zahlt {formatMoney(10_000)} bei Sieg.</span></li>
+          <li><UserCircle2 size={16} /><span>Optional: Account anlegen, um dein Portfolio geräteübergreifend zu synchronisieren.</span></li>
+        </ul>
+        <button class="primary-button" type="button" on:click={dismissOnboarding}>Los geht's</button>
       </div>
     </div>
   {/if}

@@ -155,27 +155,59 @@ func (s *SQLite) StoreQuotes(ctx context.Context, quotes []marketdata.Quote) err
 
 		// Only store history if price is greater than 0
 		if quote.PriceCents > 0 {
-			_, err = s.db.ExecContext(ctx, `INSERT OR IGNORE INTO asset_history (
-				asset_id, timestamp, price_cents
-			) VALUES (?, ?, ?)`,
-				quote.AssetID,
-				formatTime(quote.UpdatedAt),
-				quote.PriceCents,
-			)
-			if err != nil {
-				return fmt.Errorf("store quote history %s: %w", quote.AssetID, err)
+			// Define the 4 tiers for rounding
+			tiers := []struct {
+				timeframe string
+				bucket    time.Time
+			}{
+				{"5M", quote.UpdatedAt.Truncate(5 * time.Minute)},
+				{"1H", quote.UpdatedAt.Truncate(time.Hour)},
+				{"6H", quote.UpdatedAt.Truncate(6 * time.Hour)},
+				{"1D", quote.UpdatedAt.Truncate(24 * time.Hour)},
+			}
+
+			for _, t := range tiers {
+				_, err = s.db.ExecContext(ctx, `INSERT INTO asset_history (
+					asset_id, timeframe, timestamp, price_cents
+				) VALUES (?, ?, ?, ?)
+				ON CONFLICT(asset_id, timeframe, timestamp) DO UPDATE SET
+					price_cents = excluded.price_cents`,
+					quote.AssetID,
+					t.timeframe,
+					formatTime(t.bucket),
+					quote.PriceCents,
+				)
+				if err != nil {
+					return fmt.Errorf("store quote history %s (tier %s): %w", quote.AssetID, t.timeframe, err)
+				}
 			}
 		}
 	}
 
-	// Compress and prune: Delete records older than 30 days
-	cutoff := time.Now().UTC().AddDate(0, 0, -30)
-	_, _ = s.db.ExecContext(ctx, `DELETE FROM asset_history WHERE timestamp < ?`, formatTime(cutoff))
+	// Compress and prune: delete old records for each tier independently
+	now := time.Now().UTC()
+	prunes := []struct {
+		timeframe string
+		cutoff    time.Time
+	}{
+		{"5M", now.Add(-24 * time.Hour)},
+		{"1H", now.AddDate(0, 0, -7)},
+		{"6H", now.AddDate(0, 0, -30)},
+		{"1D", now.AddDate(0, 0, -1000)},
+	}
+
+	for _, p := range prunes {
+		_, _ = s.db.ExecContext(ctx, `
+			DELETE FROM asset_history 
+			WHERE timeframe = ? AND timestamp < ?`,
+			p.timeframe, formatTime(p.cutoff),
+		)
+	}
 
 	return nil
 }
 
-func (s *SQLite) GetHistory(ctx context.Context, assetID string, cutoff time.Time) ([]marketdata.Quote, error) {
+func (s *SQLite) GetHistory(ctx context.Context, assetID string, timeframe string, cutoff time.Time) ([]marketdata.Quote, error) {
 	var rows []struct {
 		AssetID    string `db:"asset_id"`
 		Timestamp  string `db:"timestamp"`
@@ -184,9 +216,9 @@ func (s *SQLite) GetHistory(ctx context.Context, assetID string, cutoff time.Tim
 	err := s.db.SelectContext(ctx, &rows, `
 		SELECT asset_id, timestamp, price_cents
 		FROM asset_history
-		WHERE asset_id = ? AND timestamp >= ?
+		WHERE asset_id = ? AND timeframe = ? AND timestamp >= ?
 		ORDER BY timestamp ASC`,
-		assetID, formatTime(cutoff),
+		assetID, timeframe, formatTime(cutoff),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("select history: %w", err)

@@ -25,18 +25,14 @@ type historyResponse struct {
 	Candles []candle `json:"candles"`
 }
 
-type rangeSpec struct {
-	points int
-	step   time.Duration
-	vol    float64
-}
-
-var historyRanges = map[string]rangeSpec{
-	"1H": {points: 60, step: time.Minute, vol: 0.0009},
-	"1D": {points: 96, step: 15 * time.Minute, vol: 0.0016},
-	"1W": {points: 168, step: time.Hour, vol: 0.0034},
-	"1M": {points: 90, step: 8 * time.Hour, vol: 0.0052},
-	"1Y": {points: 180, step: 48 * time.Hour, vol: 0.0089},
+// historyRanges maps a requested chart range to the candle bucket width used to
+// aggregate the persisted quotes into OHLCV candles.
+var historyRanges = map[string]time.Duration{
+	"1H": time.Minute,
+	"1D": 15 * time.Minute,
+	"1W": time.Hour,
+	"1M": 8 * time.Hour,
+	"1Y": 48 * time.Hour,
 }
 
 // handleMarketHistory serves the real historical quotes from the SQLite database
@@ -49,10 +45,10 @@ func (s *Server) handleMarketHistory(w http.ResponseWriter, r *http.Request) {
 		assetID = chi.URLParam(r, "assetId")
 	}
 	rng := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("range")))
-	spec, ok := historyRanges[rng]
+	step, ok := historyRanges[rng]
 	if !ok {
 		rng = "1D"
-		spec = historyRanges[rng]
+		step = historyRanges[rng]
 	}
 
 	// Calculate cutoff based on range
@@ -73,15 +69,30 @@ func (s *Server) handleMarketHistory(w http.ResponseWriter, r *http.Request) {
 		cutoff = now.Add(-24 * time.Hour)
 	}
 
+	// Determine database timeframe bucket
+	var timeframe string
+	switch rng {
+	case "1H", "1D":
+		timeframe = "5M"
+	case "1W":
+		timeframe = "1H"
+	case "1M":
+		timeframe = "6H"
+	case "1Y":
+		timeframe = "1D"
+	default:
+		timeframe = "5M"
+	}
+
 	// Load quotes from SQLite database
-	historyQuotes, err := s.db.GetHistory(r.Context(), assetID, cutoff)
+	historyQuotes, err := s.db.GetHistory(r.Context(), assetID, timeframe, cutoff)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "history unavailable: " + err.Error()})
 		return
 	}
 
 	// Aggregate raw quotes into OHLCV candles
-	candles := aggregateCandles(historyQuotes, spec.step)
+	candles := aggregateCandles(historyQuotes, step)
 
 	// Fetch current live price and anchor the final candle
 	markets, err := s.marketData.Markets(r.Context())
@@ -98,7 +109,7 @@ func (s *Server) handleMarketHistory(w http.ResponseWriter, r *http.Request) {
 		if found && price > 0 {
 			if len(candles) > 0 {
 				last := &candles[len(candles)-1]
-				if now.Sub(last.Time) < spec.step {
+				if now.Sub(last.Time) < step {
 					last.Close = price
 					if last.High < price {
 						last.High = price
@@ -108,7 +119,7 @@ func (s *Server) handleMarketHistory(w http.ResponseWriter, r *http.Request) {
 					}
 				} else {
 					candles = append(candles, candle{
-						Time:   now.Truncate(spec.step),
+						Time:   now.Truncate(step),
 						Open:   last.Close,
 						High:   price,
 						Low:    price,

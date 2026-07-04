@@ -134,12 +134,13 @@ func (s *SQLite) configure() error {
 		);`,
 		`CREATE TABLE IF NOT EXISTS asset_history (
 			asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+			timeframe TEXT NOT NULL,
 			timestamp TEXT NOT NULL,
 			price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
-			PRIMARY KEY (asset_id, timestamp)
+			PRIMARY KEY (asset_id, timeframe, timestamp)
 		);`,
-		`CREATE INDEX IF NOT EXISTS idx_asset_history_timestamp
-			ON asset_history(timestamp);`,
+		`CREATE INDEX IF NOT EXISTS idx_asset_history_timeframe_timestamp
+			ON asset_history(timeframe, timestamp);`,
 		`CREATE INDEX IF NOT EXISTS idx_asset_quotes_cached_until
 			ON asset_quotes(cached_until);`,
 		`CREATE TABLE IF NOT EXISTS portfolios (
@@ -179,7 +180,7 @@ func (s *SQLite) configure() error {
 			symbol TEXT NOT NULL,
 			side TEXT NOT NULL CHECK (side IN ('buy', 'sell')),
 			quantity_micro INTEGER NOT NULL CHECK (quantity_micro > 0),
-			price_cents INTEGER NOT NULL CHECK (price_cents > 0),
+			price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
 			fee_cents INTEGER NOT NULL CHECK (fee_cents >= 0),
 			status TEXT NOT NULL CHECK (status IN ('local', 'synced')),
 			created_at TEXT NOT NULL
@@ -230,6 +231,21 @@ func (s *SQLite) configure() error {
 	}
 	defer conn.Close()
 
+	// One-time migration: the asset_history schema gained a `timeframe` column as
+	// part of the primary key. The old shape can't be ALTERed into the new one in
+	// SQLite, so drop it — but ONLY when it still has the old schema, so this does
+	// not wipe accumulated history on every restart.
+	if err := migrateLegacyAssetHistory(ctx, conn); err != nil {
+		return fmt.Errorf("migrate asset_history: %w", err)
+	}
+
+	// One-time migration: relax the portfolio_transactions price constraint from
+	// `> 0` to `>= 0` so settled losing eSports bets (which pay out 0¢) can be
+	// recorded and synced. The indexes are recreated by the statements loop below.
+	if err := migrateTransactionPriceConstraint(ctx, conn); err != nil {
+		return fmt.Errorf("migrate portfolio_transactions: %w", err)
+	}
+
 	for _, statement := range statements {
 		if _, err := conn.ExecContext(ctx, statement); err != nil {
 			if err == sql.ErrNoRows || strings.Contains(err.Error(), "duplicate column name") {
@@ -239,5 +255,91 @@ func (s *SQLite) configure() error {
 		}
 	}
 
+	return nil
+}
+
+// migrateLegacyAssetHistory drops asset_history only if it exists with the old
+// (pre-timeframe) schema, so the new CREATE TABLE IF NOT EXISTS can recreate it.
+// Once migrated, the table already has the `timeframe` column and is left alone —
+// making this safe to run on every startup without losing history.
+func migrateLegacyAssetHistory(ctx context.Context, conn *sqlx.Conn) error {
+	rows, err := conn.QueryContext(ctx, `PRAGMA table_info(asset_history)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	hasColumns := false
+	hasTimeframe := false
+	for rows.Next() {
+		var (
+			cid       int
+			name      string
+			ctype     string
+			notNull   int
+			dfltValue sql.NullString
+			pk        int
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dfltValue, &pk); err != nil {
+			return err
+		}
+		hasColumns = true
+		if name == "timeframe" {
+			hasTimeframe = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	// Table exists (has columns) but predates the timeframe column → drop it once.
+	if hasColumns && !hasTimeframe {
+		if _, err := conn.ExecContext(ctx, `DROP TABLE asset_history`); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// migrateTransactionPriceConstraint rebuilds portfolio_transactions if it still
+// carries the legacy `price_cents > 0` CHECK, replacing it with `price_cents >= 0`.
+// It is a no-op once migrated (or on a fresh database).
+func migrateTransactionPriceConstraint(ctx context.Context, conn *sqlx.Conn) error {
+	var ddl sql.NullString
+	err := conn.QueryRowContext(ctx,
+		`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'portfolio_transactions'`,
+	).Scan(&ddl)
+	if err == sql.ErrNoRows {
+		return nil // fresh DB: the statements loop creates the up-to-date schema.
+	}
+	if err != nil {
+		return err
+	}
+	if !ddl.Valid || !strings.Contains(ddl.String, "price_cents > 0") {
+		return nil // already migrated.
+	}
+
+	steps := []string{
+		`ALTER TABLE portfolio_transactions RENAME TO portfolio_transactions_legacy;`,
+		`CREATE TABLE portfolio_transactions (
+			id TEXT PRIMARY KEY,
+			portfolio_id TEXT NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+			asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE RESTRICT,
+			symbol TEXT NOT NULL,
+			side TEXT NOT NULL CHECK (side IN ('buy', 'sell')),
+			quantity_micro INTEGER NOT NULL CHECK (quantity_micro > 0),
+			price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
+			fee_cents INTEGER NOT NULL CHECK (fee_cents >= 0),
+			status TEXT NOT NULL CHECK (status IN ('local', 'synced')),
+			created_at TEXT NOT NULL
+		);`,
+		`INSERT INTO portfolio_transactions SELECT * FROM portfolio_transactions_legacy;`,
+		`DROP TABLE portfolio_transactions_legacy;`,
+	}
+	for _, step := range steps {
+		if _, err := conn.ExecContext(ctx, step); err != nil {
+			return err
+		}
+	}
 	return nil
 }

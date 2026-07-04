@@ -22,6 +22,15 @@ func main() {
 
 	cfg := config.Load()
 
+	// Warn loudly about insecure production defaults. An empty AUTH_SECRET means a
+	// fresh random signing key on every boot, invalidating all sessions on restart.
+	if cfg.AuthSecret == "" {
+		logger.Warn("AUTH_SECRET is not set: a random key is generated per start, so all sessions are invalidated on restart. Set AUTH_SECRET in production.")
+	}
+	if cfg.Environment == "production" && cfg.AdminPassword == "" {
+		logger.Warn("ADMIN_PASSWORD is not set in production: the admin account cannot be seeded with a password.")
+	}
+
 	db, err := storage.OpenSQLite(cfg.DatabasePath)
 	if err != nil {
 		logger.Error("open database", "error", err)

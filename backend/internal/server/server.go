@@ -31,7 +31,7 @@ type loginFailure struct {
 
 func New(cfg config.Config, db *storage.SQLite) *Server {
 	provider := marketdata.Provider(marketdata.NewRegistryProvider())
-	
+
 	// Unconditionally wrap with CoinGecko and Finnhub providers.
 	// They will dynamically load quotes if API keys/network are available,
 	// and automatically fall back to the RegistryProvider on failure.

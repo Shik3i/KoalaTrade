@@ -145,6 +145,73 @@ func TestPortfolioSyncRoundTrip(t *testing.T) {
 	}
 }
 
+// Regression: an eSports event position (not in the static catalogue) together
+// with a settled losing bet (0¢ payout transaction) must sync successfully.
+func TestPortfolioSyncAcceptsEsportsBets(t *testing.T) {
+	app := newTestServer(t)
+	body := `{
+		"id":"local-default",
+		"schemaVersion":1,
+		"startingCashCents":1000000,
+		"cashCents":999450,
+		"positions":[{
+			"assetId":"event:lol:98765:T1",
+			"symbol":"T1",
+			"name":"T1 schlägt GEN · LCK",
+			"kind":"event",
+			"quantity":10,
+			"averageCostCents":55,
+			"lastPriceCents":55,
+			"updatedAt":"2026-06-29T14:00:00Z"
+		}],
+		"transactions":[{
+			"id":"tx-11111111",
+			"assetId":"event:lol:98765:T1",
+			"symbol":"T1",
+			"side":"buy",
+			"quantity":10,
+			"priceCents":55,
+			"feeCents":0,
+			"status":"local",
+			"createdAt":"2026-06-29T14:00:00Z"
+		},{
+			"id":"tx-22222222",
+			"assetId":"event:lol:98765:GEN",
+			"symbol":"GEN",
+			"side":"sell",
+			"quantity":5,
+			"priceCents":0,
+			"feeCents":0,
+			"status":"local",
+			"createdAt":"2026-06-29T15:00:00Z"
+		}],
+		"createdAt":"2026-06-29T14:00:00Z",
+		"updatedAt":"2026-06-29T15:00:00Z"
+	}`
+
+	put := httptest.NewRequest(http.MethodPut, "/api/sync/portfolio", bytes.NewBufferString(body))
+	put.Header.Set("Content-Type", "application/json")
+	put.Header.Set("X-Koala-Client-ID", "client-esports1")
+	putRes := httptest.NewRecorder()
+	app.Routes().ServeHTTP(putRes, put)
+
+	if putRes.Code != http.StatusOK {
+		t.Fatalf("expected PUT status %d, got %d body=%s", http.StatusOK, putRes.Code, putRes.Body.String())
+	}
+
+	get := httptest.NewRequest(http.MethodGet, "/api/sync/portfolio?id=local-default", nil)
+	get.Header.Set("X-Koala-Client-ID", "client-esports1")
+	getRes := httptest.NewRecorder()
+	app.Routes().ServeHTTP(getRes, get)
+
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("expected GET status %d, got %d body=%s", http.StatusOK, getRes.Code, getRes.Body.String())
+	}
+	if got := getRes.Body.String(); !strings.Contains(got, `event:lol:98765:T1`) {
+		t.Fatalf("expected persisted esports position, got %s", got)
+	}
+}
+
 func TestPortfolioSyncRequiresClientScope(t *testing.T) {
 	app := newTestServer(t)
 

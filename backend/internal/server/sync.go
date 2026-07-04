@@ -150,6 +150,19 @@ func (s *Server) syncPayloadToPortfolio(r *http.Request, clientID string, payloa
 		knownAssets[market.AssetID] = market
 	}
 
+	// eSports event markets (event:lol:<match>:<team>) are created dynamically on
+	// the client and are not part of the static catalogue. Register them from the
+	// payload so they satisfy both the validation below and the assets foreign key.
+	eventAssets := collectEventAssets(payload)
+	if len(eventAssets) > 0 {
+		if err := s.db.UpsertMarkets(r.Context(), eventAssets); err != nil {
+			return storage.Portfolio{}, errors.New("market catalog unavailable")
+		}
+		for _, market := range eventAssets {
+			knownAssets[market.AssetID] = market
+		}
+	}
+
 	createdAt, err := parseSyncTime(payload.CreatedAt, "createdAt")
 	if err != nil {
 		return storage.Portfolio{}, err
@@ -267,7 +280,8 @@ func (t syncTransaction) storageTransaction() (storage.PortfolioTransaction, err
 	if err != nil {
 		return storage.PortfolioTransaction{}, fmt.Errorf("invalid transaction quantity: %w", err)
 	}
-	if t.PriceCents <= 0 || t.FeeCents < 0 {
+	// Price 0 is valid: a settled losing eSports bet pays out 0¢.
+	if t.PriceCents < 0 || t.FeeCents < 0 {
 		return storage.PortfolioTransaction{}, errors.New("invalid transaction price or fee")
 	}
 	createdAt, err := parseSyncTime(t.CreatedAt, "transaction createdAt")
@@ -324,6 +338,53 @@ func portfolioToSyncPayload(portfolio storage.Portfolio) (portfolioSyncRequest, 
 		})
 	}
 	return payload, nil
+}
+
+// collectEventAssets extracts the dynamic eSports event markets referenced by a
+// synced portfolio so they can be registered in the catalogue before validation.
+func collectEventAssets(payload portfolioSyncRequest) []marketdata.Market {
+	seen := make(map[string]marketdata.Market)
+	now := time.Now().UTC()
+
+	for _, p := range payload.Positions {
+		if !strings.HasPrefix(p.AssetID, "event:") || p.Kind != marketdata.AssetKindEvent {
+			continue
+		}
+		name := p.Name
+		if name == "" {
+			name = p.Symbol
+		}
+		seen[p.AssetID] = marketdata.Market{
+			AssetID:   p.AssetID,
+			Symbol:    p.Symbol,
+			Name:      name,
+			Kind:      marketdata.AssetKindEvent,
+			Source:    "polymarket",
+			UpdatedAt: now,
+		}
+	}
+	for _, t := range payload.Transactions {
+		if !strings.HasPrefix(t.AssetID, "event:") {
+			continue
+		}
+		if _, ok := seen[t.AssetID]; ok {
+			continue
+		}
+		seen[t.AssetID] = marketdata.Market{
+			AssetID:   t.AssetID,
+			Symbol:    t.Symbol,
+			Name:      t.Symbol,
+			Kind:      marketdata.AssetKindEvent,
+			Source:    "polymarket",
+			UpdatedAt: now,
+		}
+	}
+
+	assets := make([]marketdata.Market, 0, len(seen))
+	for _, market := range seen {
+		assets = append(assets, market)
+	}
+	return assets
 }
 
 func validateAsset(assetID, symbol string) error {

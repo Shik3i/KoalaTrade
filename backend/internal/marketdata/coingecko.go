@@ -102,39 +102,11 @@ func NewCoinGeckoProvider(baseURL, apiKey string, timeout time.Duration, fallbac
 	}
 }
 
+// Markets returns the asset catalogue only. It deliberately does NOT fetch live
+// prices: price enrichment happens exclusively through Quotes/Refresh (driven by
+// the staggered poller), so read-path handlers never trigger a provider burst.
 func (p *CoinGeckoProvider) Markets(ctx context.Context) ([]Market, error) {
-	markets, err := p.fallback.Markets(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	cryptoIDs := make([]string, 0, len(p.assets))
-	for assetID := range p.assets {
-		cryptoIDs = append(cryptoIDs, assetID)
-	}
-
-	quotes, err := p.fetchQuotes(ctx, cryptoIDs)
-	if err != nil {
-		return markets, nil
-	}
-
-	byID := make(map[string]Quote, len(quotes))
-	for _, quote := range quotes {
-		byID[quote.AssetID] = quote
-	}
-
-	for index, market := range markets {
-		quote, ok := byID[market.AssetID]
-		if !ok {
-			continue
-		}
-		markets[index].Source = quote.Source
-		markets[index].PriceCents = quote.PriceCents
-		markets[index].ChangeBPS = quote.ChangeBPS
-		markets[index].UpdatedAt = quote.UpdatedAt
-	}
-
-	return markets, nil
+	return p.fallback.Markets(ctx)
 }
 
 func (p *CoinGeckoProvider) Quotes(ctx context.Context, assetIDs []string) ([]Quote, error) {
