@@ -20,6 +20,7 @@
   import AdminView from './lib/components/AdminView.svelte';
   import AreaChart from './lib/components/AreaChart.svelte';
   import EsportsView from './lib/components/EsportsView.svelte';
+  import InfoTip from './lib/components/InfoTip.svelte';
   import ProfileView from './lib/components/ProfileView.svelte';
   import Toasts from './lib/components/Toasts.svelte';
   import {
@@ -1047,6 +1048,8 @@
               </div>
               <div class="chart-controls">
                 <button class="sma-toggle" class:active={showSma} type="button" on:click={() => (showSma = !showSma)}>SMA 14</button>
+                <InfoTip placement="bottom" text="Simple Moving Average (14): der gleitende Durchschnitt der letzten 14 Kerzen. Glättet den Kurs und zeigt den Trend – liegt der Preis darüber, ist der kurzfristige Trend eher aufwärts." />
+
                 <div class="timeframes">
                   {#each chartRanges as range}
                     <button class:active={chartRange === range} type="button" on:click={() => (chartRange = range)}>{range}</button>
@@ -1067,7 +1070,7 @@
               <span>Open <strong>{formatMoney(chartOpen)}</strong></span>
               <span>Hoch <strong>{formatMoney(chartHigh)}</strong></span>
               <span>Tief <strong>{formatMoney(chartLow)}</strong></span>
-              <span>Spanne <strong>{formatPercentFromBps(chartLow > 0 ? Math.round(((chartHigh - chartLow) / chartLow) * 10_000) : 0)}</strong></span>
+              <span>Spanne<InfoTip placement="bottom" text="Die prozentuale Differenz zwischen dem höchsten und tiefsten Kurs im gewählten Zeitraum – ein Maß für die Schwankung (Volatilität)." /> <strong>{formatPercentFromBps(chartLow > 0 ? Math.round(((chartHigh - chartLow) / chartLow) * 10_000) : 0)}</strong></span>
             </div>
           </section>
         </section>
@@ -1086,9 +1089,9 @@
                 <p class="eyebrow">Deine Position</p>
                 <div class="detail-grid">
                   <div><span>Menge</span><strong>{formatQuantity(selectedPositionRow.quantity)}</strong></div>
-                  <div><span>Ø-Einstand</span><strong>{formatMoney(selectedPositionRow.averageCostCents)}</strong></div>
+                  <div><span>Ø-Einstand<InfoTip text="Dein durchschnittlicher Kaufpreis für diese Position über alle Käufe hinweg." /></span><strong>{formatMoney(selectedPositionRow.averageCostCents)}</strong></div>
                   <div><span>Marktwert</span><strong>{formatMoney(selectedPositionRow.marketValueCents)}</strong></div>
-                  <div><span>P&amp;L</span><strong class={changeColor(selectedPositionRow.pnlCents)}>{formatSignedMoney(selectedPositionRow.pnlCents)}</strong></div>
+                  <div><span>P&amp;L<InfoTip text="Profit &amp; Loss: der aktuelle Gewinn oder Verlust dieser Position – Marktwert minus Einstandswert." /></span><strong class={changeColor(selectedPositionRow.pnlCents)}>{formatSignedMoney(selectedPositionRow.pnlCents)}</strong></div>
                 </div>
               </div>
             {:else}
@@ -1123,7 +1126,7 @@
               <div class="order-summary">
                 <div><span>Marktpreis</span><strong>{formatMoney(effectivePriceCents)}</strong></div>
                 <div><span>Bruttowert</span><strong>{formatMoney(estimatedOrderValue)}</strong></div>
-                <div><span>Gebühr ({(ORDER_FEE_BPS / 100).toFixed(2)}%)</span><strong>{formatMoney(estimatedOrderFee)}</strong></div>
+                <div><span>Gebühr ({(ORDER_FEE_BPS / 100).toFixed(2)}%)<InfoTip text={`Simulierte Handelsgebühr von ${(ORDER_FEE_BPS / 100).toFixed(2)}% auf den Ordervolumen – wie bei einem echten Broker, damit die Simulation realistisch bleibt.`} /></span><strong>{formatMoney(estimatedOrderFee)}</strong></div>
                 <div class="total"><span>{orderSide === 'buy' ? 'Cash-Belastung' : 'Cash-Gutschrift'}</span><strong>{formatMoney(estimatedOrderTotal)}</strong></div>
               </div>
 
@@ -1139,14 +1142,14 @@
       <section class="view-scroll" aria-label="Portfolio">
         <section class="portfolio-metrics">
           <div class="metric primary">
-            <span>Equity</span>
+            <span>Equity<InfoTip placement="bottom" text="Dein gesamter Portfoliowert: verfügbares Cash plus der aktuelle Marktwert aller offenen Positionen." /></span>
             <strong>{formatMoney(summary.totalEquityCents)}</strong>
             <em class={changeColor(summary.totalReturnBps)}>{formatSignedMoney(summary.totalReturnCents)} ({formatPercentFromBps(summary.totalReturnBps)})</em>
           </div>
           <div class="metric"><span>Cash</span><strong>{formatMoney(summary.cashCents)}</strong><em>{summary.openPositions} Positionen</em></div>
-          <div class="metric"><span>Realisierter P&L</span><strong class={changeColor(performance.realizedPnlCents)}>{formatSignedMoney(performance.realizedPnlCents)}</strong><em>geschlossen</em></div>
-          <div class="metric"><span>Unrealisiert</span><strong class={changeColor(performance.unrealizedPnlCents)}>{formatSignedMoney(performance.unrealizedPnlCents)}</strong><em>offen</em></div>
-          <div class="metric"><span>Max Drawdown</span><strong class:down={performance.drawdownBps > 0}>{formatPercentFromBps(-performance.drawdownBps)}</strong><em>Peak {formatMoney(performance.peakEquityCents)}</em></div>
+          <div class="metric"><span>Realisierter P&L<InfoTip placement="bottom" text="Der bereits festgestellte Gewinn/Verlust aus verkauften (geschlossenen) Positionen – Geld, das du tatsächlich realisiert hast." /></span><strong class={changeColor(performance.realizedPnlCents)}>{formatSignedMoney(performance.realizedPnlCents)}</strong><em>geschlossen</em></div>
+          <div class="metric"><span>Unrealisiert<InfoTip placement="bottom" text="Der Buchgewinn/-verlust deiner noch offenen Positionen zum aktuellen Kurs – noch nicht realisiert, ändert sich mit dem Preis." /></span><strong class={changeColor(performance.unrealizedPnlCents)}>{formatSignedMoney(performance.unrealizedPnlCents)}</strong><em>offen</em></div>
+          <div class="metric"><span>Max Drawdown<InfoTip placement="bottom" align="right" text="Der größte prozentuale Rückgang deiner Equity vom bisherigen Höchststand (Peak) bis zum Tief – ein Risikomaß dafür, wie tief es zwischenzeitlich runterging." /></span><strong class:down={performance.drawdownBps > 0}>{formatPercentFromBps(-performance.drawdownBps)}</strong><em>Peak {formatMoney(performance.peakEquityCents)}</em></div>
         </section>
 
         <section class="panel" aria-label="Equity curve">

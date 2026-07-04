@@ -3,6 +3,7 @@
   import type { EsportsMatch, EsportsTeam } from '../api';
   import { matchesLeague } from '../preferences';
   import { formatMoney, type Position } from '../portfolio';
+  import InfoTip from './InfoTip.svelte';
 
   export let matches: EsportsMatch[] = [];
   export let loading = false;
@@ -129,7 +130,7 @@
   {/if}
 
   <section class="panel esports-head">
-    <div class="panel-head"><div><p class="eyebrow">Live aus League of Legends</p><h2>eSports Prediction Markets</h2></div><Trophy size={18} /></div>
+    <div class="panel-head"><div><p class="eyebrow">Live aus League of Legends</p><h2>eSports Prediction Markets<InfoTip placement="bottom" text="Ein Prediction Market handelt Wahrscheinlichkeiten: Der Yes-Preis (z. B. 62¢) ist die vom Markt eingeschätzte Siegchance in Prozent. Gewinnt das Team, zahlt jeder Kontrakt 100¢ – du machst also 100¢ minus deinem Kaufpreis Gewinn; verliert es, verfällt der Kontrakt wertlos." /></h2></div><Trophy size={18} /></div>
     <p class="esports-sub">Echte Match-Pläne von lolesports + Live-Quoten von Polymarket. Kaufe „Yes"-Kontrakte auf den Sieger — Auszahlung {formatMoney(100)} pro Kontrakt bei Win.</p>
     <div class="filter-bar">
       <div class="league-filter">
