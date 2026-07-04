@@ -6,11 +6,35 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-04
+
 ### Added
 
+- Keyless market data: Yahoo Finance serves the 121 stocks/ETFs/commodities (live quotes + historical candles) and CoinGecko serves crypto, so the full 129-asset catalogue works with no API keys. Finnhub is now an optional premium override.
+- Continuous, gap-driven history-backfill maintainer that keeps each asset/tier populated (crypto via CoinGecko, equities via Yahoo) and self-heals gaps from downtime.
+- Per-provider rate limiters (Yahoo/Finnhub/CoinGecko) so the poller and backfill can never combine to exceed a provider's free-tier limit.
+- Real market-detail panel (live quote + your position) replacing the synthetic order book.
+- First-run onboarding modal, a reset-portfolio confirmation dialog, and explanatory tooltips (`InfoTip`) for trading jargon (SMA, P&L, Drawdown, fees, prediction-market contracts, …).
 - End-user accounts with registration/login/logout/me endpoints, HttpOnly cookie sessions, roles, registration toggle, and account-bound portfolio sync.
 - Account management for display names, password changes, account export, portfolio-data deletion, and account deletion.
 - eSports admin slug diagnostics with team names, generated Polymarket slug previews, and live mapping tests.
+
+### Changed
+
+- Read endpoints no longer trigger provider fetches; prices are served from SQLite and refreshed exclusively by the staggered poller. Provider chain is now Finnhub → Yahoo → CoinGecko → registry.
+- Poll interval is derived from the refresh window; the asset catalogue is the single source of truth (the Finnhub/Yahoo symbol maps are derived from it).
+- History retention reworked into downsampling tiers: fine tiers are bounded while the daily tier is kept forever, giving long histories without database bloat.
+
+### Fixed
+
+- Chart history is no longer wiped on every restart (idempotent, column-aware migration).
+- eSports bets — including settled 0¢ losing bets — now sync correctly (event assets registered, transaction price constraint relaxed to ≥ 0).
+- Null-guard when markets fail to load (no blank screen); portfolio state is assigned before persisting to close a lost-update race.
+
+### Removed
+
+- All simulated/placeholder data: the synthetic order book, seeded sparklines, invented event resolution dates, and the misleading "mock" provider naming/label.
+- Dead configuration: `MARKET_DATA_PROVIDER` and `MARKET_DATA_POLL_SECONDS`.
 
 ## [0.1.2] - 2026-06-29
 
