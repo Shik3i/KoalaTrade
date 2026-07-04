@@ -14,8 +14,13 @@ const defaultMarketDataCacheSeconds = 60
 // rate limit (free tier) is never exceeded, instead of fetching everything at once.
 const defaultMarketDataRefreshWindowSeconds = 900
 
-// Public LoL Esports API key (same one the lolesports.com web client ships).
-const defaultLolesportsAPIKey = "0TvQnueqKa5mxJntVWt0w4LpLfEkrV1Ta8rQBb9Z"
+// defaultLolesportsAPIKey is NOT a secret. It is the public, shared LoL Esports
+// API key that the lolesports.com web client itself ships to every visitor, and
+// which is published verbatim in the community API docs
+// (https://vickz84259.github.io/lolesports-api-docs/). It is hardcoded so eSports
+// works out of the box; override with the LOLESPORTS_API_KEY env var if desired.
+// Not a personal credential — safe to keep in the repo.
+const defaultLolesportsAPIKey = "0TvQnueqKa5mxJntVWt0w4LpLfEkrV1Ta8rQBb9Z" // gitleaks:allow
 const defaultLolesportsBaseURL = "https://esports-api.lolesports.com"
 const defaultPolymarketBaseURL = "https://gamma-api.polymarket.com"
 const defaultEsportsCacheSeconds = 300

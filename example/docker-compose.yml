@@ -15,7 +15,9 @@ services:
       FINNHUB_BASE_URL: ${FINNHUB_BASE_URL:-}
       FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
       YAHOO_BASE_URL: ${YAHOO_BASE_URL:-}
-      LOLESPORTS_API_KEY: ${LOLESPORTS_API_KEY:-0TvQnueqKa5mxJntVWt0w4LpLfEkrV1Ta8rQBb9Z}
+      # Public shared LoL Esports web-client key (not a secret; published in the
+      # community API docs). Kept as a default so eSports works out of the box.
+      LOLESPORTS_API_KEY: ${LOLESPORTS_API_KEY:-0TvQnueqKa5mxJntVWt0w4LpLfEkrV1Ta8rQBb9Z} # gitleaks:allow
       LOLESPORTS_BASE_URL: ${LOLESPORTS_BASE_URL:-https://esports-api.lolesports.com}
       POLYMARKET_BASE_URL: ${POLYMARKET_BASE_URL:-https://gamma-api.polymarket.com}
       POLYMARKET_API_KEY: ${POLYMARKET_API_KEY:-}
