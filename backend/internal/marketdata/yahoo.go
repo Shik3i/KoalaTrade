@@ -17,6 +17,11 @@ const defaultYahooBaseURL = "https://query1.finance.yahoo.com"
 // browser-like User-Agent.
 const yahooUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 
+// yahooRequestsPerMinute conservatively caps requests to Yahoo's undocumented
+// chart endpoint. It has no published limit but throttles sustained high rates;
+// 30/min (0.5/s) stays comfortably clear.
+const yahooRequestsPerMinute = 30
+
 // YahooProvider serves keyless live quotes and historical prices for equities
 // (stocks, ETFs, commodities) from Yahoo Finance's public chart endpoint. Crypto
 // and anything else it delegates to its fallback. It requires no API key, which
@@ -26,6 +31,7 @@ type YahooProvider struct {
 	baseURL  string
 	fallback Provider
 	assets   map[string]string // assetID -> Yahoo symbol
+	limiter  *RateLimiter
 }
 
 type yahooChart struct {
@@ -72,6 +78,7 @@ func NewYahooProvider(baseURL string, timeout time.Duration, fallback Provider) 
 		baseURL:  strings.TrimRight(baseURL, "/"),
 		fallback: fallback,
 		assets:   assets,
+		limiter:  NewRateLimiter(yahooRequestsPerMinute),
 	}
 }
 
@@ -197,6 +204,10 @@ func (p *YahooProvider) HistoricalPrices(ctx context.Context, assetID string, da
 }
 
 func (p *YahooProvider) fetchChart(ctx context.Context, symbol, rng, interval string) (yahooChart, error) {
+	if err := p.limiter.Wait(ctx); err != nil {
+		return yahooChart{}, err
+	}
+
 	endpoint, err := url.Parse(p.baseURL + "/v8/finance/chart/" + url.PathEscape(symbol))
 	if err != nil {
 		return yahooChart{}, fmt.Errorf("parse yahoo endpoint: %w", err)

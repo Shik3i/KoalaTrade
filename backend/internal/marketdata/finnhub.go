@@ -21,12 +21,16 @@ var finnhubKinds = map[AssetKind]struct{}{
 
 const defaultFinnhubBaseURL = "https://finnhub.io/api/v1"
 
+// finnhubRequestsPerMinute stays under the free-tier limit of 60/min.
+const finnhubRequestsPerMinute = 50
+
 type FinnhubProvider struct {
 	client   *http.Client
 	baseURL  string
 	apiKey   string
 	fallback Provider
 	assets   map[string]string
+	limiter  *RateLimiter
 }
 
 type finnhubQuote struct {
@@ -60,6 +64,7 @@ func NewFinnhubProvider(baseURL, apiKey string, timeout time.Duration, fallback 
 		apiKey:   strings.TrimSpace(apiKey),
 		fallback: fallback,
 		assets:   assets,
+		limiter:  NewRateLimiter(finnhubRequestsPerMinute),
 	}
 }
 
@@ -132,6 +137,9 @@ func (p *FinnhubProvider) fetchQuote(ctx context.Context, assetID, symbol string
 	}
 	request.Header.Set("Accept", "application/json")
 
+	if err := p.limiter.Wait(ctx); err != nil {
+		return Quote{}, err
+	}
 	response, err := p.client.Do(request)
 	if err != nil {
 		return Quote{}, fmt.Errorf("fetch finnhub quote: %w", err)

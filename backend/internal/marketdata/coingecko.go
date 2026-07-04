@@ -14,12 +14,20 @@ import (
 
 const defaultCoinGeckoBaseURL = "https://api.coingecko.com/api/v3"
 
+// Requests/minute caps. The keyless public API is aggressively rate-limited; a
+// Demo key lifts the ceiling to ~30/min (we stay a touch under).
+const (
+	coinGeckoKeylessPerMinute = 8
+	coinGeckoDemoKeyPerMinute = 25
+)
+
 type CoinGeckoProvider struct {
 	client   *http.Client
 	baseURL  string
 	apiKey   string
 	fallback Provider
 	assets   map[string]coinGeckoAsset
+	limiter  *RateLimiter
 }
 
 type coinGeckoAsset struct {
@@ -54,6 +62,11 @@ func NewCoinGeckoProvider(baseURL, apiKey string, timeout time.Duration, fallbac
 		timeout = 5 * time.Second
 	}
 
+	perMinute := coinGeckoKeylessPerMinute
+	if strings.TrimSpace(apiKey) != "" {
+		perMinute = coinGeckoDemoKeyPerMinute
+	}
+
 	return &CoinGeckoProvider{
 		client: &http.Client{
 			Timeout: timeout,
@@ -61,6 +74,7 @@ func NewCoinGeckoProvider(baseURL, apiKey string, timeout time.Duration, fallbac
 		baseURL:  strings.TrimRight(baseURL, "/"),
 		apiKey:   strings.TrimSpace(apiKey),
 		fallback: fallback,
+		limiter:  NewRateLimiter(perMinute),
 		assets: map[string]coinGeckoAsset{
 			"crypto:btc": {
 				AssetID: "crypto:btc",
@@ -188,6 +202,9 @@ func (p *CoinGeckoProvider) fetchQuotes(ctx context.Context, assetIDs []string) 
 		request.Header.Set("x-cg-demo-api-key", p.apiKey)
 	}
 
+	if err := p.limiter.Wait(ctx); err != nil {
+		return nil, err
+	}
 	response, err := p.client.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("fetch coingecko prices: %w", err)
@@ -266,6 +283,9 @@ func (p *CoinGeckoProvider) HistoricalPrices(ctx context.Context, assetID string
 		request.Header.Set("x-cg-demo-api-key", p.apiKey)
 	}
 
+	if err := p.limiter.Wait(ctx); err != nil {
+		return nil, err
+	}
 	response, err := p.client.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("fetch coingecko market_chart: %w", err)
