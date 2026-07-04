@@ -19,6 +19,7 @@ type Server struct {
 	db         *storage.SQLite
 	marketData *marketdata.Service
 	coingecko  *marketdata.CoinGeckoProvider
+	yahoo      *marketdata.YahooProvider
 	esports    *esports.Service
 	authSecret []byte
 	loginMu    sync.Mutex
@@ -43,6 +44,18 @@ func New(cfg config.Config, db *storage.SQLite) *Server {
 		provider,
 	)
 	provider = coingecko
+
+	// Yahoo Finance serves equities keyless (live quotes + history), so the full
+	// catalogue works with no API keys at all.
+	yahoo := marketdata.NewYahooProvider(
+		cfg.YahooBaseURL,
+		time.Duration(cfg.MarketDataHTTPTimeout)*time.Second,
+		provider,
+	)
+	provider = yahoo
+
+	// Finnhub sits on top as an optional premium override: when a key is set it
+	// serves equities; otherwise it transparently delegates to Yahoo below.
 	provider = marketdata.NewFinnhubProvider(
 		cfg.FinnhubBaseURL,
 		cfg.FinnhubAPIKey,
@@ -62,6 +75,7 @@ func New(cfg config.Config, db *storage.SQLite) *Server {
 		authSecret: secret,
 		loginFails: make(map[string]loginFailure),
 		coingecko:  coingecko,
+		yahoo:      yahoo,
 		marketData: marketdata.NewService(provider, time.Duration(cfg.MarketDataCacheSeconds)*time.Second, db),
 		esports: esports.NewService(
 			cfg.LolesportsAPIKey,

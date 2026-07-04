@@ -45,6 +45,12 @@ type Provider interface {
 	Quotes(ctx context.Context, assetIDs []string) ([]Quote, error)
 }
 
+// HistoricalPricer is implemented by providers that can supply historical price
+// series for backfilling long-range charts.
+type HistoricalPricer interface {
+	HistoricalPrices(ctx context.Context, assetID string, days int) ([]HistoricalPoint, error)
+}
+
 type Store interface {
 	UpsertMarkets(ctx context.Context, markets []Market) error
 	FreshQuotes(ctx context.Context, assetIDs []string, now time.Time) ([]Quote, error)

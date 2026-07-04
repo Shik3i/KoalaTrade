@@ -59,10 +59,11 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 // never shows a misleading placeholder like "mock". CoinGecko is always active
 // (crypto needs no key); Finnhub is active only when an API key is configured.
 func (s *Server) marketDataSource() string {
+	equities := "yahoo"
 	if strings.TrimSpace(s.cfg.FinnhubAPIKey) != "" {
-		return "finnhub+coingecko"
+		equities = "finnhub"
 	}
-	return "coingecko"
+	return equities + "+coingecko"
 }
 
 func (s *Server) handleMarkets(w http.ResponseWriter, r *http.Request) {

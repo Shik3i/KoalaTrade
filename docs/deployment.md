@@ -30,8 +30,10 @@ KOALATRADE_DOMAIN=trade.example.com
 AUTH_SECRET=replace-with-a-long-random-secret
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=replace-with-a-strong-password
-FINNHUB_API_KEY=your-finnhub-key
 ```
+
+Market data needs no keys — equities come from Yahoo Finance and crypto from
+CoinGecko, both keyless.
 
 Start the stack:
 
@@ -53,12 +55,12 @@ Set these before exposing the service:
 | `AUTH_SECRET` | Keeps admin sessions valid across restarts and signs tokens |
 | `ADMIN_PASSWORD` | Enables the admin area with a real password |
 
-Live-data settings (providers are always active; keys unlock live prices):
+Optional live-data upgrades (everything works keyless by default):
 
 | Variable | Why |
 |---|---|
-| `FINNHUB_API_KEY` | Required for live stock/ETF/commodity prices (121 assets show `—` without it) |
-| `COINGECKO_API_KEY` | Optional crypto Demo-API key (crypto works without a key) |
+| `COINGECKO_API_KEY` | Free CoinGecko Demo key — higher crypto rate limit, faster history backfill |
+| `FINNHUB_API_KEY` | Premium override: serves equities via Finnhub instead of keyless Yahoo |
 | `POLYMARKET_API_KEY` | Optional Polymarket API key |
 
 ## Data And Backups

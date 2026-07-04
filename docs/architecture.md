@@ -32,7 +32,7 @@ External APIs: esports-api.lolesports.com · gamma-api.polymarket.com · finnhub
 |---|---|
 | `config` | Environment configuration |
 | `server` | chi router, handlers, middleware, pollers, admin |
-| `marketdata` | Provider interface (registry catalogue → CoinGecko → Finnhub), quote cache |
+| `marketdata` | Provider chain (Finnhub → Yahoo → CoinGecko → registry catalogue), keyless by default, quote cache |
 | `esports` | Schedule, Polymarket odds, slug mapping, results, status |
 | `storage` | SQLite access (portfolios, snapshots, mappings, users, meta) |
 | `auth` | Password hashing + signed tokens |

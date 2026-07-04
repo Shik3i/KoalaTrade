@@ -53,7 +53,7 @@ func main() {
 
 	app.SeedAdmin(ctx, logger)
 	app.StartMarketDataPoller(ctx, logger)
-	app.StartCryptoHistoryMaintainer(ctx, logger)
+	app.StartHistoryMaintainer(ctx, logger)
 	app.StartEsportsPoller(ctx, logger)
 	app.StartEsportsTeamsPoller(ctx, logger)
 

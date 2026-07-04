@@ -7,12 +7,13 @@ KoalaTrade treats market data as a server-owned capability. The browser must nev
 Market data is split into two concerns:
 
 1. **Catalogue** — the `RegistryProvider` (`internal/marketdata/registry.go`) is the single source of truth for every tradable asset: its `assetId`, `symbol`, `name`, `kind`, and intended `source`. It carries no live prices. Adding a stock/ETF/commodity/crypto means editing this one list.
-2. **Live prices** — the provider chain enriches quotes on demand. `Finnhub` (stocks, ETFs, commodities) wraps `CoinGecko` (crypto) wraps the registry. Each layer serves the asset kinds it knows and delegates the rest downstream; the registry is the final fallback.
+2. **Live prices** — the provider chain enriches quotes on demand. From outermost to innermost: `Finnhub` → `Yahoo` → `CoinGecko` → registry. Each layer serves the asset kinds it knows and delegates the rest downstream; the registry is the final fallback.
 
-The providers are **always wired up** (there is no provider-selection switch). Whether a layer produces live data depends only on connectivity and API keys:
+The providers are **always wired up** (there is no provider-selection switch). The default configuration needs **no API keys at all**:
 
-- CoinGecko needs no key, so the 8 crypto assets get live prices out of the box.
-- Finnhub requires `FINNHUB_API_KEY`. Without it, the 121 equities/ETFs/commodities have no price yet (they display `—` until a key is configured).
+- **CoinGecko** (keyless) serves the 8 crypto assets. A free Demo key (`COINGECKO_API_KEY`) raises the rate limit.
+- **Yahoo Finance** (keyless) serves the 121 stocks/ETFs/commodities — both live quotes and historical candles — from its public `chart` endpoint. No registration required.
+- **Finnhub** is an optional premium override: set `FINNHUB_API_KEY` and it takes over equities; otherwise it transparently delegates to Yahoo.
 
 Read endpoints (`GET /api/markets`, `GET /api/markets/{id}/history`, `GET /api/quotes`) **never** trigger a provider fetch — they read the catalogue plus persisted quotes from SQLite. Live prices are refreshed exclusively by the background poller.
 

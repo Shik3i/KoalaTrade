@@ -15,15 +15,16 @@ to `.env` (git-ignored) and adjust. Docker Compose loads `.env` automatically.
 
 ## Market data
 
-Providers are always wired up (Finnhub → CoinGecko → registry fallback); there is no provider-selection switch. A layer produces live data only when reachable/keyed.
+Providers are always wired up (Finnhub → Yahoo → CoinGecko → registry fallback); there is no provider-selection switch. **No API keys are required** — the default keyless setup serves equities via Yahoo and crypto via CoinGecko.
 
 | Variable | Default | Description |
 |---|---|---|
 | `MARKET_DATA_CACHE_SECONDS` | `60` | Quote cache TTL |
 | `MARKET_DATA_REFRESH_WINDOW_SECONDS` | `900` | Full window over which all assets are refreshed once (poller staggers evenly to respect per-minute rate limits) |
 | `MARKET_DATA_HTTP_TIMEOUT_SECONDS` | `5` | Upstream HTTP timeout |
-| `COINGECKO_BASE_URL` / `COINGECKO_API_KEY` | — | CoinGecko (crypto); key optional (Demo API) |
-| `FINNHUB_BASE_URL` / `FINNHUB_API_KEY` | — | Finnhub (stocks/ETFs/commodities); key required for live equity prices |
+| `YAHOO_BASE_URL` | — | Yahoo Finance (equities); keyless, base URL override only |
+| `COINGECKO_BASE_URL` / `COINGECKO_API_KEY` | — | CoinGecko (crypto); keyless, free Demo key optional (higher rate limit) |
+| `FINNHUB_BASE_URL` / `FINNHUB_API_KEY` | — | Finnhub (equities); optional premium override for Yahoo |
 
 ## eSports
 

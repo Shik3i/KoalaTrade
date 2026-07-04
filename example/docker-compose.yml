@@ -14,6 +14,7 @@ services:
       COINGECKO_API_KEY: ${COINGECKO_API_KEY:-}
       FINNHUB_BASE_URL: ${FINNHUB_BASE_URL:-}
       FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
+      YAHOO_BASE_URL: ${YAHOO_BASE_URL:-}
       LOLESPORTS_API_KEY: ${LOLESPORTS_API_KEY:-0TvQnueqKa5mxJntVWt0w4LpLfEkrV1Ta8rQBb9Z}
       LOLESPORTS_BASE_URL: ${LOLESPORTS_BASE_URL:-https://esports-api.lolesports.com}
       POLYMARKET_BASE_URL: ${POLYMARKET_BASE_URL:-https://gamma-api.polymarket.com}

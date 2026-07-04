@@ -33,6 +33,7 @@ type Config struct {
 	CoinGeckoAPIKey             string
 	FinnhubBaseURL              string
 	FinnhubAPIKey               string
+	YahooBaseURL                string
 	LolesportsAPIKey            string
 	LolesportsBaseURL           string
 	PolymarketBaseURL           string
@@ -56,6 +57,7 @@ func Load() Config {
 		CoinGeckoAPIKey:             getEnv("COINGECKO_API_KEY", ""),
 		FinnhubBaseURL:              getEnv("FINNHUB_BASE_URL", ""),
 		FinnhubAPIKey:               getEnv("FINNHUB_API_KEY", ""),
+		YahooBaseURL:                getEnv("YAHOO_BASE_URL", ""),
 		LolesportsAPIKey:            getEnv("LOLESPORTS_API_KEY", defaultLolesportsAPIKey),
 		LolesportsBaseURL:           getEnv("LOLESPORTS_BASE_URL", defaultLolesportsBaseURL),
 		PolymarketBaseURL:           getEnv("POLYMARKET_BASE_URL", defaultPolymarketBaseURL),
