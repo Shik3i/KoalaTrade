@@ -19,6 +19,33 @@ type quoteRow struct {
 	CachedUntil string `db:"cached_until"`
 }
 
+// historyTier defines one downsampling level of asset_history. Every quote is
+// rolled up into all tiers. Fine tiers keep only enough recent data for the
+// chart range that reads them (bounded, so the DB never bloats); the coarse 1D
+// tier is retained forever (retention == 0), so long-term histories accumulate
+// indefinitely without discarding data — the daily series is ~1 row/asset/day.
+type historyTier struct {
+	timeframe string
+	bucket    time.Duration
+	retention time.Duration // 0 == keep forever
+}
+
+var historyTiers = []historyTier{
+	{timeframe: "5M", bucket: 5 * time.Minute, retention: 48 * time.Hour},
+	{timeframe: "1H", bucket: time.Hour, retention: 10 * 24 * time.Hour},
+	{timeframe: "6H", bucket: 6 * time.Hour, retention: 45 * 24 * time.Hour},
+	{timeframe: "1D", bucket: 24 * time.Hour, retention: 0},
+}
+
+func tierBucketByName(timeframe string) (time.Duration, bool) {
+	for _, t := range historyTiers {
+		if t.timeframe == timeframe {
+			return t.bucket, true
+		}
+	}
+	return 0, false
+}
+
 func (s *SQLite) UpsertMarkets(ctx context.Context, markets []marketdata.Market) error {
 	for _, market := range markets {
 		_, err := s.db.ExecContext(ctx, `INSERT INTO assets (
@@ -155,18 +182,7 @@ func (s *SQLite) StoreQuotes(ctx context.Context, quotes []marketdata.Quote) err
 
 		// Only store history if price is greater than 0
 		if quote.PriceCents > 0 {
-			// Define the 4 tiers for rounding
-			tiers := []struct {
-				timeframe string
-				bucket    time.Time
-			}{
-				{"5M", quote.UpdatedAt.Truncate(5 * time.Minute)},
-				{"1H", quote.UpdatedAt.Truncate(time.Hour)},
-				{"6H", quote.UpdatedAt.Truncate(6 * time.Hour)},
-				{"1D", quote.UpdatedAt.Truncate(24 * time.Hour)},
-			}
-
-			for _, t := range tiers {
+			for _, t := range historyTiers {
 				_, err = s.db.ExecContext(ctx, `INSERT INTO asset_history (
 					asset_id, timeframe, timestamp, price_cents
 				) VALUES (?, ?, ?, ?)
@@ -174,7 +190,7 @@ func (s *SQLite) StoreQuotes(ctx context.Context, quotes []marketdata.Quote) err
 					price_cents = excluded.price_cents`,
 					quote.AssetID,
 					t.timeframe,
-					formatTime(t.bucket),
+					formatTime(quote.UpdatedAt.Truncate(t.bucket)),
 					quote.PriceCents,
 				)
 				if err != nil {
@@ -184,27 +200,48 @@ func (s *SQLite) StoreQuotes(ctx context.Context, quotes []marketdata.Quote) err
 		}
 	}
 
-	// Compress and prune: delete old records for each tier independently
+	// Prune each fine tier down to its bounded retention window so the database
+	// stays small. The 1D tier (retention == 0) is kept forever for long histories.
 	now := time.Now().UTC()
-	prunes := []struct {
-		timeframe string
-		cutoff    time.Time
-	}{
-		{"5M", now.Add(-24 * time.Hour)},
-		{"1H", now.AddDate(0, 0, -7)},
-		{"6H", now.AddDate(0, 0, -30)},
-		{"1D", now.AddDate(0, 0, -1000)},
-	}
-
-	for _, p := range prunes {
+	for _, t := range historyTiers {
+		if t.retention <= 0 {
+			continue
+		}
 		_, _ = s.db.ExecContext(ctx, `
-			DELETE FROM asset_history 
+			DELETE FROM asset_history
 			WHERE timeframe = ? AND timestamp < ?`,
-			p.timeframe, formatTime(p.cutoff),
+			t.timeframe, formatTime(now.Add(-t.retention)),
 		)
 	}
 
 	return nil
+}
+
+// StoreHistory upserts historical price points into a single history tier.
+// Used by the backfill to seed long-range charts from a provider's historical
+// series (timestamps are the real historical times, not now).
+func (s *SQLite) StoreHistory(ctx context.Context, assetID, timeframe string, points []marketdata.HistoricalPoint) (int, error) {
+	bucket, ok := tierBucketByName(timeframe)
+	if !ok {
+		return 0, fmt.Errorf("unknown history timeframe %q", timeframe)
+	}
+	inserted := 0
+	for _, pt := range points {
+		if pt.PriceCents <= 0 {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO asset_history (
+			asset_id, timeframe, timestamp, price_cents
+		) VALUES (?, ?, ?, ?)
+		ON CONFLICT(asset_id, timeframe, timestamp) DO UPDATE SET
+			price_cents = excluded.price_cents`,
+			assetID, timeframe, formatTime(pt.Timestamp.UTC().Truncate(bucket)), pt.PriceCents,
+		); err != nil {
+			return inserted, fmt.Errorf("store history %s (%s): %w", assetID, timeframe, err)
+		}
+		inserted++
+	}
+	return inserted, nil
 }
 
 func (s *SQLite) GetHistory(ctx context.Context, assetID string, timeframe string, cutoff time.Time) ([]marketdata.Quote, error) {

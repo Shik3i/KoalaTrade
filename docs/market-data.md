@@ -28,6 +28,25 @@ At one request per interval this stays well under both the Finnhub (60/min) and 
 
 Each refreshed quote is written to `asset_quotes` (latest) and to `asset_history` in four rounded tiers (5M/1H/6H/1D) used to serve chart ranges.
 
+## History retention (downsampling, no data loss)
+
+`asset_history` keeps four tiers. The fine tiers are bounded so the database can't grow unbounded; the coarse daily tier is kept **forever** so long-term charts accumulate indefinitely:
+
+| Tier | Bucket | Retention | Serves chart range |
+|---|---|---|---|
+| `5M` | 5 min | 48h | 1H, 1D |
+| `1H` | 1 hour | 10 days | 1W |
+| `6H` | 6 hours | 45 days | 1M |
+| `1D` | 1 day | forever | 1Y (and future longer ranges) |
+
+Old high-resolution data is discarded only because it is redundant with the coarser tiers — the long-term (daily) history is never dropped. At ~1 row per asset per day, the 1D tier is a few MB per decade.
+
+## Historical backfill
+
+On first run the backend backfills chart history for the 8 crypto assets from CoinGecko's `market_chart` endpoint (days=1 → 5M tier, days=30 → 1H+6H, days=365 → 1D), so long-range crypto charts are populated immediately. It runs once, guarded by an `app_meta` flag, retries with backoff on HTTP 429, and only marks itself done on a fully successful pass.
+
+The keyless public CoinGecko API is heavily rate-limited, so a fresh backfill can take minutes (or span restarts); a free **CoinGecko Demo key** (`COINGECKO_API_KEY`) makes it fast and reliable. Stocks/ETFs/commodities have no free historical source, so their charts fill in over time from the live poller.
+
 ## Configuration
 
 ```bash

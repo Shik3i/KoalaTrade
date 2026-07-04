@@ -143,6 +143,66 @@ func TestSQLiteHistorySurvivesReopen(t *testing.T) {
 	}
 }
 
+// Backfilled 1D history must persist forever, while a fine tier (5M) is pruned
+// to its bounded retention window when new quotes are stored.
+func TestSQLiteHistoryRetention(t *testing.T) {
+	store, err := OpenSQLite(t.TempDir() + "/koalatrade.db")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	if err := store.UpsertMarkets(ctx, []marketdata.Market{{
+		AssetID: "crypto:btc", Symbol: "BTC", Name: "Bitcoin",
+		Kind: marketdata.AssetKindCrypto, Source: "coingecko", UpdatedAt: now,
+	}}); err != nil {
+		t.Fatalf("upsert markets: %v", err)
+	}
+
+	// Backfill: an old daily point (300 days ago) and an old 5-minute point.
+	if _, err := store.StoreHistory(ctx, "crypto:btc", "1D", []marketdata.HistoricalPoint{
+		{Timestamp: now.AddDate(0, 0, -300), PriceCents: 5_000_000},
+	}); err != nil {
+		t.Fatalf("store 1D history: %v", err)
+	}
+	if _, err := store.StoreHistory(ctx, "crypto:btc", "5M", []marketdata.HistoricalPoint{
+		{Timestamp: now.Add(-10 * 24 * time.Hour), PriceCents: 5_100_000},
+	}); err != nil {
+		t.Fatalf("store 5M history: %v", err)
+	}
+
+	// A fresh quote triggers the tier prune.
+	if err := store.StoreQuotes(ctx, []marketdata.Quote{{
+		AssetID: "crypto:btc", Symbol: "BTC", PriceCents: 6_000_000, ChangeBPS: 100,
+		Source: "coingecko", UpdatedAt: now, CachedUntil: now.Add(time.Minute),
+	}}); err != nil {
+		t.Fatalf("store quotes: %v", err)
+	}
+
+	// 1D backfill 300 days old must survive (retention == forever).
+	daily, err := store.GetHistory(ctx, "crypto:btc", "1D", now.AddDate(0, 0, -400))
+	if err != nil {
+		t.Fatalf("get 1D history: %v", err)
+	}
+	if len(daily) == 0 {
+		t.Fatal("expected 300-day-old 1D history to survive pruning")
+	}
+
+	// 5M point 10 days old must be pruned (retention is 48h).
+	fine, err := store.GetHistory(ctx, "crypto:btc", "5M", now.AddDate(0, 0, -30))
+	if err != nil {
+		t.Fatalf("get 5M history: %v", err)
+	}
+	for _, q := range fine {
+		if q.PriceCents == 5_100_000 {
+			t.Fatal("expected 10-day-old 5M point to be pruned")
+		}
+	}
+}
+
 func TestSQLitePortfolioTablesAcceptNormalizedHoldings(t *testing.T) {
 	store, err := OpenSQLite(t.TempDir() + "/koalatrade.db")
 	if err != nil {

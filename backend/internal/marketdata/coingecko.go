@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -32,6 +33,17 @@ type coinGeckoPrice struct {
 	USD             float64 `json:"usd"`
 	USD24HChange    float64 `json:"usd_24h_change"`
 	LastUpdatedUnix int64   `json:"last_updated_at"`
+}
+
+// HistoricalPoint is a single historical price observation used to backfill
+// long-range charts.
+type HistoricalPoint struct {
+	Timestamp  time.Time
+	PriceCents int64
+}
+
+type coinGeckoMarketChart struct {
+	Prices [][]float64 `json:"prices"` // [ [unixMillis, price], ... ]
 }
 
 func NewCoinGeckoProvider(baseURL, apiKey string, timeout time.Duration, fallback Provider) *CoinGeckoProvider {
@@ -215,4 +227,73 @@ func (p *CoinGeckoProvider) fetchQuotes(ctx context.Context, assetIDs []string) 
 	}
 
 	return quotes, nil
+}
+
+// CryptoAssetIDs returns the asset ids this provider can serve historical data
+// for (i.e. the crypto catalogue).
+func (p *CoinGeckoProvider) CryptoAssetIDs() []string {
+	ids := make([]string, 0, len(p.assets))
+	for assetID := range p.assets {
+		ids = append(ids, assetID)
+	}
+	return ids
+}
+
+// HistoricalPrices fetches the CoinGecko market chart for an asset over the last
+// `days` days. CoinGecko auto-selects granularity: days=1 → 5-minutely, 2–90 →
+// hourly, >90 → daily. Used to seed chart history on first run.
+func (p *CoinGeckoProvider) HistoricalPrices(ctx context.Context, assetID string, days int) ([]HistoricalPoint, error) {
+	asset, ok := p.assets[assetID]
+	if !ok {
+		return nil, fmt.Errorf("unsupported CoinGecko asset id %q", assetID)
+	}
+
+	endpoint, err := url.Parse(p.baseURL + "/coins/" + url.PathEscape(asset.CoinID) + "/market_chart")
+	if err != nil {
+		return nil, fmt.Errorf("parse coingecko market_chart endpoint: %w", err)
+	}
+	query := endpoint.Query()
+	query.Set("vs_currency", "usd")
+	query.Set("days", strconv.Itoa(days))
+	endpoint.RawQuery = query.Encode()
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("build coingecko market_chart request: %w", err)
+	}
+	request.Header.Set("Accept", "application/json")
+	if p.apiKey != "" {
+		request.Header.Set("x-cg-demo-api-key", p.apiKey)
+	}
+
+	response, err := p.client.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("fetch coingecko market_chart: %w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, fmt.Errorf("coingecko market_chart returned status %d", response.StatusCode)
+	}
+
+	var payload coinGeckoMarketChart
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decode coingecko market_chart: %w", err)
+	}
+
+	points := make([]HistoricalPoint, 0, len(payload.Prices))
+	for _, pair := range payload.Prices {
+		if len(pair) < 2 {
+			continue
+		}
+		price := pair[1]
+		if price <= 0 {
+			continue
+		}
+		points = append(points, HistoricalPoint{
+			Timestamp:  time.UnixMilli(int64(pair[0])).UTC(),
+			PriceCents: int64(math.Round(price * 100)),
+		})
+	}
+	return points, nil
 }

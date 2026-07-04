@@ -18,6 +18,7 @@ type Server struct {
 	cfg        config.Config
 	db         *storage.SQLite
 	marketData *marketdata.Service
+	coingecko  *marketdata.CoinGeckoProvider
 	esports    *esports.Service
 	authSecret []byte
 	loginMu    sync.Mutex
@@ -35,12 +36,13 @@ func New(cfg config.Config, db *storage.SQLite) *Server {
 	// Unconditionally wrap with CoinGecko and Finnhub providers.
 	// They will dynamically load quotes if API keys/network are available,
 	// and automatically fall back to the RegistryProvider on failure.
-	provider = marketdata.NewCoinGeckoProvider(
+	coingecko := marketdata.NewCoinGeckoProvider(
 		cfg.CoinGeckoBaseURL,
 		cfg.CoinGeckoAPIKey,
 		time.Duration(cfg.MarketDataHTTPTimeout)*time.Second,
 		provider,
 	)
+	provider = coingecko
 	provider = marketdata.NewFinnhubProvider(
 		cfg.FinnhubBaseURL,
 		cfg.FinnhubAPIKey,
@@ -59,6 +61,7 @@ func New(cfg config.Config, db *storage.SQLite) *Server {
 		db:         db,
 		authSecret: secret,
 		loginFails: make(map[string]loginFailure),
+		coingecko:  coingecko,
 		marketData: marketdata.NewService(provider, time.Duration(cfg.MarketDataCacheSeconds)*time.Second, db),
 		esports: esports.NewService(
 			cfg.LolesportsAPIKey,

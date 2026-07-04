@@ -53,6 +53,7 @@ func main() {
 
 	app.SeedAdmin(ctx, logger)
 	app.StartMarketDataPoller(ctx, logger)
+	app.StartCryptoBackfill(ctx, logger)
 	app.StartEsportsPoller(ctx, logger)
 	app.StartEsportsTeamsPoller(ctx, logger)
 
