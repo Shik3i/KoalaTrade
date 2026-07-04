@@ -217,6 +217,20 @@ func (s *SQLite) StoreQuotes(ctx context.Context, quotes []marketdata.Quote) err
 	return nil
 }
 
+// HistoryCoverage counts how many history points exist for an asset/tier since
+// the given time. Used by the backfill maintainer to detect and fill gaps.
+func (s *SQLite) HistoryCoverage(ctx context.Context, assetID, timeframe string, since time.Time) (int, error) {
+	var count int
+	err := s.db.GetContext(ctx, &count,
+		`SELECT COUNT(*) FROM asset_history WHERE asset_id = ? AND timeframe = ? AND timestamp >= ?`,
+		assetID, timeframe, formatTime(since),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("history coverage: %w", err)
+	}
+	return count, nil
+}
+
 // StoreHistory upserts historical price points into a single history tier.
 // Used by the backfill to seed long-range charts from a provider's historical
 // series (timestamps are the real historical times, not now).

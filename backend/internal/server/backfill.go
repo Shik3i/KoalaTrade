@@ -9,92 +9,122 @@ import (
 	"github.com/Shik3i/KoalaTrade/backend/internal/marketdata"
 )
 
-// cryptoBackfillFlag marks that the one-time crypto history backfill has run.
-// Bump the version suffix to force a re-backfill after a tier/schema change.
-const cryptoBackfillFlag = "crypto_history_backfilled_v1"
-
-// backfillFetchDelay spaces provider requests so the one-time backfill stays
-// under the CoinGecko free-tier rate limit. The keyless public API is very
-// aggressive; a COINGECKO_API_KEY (Demo tier, 30/min) makes this reliable.
+// backfillFetchDelay spaces provider requests so the maintainer stays under the
+// CoinGecko free-tier rate limit. The keyless public API is very aggressive; a
+// COINGECKO_API_KEY (Demo tier, 30/min) makes this fast and reliable.
 const backfillFetchDelay = 6 * time.Second
+
+// Adaptive cadence: while gaps remain we re-run soon to converge (respecting the
+// rate limit); once everything is covered we idle and only re-check occasionally
+// to heal gaps from downtime.
+const (
+	backfillActiveInterval = 3 * time.Minute
+	backfillIdleInterval   = 60 * time.Minute
+)
 
 // backfill429Backoffs are the waits between retries when CoinGecko returns 429.
 var backfill429Backoffs = []time.Duration{8 * time.Second, 20 * time.Second, 45 * time.Second}
 
-// backfillSpec maps a CoinGecko market_chart window to the history tiers it seeds.
-// CoinGecko auto-granularity: days=1 → 5-minutely, 2–90 → hourly, >90 → daily.
-type backfillSpec struct {
-	days       int
-	timeframes []string
+// coverageSpec describes one history tier the maintainer keeps populated for
+// crypto assets: how far back CoinGecko is asked for (days — auto-granularity:
+// 1 → 5-minutely, 2–90 → hourly, >90 → daily), the window it checks coverage
+// over, and the minimum points expected in that window before it backfills.
+type coverageSpec struct {
+	timeframe string
+	days      int
+	window    time.Duration
+	minPoints int
 }
 
-var cryptoBackfillSpecs = []backfillSpec{
-	{days: 1, timeframes: []string{"5M"}},
-	{days: 30, timeframes: []string{"1H", "6H"}},
-	{days: 365, timeframes: []string{"1D"}},
+// Ordered most-valuable-first so the long 1D history is filled before finer tiers
+// when the rate limit only lets a few requests through per pass.
+var cryptoCoverageSpecs = []coverageSpec{
+	{timeframe: "1D", days: 365, window: 365 * 24 * time.Hour, minPoints: 300},
+	{timeframe: "6H", days: 30, window: 30 * 24 * time.Hour, minPoints: 90},
+	{timeframe: "1H", days: 7, window: 7 * 24 * time.Hour, minPoints: 100},
+	{timeframe: "5M", days: 1, window: 24 * time.Hour, minPoints: 100},
 }
 
-// StartCryptoBackfill seeds historical chart data for crypto assets from
-// CoinGecko once, so long-range charts aren't empty on a fresh deployment.
-// Stocks/ETFs have no free historical source, so they accumulate live via the
-// poller instead. Runs in the background and is a no-op once completed.
-func (s *Server) StartCryptoBackfill(ctx context.Context, logger *slog.Logger) {
+// StartCryptoHistoryMaintainer continuously keeps crypto chart history populated.
+// Instead of a one-shot startup job, it periodically checks each asset/tier for
+// missing data and backfills only the gaps from CoinGecko — so it completes the
+// initial (rate-limited) backfill over several passes and self-heals gaps caused
+// by downtime. Stocks/ETFs have no free historical source and fill via the poller.
+func (s *Server) StartCryptoHistoryMaintainer(ctx context.Context, logger *slog.Logger) {
 	go func() {
-		if done, ok, _ := s.db.GetMeta(ctx, cryptoBackfillFlag); ok && done == "1" {
-			return
-		}
+		for {
+			fetched := s.runCryptoBackfillPass(ctx, logger)
+			if ctx.Err() != nil {
+				return
+			}
 
-		// Ensure the catalogue (and thus the assets FK targets) exists.
-		if _, err := s.marketData.Markets(ctx); err != nil {
-			logger.Warn("crypto backfill: catalogue unavailable, skipping", "error", err)
-			return
-		}
-
-		assetIDs := s.coingecko.CryptoAssetIDs()
-		if len(assetIDs) == 0 {
-			return
-		}
-
-		logger.Info("crypto history backfill started", "assets", len(assetIDs))
-		success, failures := 0, 0
-
-		for _, assetID := range assetIDs {
-			for _, spec := range cryptoBackfillSpecs {
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(backfillFetchDelay):
-				}
-
-				points, err := s.fetchHistoryWithRetry(ctx, assetID, spec.days, logger)
-				if err != nil {
-					if ctx.Err() != nil {
-						return
-					}
-					failures++
-					logger.Warn("crypto backfill fetch failed", "asset_id", assetID, "days", spec.days, "error", err)
-					continue
-				}
-				success++
-				for _, tf := range spec.timeframes {
-					if _, err := s.db.StoreHistory(ctx, assetID, tf, points); err != nil {
-						logger.Warn("crypto backfill store failed", "asset_id", assetID, "timeframe", tf, "error", err)
-					}
-				}
+			interval := backfillIdleInterval
+			if fetched > 0 {
+				interval = backfillActiveInterval
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(interval):
 			}
 		}
-
-		// Only mark done on a fully successful pass so partial/rate-limited runs
-		// retry on the next boot (StoreHistory upserts, so re-running is safe).
-		if failures == 0 {
-			_ = s.db.SetMeta(ctx, cryptoBackfillFlag, "1")
-			logger.Info("crypto history backfill completed", "fetched", success)
-		} else {
-			logger.Warn("crypto history backfill incomplete, will retry next start",
-				"fetched", success, "failed", failures,
-				"hint", "set COINGECKO_API_KEY (free Demo tier) for reliable backfill")
-		}
 	}()
+}
+
+// runCryptoBackfillPass checks every crypto asset/tier once and backfills the
+// gaps. Returns how many provider fetches it performed (0 means fully covered).
+func (s *Server) runCryptoBackfillPass(ctx context.Context, logger *slog.Logger) int {
+	// Ensure the catalogue (and thus the assets FK targets) exists.
+	if _, err := s.marketData.Markets(ctx); err != nil {
+		logger.Warn("crypto backfill: catalogue unavailable, skipping pass", "error", err)
+		return 0
+	}
+
+	assetIDs := s.coingecko.CryptoAssetIDs()
+	now := time.Now().UTC()
+	fetched := 0
+
+	for _, assetID := range assetIDs {
+		for _, spec := range cryptoCoverageSpecs {
+			if ctx.Err() != nil {
+				return fetched
+			}
+
+			count, err := s.db.HistoryCoverage(ctx, assetID, spec.timeframe, now.Add(-spec.window))
+			if err != nil {
+				logger.Warn("crypto backfill coverage check failed", "asset_id", assetID, "timeframe", spec.timeframe, "error", err)
+				continue
+			}
+			if count >= spec.minPoints {
+				continue // tier already sufficiently covered
+			}
+
+			// Space out actual provider calls to respect the rate limit.
+			select {
+			case <-ctx.Done():
+				return fetched
+			case <-time.After(backfillFetchDelay):
+			}
+
+			points, err := s.fetchHistoryWithRetry(ctx, assetID, spec.days, logger)
+			if err != nil {
+				if ctx.Err() != nil {
+					return fetched
+				}
+				logger.Warn("crypto backfill fetch failed", "asset_id", assetID, "timeframe", spec.timeframe, "days", spec.days, "error", err)
+				continue
+			}
+			fetched++
+			if _, err := s.db.StoreHistory(ctx, assetID, spec.timeframe, points); err != nil {
+				logger.Warn("crypto backfill store failed", "asset_id", assetID, "timeframe", spec.timeframe, "error", err)
+			}
+		}
+	}
+
+	if fetched > 0 {
+		logger.Info("crypto history backfill pass done", "fetches", fetched)
+	}
+	return fetched
 }
 
 // fetchHistoryWithRetry fetches one market_chart window, retrying with backoff
