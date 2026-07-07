@@ -168,10 +168,10 @@
     <section class="panel login-card">
       <div class="panel-head"><div><p class="eyebrow">Admin</p><h2>Anmelden</h2></div><ShieldCheck size={18} /></div>
       <form class="login-form" on:submit|preventDefault={handleLoginSubmit}>
-        <label class="field"><span>Benutzername</span><input bind:value={username} type="text" autocomplete="username" /></label>
-        <label class="field"><span>Passwort</span><input bind:value={password} type="password" autocomplete="current-password" /></label>
+        <label class="field" title="Administrator-Benutzername"><span>Benutzername</span><input bind:value={username} type="text" autocomplete="username" title="Gib den Admin-Nutzernamen ein" /></label>
+        <label class="field" title="Administrator-Passwort"><span>Passwort</span><input bind:value={password} type="password" autocomplete="current-password" title="Gib das Admin-Passwort ein" /></label>
         {#if loginError}<p class="form-error">{loginError}</p>{/if}
-        <button class="primary-button" type="submit" disabled={loggingIn || !password}>{loggingIn ? 'Anmelden …' : 'Anmelden'}</button>
+        <button class="primary-button" type="submit" title="Melde dich als Administrator an" disabled={loggingIn || !password}>{loggingIn ? 'Anmelden …' : 'Anmelden'}</button>
         <p class="hint">Admin wird einmalig aus <code>ADMIN_USERNAME</code>/<code>ADMIN_PASSWORD</code> geseedet.</p>
       </form>
     </section>
@@ -180,8 +180,8 @@
       <div class="panel-head">
         <div><p class="eyebrow">Admin</p><h2>Status & Cache</h2></div>
         <div class="head-actions">
-          <button class="ghost-btn" type="button" disabled={refreshing} on:click={refresh}><RefreshCw size={15} /> {refreshing ? 'Aktualisiere …' : 'Force-Refresh'}</button>
-          <button class="ghost-btn" type="button" on:click={onLogout}><LogOut size={15} /> Logout</button>
+          <button class="ghost-btn" type="button" title="Löscht den Cache des Spielplans und der Polymarket-Quoten und lädt alles live neu" disabled={refreshing} on:click={refresh}><RefreshCw size={15} /> {refreshing ? 'Aktualisiere …' : 'Force-Refresh'}</button>
+          <button class="ghost-btn" type="button" title="Melde dich als Administrator ab" on:click={onLogout}><LogOut size={15} /> Logout</button>
         </div>
       </div>
       {#if status}
@@ -197,7 +197,7 @@
       {#if settings}
         <div class="settings-row">
           <span>Registrierung</span>
-          <button class:active={settings.registrationOpen} type="button" disabled={busy} on:click={toggleRegistration}>
+          <button class:active={settings.registrationOpen} type="button" title="Schaltet die Registrierung für neue Konten ein oder aus" disabled={busy} on:click={toggleRegistration}>
             {settings.registrationOpen ? 'Offen' : 'Geschlossen'}
           </button>
         </div>
@@ -209,11 +209,11 @@
       <p class="hint">Polymarket nutzt teils andere Kürzel als lolesports. Hier lolesports-Code → Polymarket-Code zuordnen (z.B. EINS → ES1).</p>
 
       <form class="mapping-form" on:submit|preventDefault={saveMapping}>
-        <input bind:value={originalCode} type="text" placeholder="lolesports-Code (EINS)" />
+        <input bind:value={originalCode} type="text" placeholder="lolesports-Code (EINS)" title="Kürzel des Teams bei lolesports, z.B. EINS" />
         <span class="arrow">→</span>
-        <input bind:value={polymarketCode} type="text" placeholder="Polymarket-Code (ES1)" />
-        <button class="primary-button" type="submit" disabled={busy || !originalCode.trim() || !polymarketCode.trim()}>Speichern</button>
-        <button class="ghost-btn" type="button" disabled={slugBusy || !selectedMatch || !originalCode.trim()} on:click={() => testMapping(true)}>
+        <input bind:value={polymarketCode} type="text" placeholder="Polymarket-Code (ES1)" title="Kürzel des Teams auf Polymarket, z.B. ES1" />
+        <button class="primary-button" type="submit" title="Speichert die Team-Zuordnung im System ab" disabled={busy || !originalCode.trim() || !polymarketCode.trim()}>Speichern</button>
+        <button class="ghost-btn" type="button" title="Prüft die generierten Polymarket-Slugs und checkt live auf Polymarket, ob Kontrakte gefunden werden" disabled={slugBusy || !selectedMatch || !originalCode.trim()} on:click={() => testMapping(true)}>
           <FlaskConical size={15} /> {slugBusy ? 'Teste …' : 'Slugs testen'}
         </button>
       </form>
@@ -250,7 +250,7 @@
           {#each mappings as m (m.originalCode)}
             <div class="mapping-row">
               <strong>{m.originalCode}</strong><span class="arrow">→</span><strong>{m.polymarketCode}</strong>
-              <button class="del" type="button" aria-label="Löschen" on:click={() => removeMapping(m.originalCode)}><Trash2 size={15} /></button>
+              <button class="del" type="button" aria-label="Löschen" title="Dieses Teammapping löschen" on:click={() => removeMapping(m.originalCode)}><Trash2 size={15} /></button>
             </div>
           {/each}
         {/if}
@@ -267,9 +267,9 @@
           {#each noOddsMatches.slice(0, 30) as m (m.id)}
             <div class="noodds-row">
               <span class="lg">{m.league}</span>
-              <button type="button" on:click={() => prefill(m, m.team1.code)}><strong>{m.team1.code}</strong><small>{m.team1.name}</small></button>
+              <button type="button" title={`Mapping für ${m.team1.name} anlegen`} on:click={() => prefill(m, m.team1.code)}><strong>{m.team1.code}</strong><small>{m.team1.name}</small></button>
               <span class="vs">vs</span>
-              <button type="button" on:click={() => prefill(m, m.team2.code)}><strong>{m.team2.code}</strong><small>{m.team2.name}</small></button>
+              <button type="button" title={`Mapping für ${m.team2.name} anlegen`} on:click={() => prefill(m, m.team2.code)}><strong>{m.team2.code}</strong><small>{m.team2.name}</small></button>
             </div>
           {/each}
         {/if}

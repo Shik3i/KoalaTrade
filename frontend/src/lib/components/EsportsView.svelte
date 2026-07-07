@@ -118,10 +118,11 @@
                 max={bet.quantity}
                 value={qty}
                 aria-label="Menge"
+                title="Menge, die verkauft oder nachgekauft werden soll"
                 on:input={(e) => (manageQty[bet.assetId] = Math.max(1, Math.floor(Number(e.currentTarget.value)) || 1))}
               />
-              <button type="button" class="sell" on:click={() => onSell(bet.assetId, qty)}>Verkaufen</button>
-              <button type="button" class="buy" on:click={() => onBuyMore(bet.assetId, qty)}>Nachkaufen</button>
+              <button type="button" class="sell" title="Teile oder die gesamte Position zum aktuellen Preis verkaufen und Cash erhalten" on:click={() => onSell(bet.assetId, qty)}>Verkaufen</button>
+              <button type="button" class="buy" title="Mehr Kontrakte für diese Wette zum aktuellen Preis kaufen" on:click={() => onBuyMore(bet.assetId, qty)}>Nachkaufen</button>
             </div>
           </div>
         {/each}
@@ -135,10 +136,10 @@
     <div class="filter-bar">
       <div class="league-filter">
         {#each leagueOptions as league}
-          <button class:active={selectedLeagues.includes(league)} type="button" on:click={() => onToggleLeague(league)}>{league}</button>
+          <button class:active={selectedLeagues.includes(league)} type="button" title={`Zeige nur Spiele aus der Liga ${league} an`} on:click={() => onToggleLeague(league)}>{league}</button>
         {/each}
       </div>
-      <button class="fav-toggle" class:active={showOnlyFavorites} type="button" on:click={() => (showOnlyFavorites = !showOnlyFavorites)}>
+      <button class="fav-toggle" class:active={showOnlyFavorites} type="button" title="Zeigt nur Spiele von deinen als Favorit markierten Teams an" on:click={() => (showOnlyFavorites = !showOnlyFavorites)}>
         <Star size={14} fill={showOnlyFavorites ? 'currentColor' : 'none'} /> Nur Favoriten
       </button>
     </div>
@@ -169,14 +170,14 @@
             {#each [match.team1, match.team2] as team}
               <div class="team">
                 <div class="team-id">
-                  <button class="star" class:on={favoriteTeams.includes(team.code)} type="button" title="Favorit" on:click={() => onToggleFavorite(team.code)}>
+                  <button class="star" class:on={favoriteTeams.includes(team.code)} type="button" title={`Markiere ${team.code} als Lieblingsteam (beeinflusst den Filter)`} on:click={() => onToggleFavorite(team.code)}>
                     <Star size={14} fill={favoriteTeams.includes(team.code) ? 'currentColor' : 'none'} />
                   </button>
                   {#if team.image}<img src={team.image} alt="" width="28" height="28" loading="lazy" />{:else}<span class="team-fallback">{team.code}</span>{/if}
                   <div><strong>{team.code}</strong><small>{team.name}</small></div>
                 </div>
                 {#if match.hasOdds && team.priceCents > 0}
-                  <button class="bet-btn" type="button" disabled={refreshingId === match.id} on:click={() => startBet(match, team)}>
+                  <button class="bet-btn" type="button" title={`Wette auf ${team.code} (Siegchance ca. ${Math.round(team.probBps / 100)}%)`} disabled={refreshingId === match.id} on:click={() => startBet(match, team)}>
                     <span class="prob">{Math.round(team.probBps / 100)}%</span>
                     <span class="px">{formatMoney(team.priceCents)}</span>
                   </button>
@@ -197,19 +198,19 @@
                   <small>{stakeFor(match.id)} Kontrakte · {formatMoney(costCents(confirmTeam.priceCents, stakeFor(match.id)))}</small>
                 </div>
                 <div class="confirm-actions">
-                  <button class="ghost" type="button" on:click={cancelBet}>Abbrechen</button>
-                  <button class="confirm" type="button" disabled={!canAfford(confirmTeam.priceCents, stakeFor(match.id))} on:click={() => confirmBet(match)}>Bestätigen</button>
+                  <button class="ghost" type="button" title="Wettvorgang abbrechen" on:click={cancelBet}>Abbrechen</button>
+                  <button class="confirm" type="button" title="Wette verbindlich platzieren und Cash belasten" disabled={!canAfford(confirmTeam.priceCents, stakeFor(match.id))} on:click={() => confirmBet(match)}>Bestätigen</button>
                 </div>
               {:else}
                 <span class="refreshing">Keine aktuelle Quote verfügbar.</span>
-                <button class="ghost" type="button" on:click={cancelBet}>Schließen</button>
+                <button class="ghost" type="button" title="Dieses Fenster schließen" on:click={cancelBet}>Schließen</button>
               {/if}
             </footer>
           {:else if match.hasOdds}
             <footer class="match-foot">
-              <label>
+              <label title="Gib die Anzahl der Kontrakte ein, die du erwerben möchtest.">
                 <span>Kontrakte</span>
-                <input type="number" min="1" step="1" value={stakeFor(match.id)} on:input={(e) => (stakes[match.id] = Math.max(1, Math.floor(Number(e.currentTarget.value)) || 1))} />
+                <input type="number" min="1" step="1" value={stakeFor(match.id)} title="Gib die Anzahl der Kontrakte ein, die du erwerben möchtest." on:input={(e) => (stakes[match.id] = Math.max(1, Math.floor(Number(e.currentTarget.value)) || 1))} />
               </label>
               <span class="hint">Einsatz ab {formatMoney(costCents(match.team1.priceCents, stakeFor(match.id)))}</span>
             </footer>

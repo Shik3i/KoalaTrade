@@ -25,6 +25,10 @@ func main() {
 	// Warn loudly about insecure production defaults. An empty AUTH_SECRET means a
 	// fresh random signing key on every boot, invalidating all sessions on restart.
 	if cfg.AuthSecret == "" {
+		if cfg.Environment == "production" {
+			logger.Error("AUTH_SECRET is not set in production: this is required to maintain user sessions across restarts. Server exiting.")
+			os.Exit(1)
+		}
 		logger.Warn("AUTH_SECRET is not set: a random key is generated per start, so all sessions are invalidated on restart. Set AUTH_SECRET in production.")
 	}
 	if cfg.Environment == "production" && cfg.AdminPassword == "" {

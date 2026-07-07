@@ -743,8 +743,34 @@
           ? { ...market, priceCents: quote.priceCents, changeBps: quote.changeBps, source: quote.source, updatedAt: quote.updatedAt }
           : market;
       });
+
+      // Background eSports matches updates if relevant
+      const hasEsportsPositions = portfolio?.positions.some((p) => p.kind === 'event');
+      if (hasEsportsPositions || esportsLoaded) {
+        try {
+          esportsMatches = await fetchEsportsMatches();
+        } catch (e) {
+          console.warn('eSports matches update failed in background:', e);
+        }
+      }
+
       if (portfolio) {
-        const marked = markPositionsToMarket(portfolio, quotes);
+        let marked = markPositionsToMarket(portfolio, quotes);
+        if (esportsMatches.length > 0) {
+          const priceByAsset = new Map<string, number>();
+          for (const match of esportsMatches) {
+            if (!match.hasOdds) continue;
+            for (const team of [match.team1, match.team2]) {
+              if (team.priceCents > 0) priceByAsset.set(esportsAssetId(match.id, team.code), team.priceCents);
+            }
+          }
+          const updates = marked.positions
+            .filter((position) => priceByAsset.has(position.assetId))
+            .map((position) => ({ assetId: position.assetId, priceCents: priceByAsset.get(position.assetId)! }));
+          if (updates.length > 0) {
+            marked = markPositionsToMarket(marked, updates);
+          }
+        }
         if (marked !== portfolio) {
           portfolio = marked;
           await savePortfolio(marked);
@@ -861,7 +887,7 @@
           <span>Paper markets</span>
         </div>
       </div>
-      <button class="nav-action" type="button" on:click={() => setActiveView('trade')}>Trading Desk öffnen</button>
+      <button class="nav-action" type="button" title="Wechsle direkt zum interaktiven Trading Desk." on:click={() => setActiveView('trade')}>Trading Desk öffnen</button>
     </header>
 
     <section class="landing-hero" aria-label="KoalaTrade introduction">
@@ -873,7 +899,7 @@
           zum Lernen und Üben, ganz ohne echtes Risiko.
         </p>
         <div class="landing-actions">
-          <button class="primary-button" type="button" on:click={() => setActiveView('trade')}>Desk starten</button>
+          <button class="primary-button" type="button" title="Starte den KoalaTrade Trading Desk." on:click={() => setActiveView('trade')}>Desk starten</button>
           <span class:online={config}>{config ? 'Live API bereit' : 'Lädt lokale Session'}</span>
         </div>
         <div class="landing-stats">
@@ -940,29 +966,34 @@
 
       <nav class="desk-tabs" aria-label="Trading sections">
         {#each deskTabs as tab}
-          <button class:active={activeView === tab.id} type="button" on:click={() => setActiveView(tab.id)}>
+          <button class:active={activeView === tab.id} type="button" 
+                  title={tab.id === 'trade' ? 'Handelsbildschirm: Kaufe und verkaufe Assets zum aktuellen Marktpreis' :
+                         tab.id === 'portfolio' ? 'Portfolio: Zeige deine Positionen, deinen Kontostand, P&L-Statistiken und Wertentwicklung' :
+                         tab.id === 'markets' ? 'Märkte: Übersicht aller handelbaren Aktien, ETFs, Kryptowährungen und Rohstoffe' :
+                         tab.id === 'esports' ? 'eSports: Vorhersagemärkte für anstehende Matches mit Polymarket-Quoten' : ''}
+                  on:click={() => setActiveView(tab.id)}>
             <svelte:component this={tab.icon} size={16} /> {tab.label}
           </button>
         {/each}
       </nav>
 
       <div class="desk-actions">
-        <span class:online={config && !configError} class="status-pill">
+        <span class:online={config && !configError} class="status-pill" title="Status der Verbindung zum KoalaTrade-Backend-Server.">
           <i class="dot"></i>{config && !configError ? 'API online' : 'Local mode'}
         </span>
-        <button class="icon-button" class:active={activeView === 'profile'} type="button" aria-label="Profil" title="Profil & Favoriten" on:click={() => setActiveView('profile')}>
+        <button class="icon-button" class:active={activeView === 'profile'} type="button" aria-label="Profil" title="Profil & Favoriten: Verwalte deine Einstellungen, Lieblingsteams und Kontodaten" on:click={() => setActiveView('profile')}>
           <UserCircle2 size={18} />
         </button>
-        <button class="icon-button" class:active={activeView === 'admin'} type="button" aria-label="Admin" title="Admin" on:click={() => setActiveView('admin')}>
+        <button class="icon-button" class:active={activeView === 'admin'} type="button" aria-label="Admin" title="Admin-Bereich: Teammappings verwalten, Cache leeren und Registrierungsmodus umschalten" on:click={() => setActiveView('admin')}>
           <ShieldCheck size={18} />
         </button>
-        <button class="icon-button" type="button" aria-label="Shortcuts" title="Tastenkürzel (?)" on:click={() => (showShortcuts = !showShortcuts)}>
+        <button class="icon-button" type="button" aria-label="Shortcuts" title="Tastenkürzel anzeigen (?)" on:click={() => (showShortcuts = !showShortcuts)}>
           <Keyboard size={18} />
         </button>
-        <button class="icon-button" type="button" aria-label="Portfolio synchronisieren" title="Sync" disabled={isSyncing || !portfolio || !!configError} on:click={handleSyncPortfolio}>
+        <button class="icon-button" type="button" aria-label="Portfolio synchronisieren" title="Portfolio synchronisieren: Sichere dein Portfolio auf dem Server, um es geräteübergreifend zu nutzen" disabled={isSyncing || !portfolio || !!configError} on:click={handleSyncPortfolio}>
           <CloudUpload size={18} />
         </button>
-        <button class="icon-button" type="button" aria-label="Portfolio zurücksetzen" title="Reset" on:click={() => (showResetConfirm = true)}>
+        <button class="icon-button" type="button" aria-label="Portfolio zurücksetzen" title="Portfolio zurücksetzen: Löscht alle Positionen und setzt dein Guthaben auf den Startwert zurück" on:click={() => (showResetConfirm = true)}>
           <RotateCcw size={18} />
         </button>
       </div>
@@ -970,7 +1001,7 @@
 
     <section class="market-tape" aria-label="Market tape">
       {#each markets.slice(0, 6) as item, index}
-        <button class:active={selectedMarket && selectedMarket.assetId === item.assetId} type="button" on:click={() => selectMarket(item.assetId, true)}>
+        <button class:active={selectedMarket && selectedMarket.assetId === item.assetId} type="button" title={`Wähle ${item.symbol} aus, um den Chart und das Order-Ticket anzuzeigen.`} on:click={() => selectMarket(item.assetId, true)}>
           <span class="tape-key">{index + 1}</span>
           <strong>{item.symbol}</strong>
           <span class="tape-price">{formatPrice(item.priceCents)}</span>
@@ -988,7 +1019,7 @@
           </label>
           <div class="market-filters" aria-label="Markt-Filter">
             {#each marketFilters as filter}
-              <button class:active={marketFilter === filter.id} type="button" on:click={() => (marketFilter = filter.id)}>{filter.label}</button>
+              <button class:active={marketFilter === filter.id} type="button" title={`Zeige nur Märkte vom Typ "${filter.label}"`} on:click={() => (marketFilter = filter.id)}>{filter.label}</button>
             {/each}
           </div>
           <div class="watchlist-head"><span>Asset</span><span>Preis</span><span>24h</span></div>
@@ -999,7 +1030,7 @@
               <p class="empty-state">Keine Märkte für diesen Filter.</p>
             {:else}
               {#each filteredMarkets as item}
-                <button class:selected={selectedMarket && selectedMarket.assetId === item.assetId} class="market-row" type="button" on:click={() => selectMarket(item.assetId)}>
+                <button class:selected={selectedMarket && selectedMarket.assetId === item.assetId} class="market-row" type="button" title={`Wähle ${item.symbol} (${item.name}) aus.`} on:click={() => selectMarket(item.assetId)}>
                   <span class="asset"><strong>{item.symbol}</strong><small>{item.kind}</small></span>
                   <span class="price">{formatPrice(item.priceCents)}</span>
                   <em class={item.priceCents > 0 ? marketTone(item.changeBps) : ''}>{item.priceCents > 0 ? formatPercentFromBps(item.changeBps) : '—'}</em>
@@ -1047,12 +1078,12 @@
                 {/if}
               </div>
               <div class="chart-controls">
-                <button class="sma-toggle" class:active={showSma} type="button" on:click={() => (showSma = !showSma)}>SMA 14</button>
+                <button class="sma-toggle" class:active={showSma} type="button" title="Simple Moving Average (14): Blendet den gleitenden Durchschnitt der letzten 14 Kerzen ein/aus, um den Trend zu visualisieren." on:click={() => (showSma = !showSma)}>SMA 14</button>
                 <InfoTip placement="bottom" text="Simple Moving Average (14): der gleitende Durchschnitt der letzten 14 Kerzen. Glättet den Kurs und zeigt den Trend – liegt der Preis darüber, ist der kurzfristige Trend eher aufwärts." />
 
                 <div class="timeframes">
                   {#each chartRanges as range}
-                    <button class:active={chartRange === range} type="button" on:click={() => (chartRange = range)}>{range}</button>
+                    <button class:active={chartRange === range} type="button" title={`Ändere den Chart-Zeitraum auf ${range}`} on:click={() => (chartRange = range)}>{range}</button>
                   {/each}
                 </div>
               </div>
@@ -1106,32 +1137,32 @@
             </div>
             <form class="order-form" on:submit|preventDefault={handleSubmitOrder}>
               <div class="segmented" aria-label="Order-Seite">
-                <button class:active={orderSide === 'buy'} type="button" on:click={() => setOrderSide('buy')}>Kaufen</button>
-                <button class:active={orderSide === 'sell'} class="sell" type="button" on:click={() => setOrderSide('sell')}>Verkaufen</button>
+                <button class:active={orderSide === 'buy'} type="button" title="Kauf-Order: Assets erwerben" on:click={() => setOrderSide('buy')}>Kaufen</button>
+                <button class:active={orderSide === 'sell'} class="sell" type="button" title="Verkaufs-Order: Assets aus deinem Bestand veräußern" on:click={() => setOrderSide('sell')}>Verkaufen</button>
               </div>
 
-              <label class="field">
+              <label class="field" title="Menge: Gib die Stückzahl ein, die du handeln möchtest.">
                 <span>Menge</span>
-                <input bind:value={orderQuantity} min="0.0001" step="0.0001" type="number" />
+                <input bind:value={orderQuantity} min="0.0001" step="0.0001" type="number" title="Gewünschte Stückzahl für die Order" />
               </label>
 
               <div class="presets" aria-label="Mengen-Presets">
                 {#each quantityPresets as preset}
-                  <button type="button" disabled={orderLimitQuantity <= 0} on:click={() => applyPreset(preset)}>{Math.round(preset * 100)}%</button>
+                  <button type="button" disabled={orderLimitQuantity <= 0} title={`Setzt die Menge auf ${Math.round(preset * 100)}% deines verfügbaren Budgets bzw. Bestands`} on:click={() => applyPreset(preset)}>{Math.round(preset * 100)}%</button>
                 {/each}
               </div>
 
               <div class="order-power"><span>{orderPowerLabel}</span><strong>{orderPowerValue}</strong></div>
 
               <div class="order-summary">
-                <div><span>Marktpreis</span><strong>{formatMoney(effectivePriceCents)}</strong></div>
-                <div><span>Bruttowert</span><strong>{formatMoney(estimatedOrderValue)}</strong></div>
-                <div><span>Gebühr ({(ORDER_FEE_BPS / 100).toFixed(2)}%)<InfoTip text={`Simulierte Handelsgebühr von ${(ORDER_FEE_BPS / 100).toFixed(2)}% auf den Ordervolumen – wie bei einem echten Broker, damit die Simulation realistisch bleibt.`} /></span><strong>{formatMoney(estimatedOrderFee)}</strong></div>
-                <div class="total"><span>{orderSide === 'buy' ? 'Cash-Belastung' : 'Cash-Gutschrift'}</span><strong>{formatMoney(estimatedOrderTotal)}</strong></div>
+                <div title="Der aktuelle Preis pro Einheit des Assets."><span>Marktpreis</span><strong>{formatMoney(effectivePriceCents)}</strong></div>
+                <div title="Reiner Preis der Einheiten ohne Gebühren."><span>Bruttowert</span><strong>{formatMoney(estimatedOrderValue)}</strong></div>
+                <div title="Simulierte Transaktionsgebühr für diesen Trade."><span>Gebühr ({(ORDER_FEE_BPS / 100).toFixed(2)}%)<InfoTip text={`Simulierte Handelsgebühr von ${(ORDER_FEE_BPS / 100).toFixed(2)}% auf den Ordervolumen – wie bei einem echten Broker, damit die Simulation realistisch bleibt.`} /></span><strong>{formatMoney(estimatedOrderFee)}</strong></div>
+                <div class="total" title="Gesamter Cash-Betrag, der nach Gebühren belastet oder gutgeschrieben wird."><span>{orderSide === 'buy' ? 'Cash-Belastung' : 'Cash-Gutschrift'}</span><strong>{formatMoney(estimatedOrderTotal)}</strong></div>
               </div>
 
               {#if orderError}<p class="form-error">{orderError}</p>{/if}
-              <button class="primary-button" class:danger={orderSide === 'sell'} type="submit" disabled={!canSubmitOrder}>
+              <button class="primary-button" class:danger={orderSide === 'sell'} type="submit" title={orderSide === 'buy' ? `Simulierten Kauf von ${normalizedOrderQuantity}x ${selectedMarket.symbol} ausführen` : `Simulierten Verkauf von ${normalizedOrderQuantity}x ${selectedMarket.symbol} ausführen`} disabled={!canSubmitOrder}>
                 {orderSide === 'buy' ? 'Kaufen' : 'Verkaufen'} {selectedMarket.symbol}
               </button>
             </form>
@@ -1169,8 +1200,8 @@
             <div class="panel-head">
               <div><p class="eyebrow">Holdings</p><h2>Positionen</h2></div>
               <div class="mini-toggle">
-                <button class:active={positionSort === 'value'} type="button" on:click={() => (positionSort = 'value')}>Wert</button>
-                <button class:active={positionSort === 'pnl'} type="button" on:click={() => (positionSort = 'pnl')}>P&L</button>
+                <button class:active={positionSort === 'value'} type="button" title="Sortiere deine offenen Positionen nach Marktwert" on:click={() => (positionSort = 'value')}>Wert</button>
+                <button class:active={positionSort === 'pnl'} type="button" title="Sortiere deine offenen Positionen nach Gewinn/Verlust" on:click={() => (positionSort = 'pnl')}>P&L</button>
               </div>
             </div>
             <div class="table">
@@ -1179,7 +1210,7 @@
                 <p class="empty-state">Noch keine offenen Positionen.</p>
               {:else}
                 {#each sortedPositionRows as position}
-                  <button class="table-row pos" type="button" on:click={() => selectMarket(position.assetId, true)}>
+                  <button class="table-row pos" type="button" title={`Klicke hier, um den Trading-Desk für ${position.symbol} zu öffnen und die Position zu handeln.`} on:click={() => selectMarket(position.assetId, true)}>
                     <span class="asset"><strong>{position.symbol}</strong><small>Ø {formatMoney(position.averageCostCents)}</small></span>
                     <span>{formatQuantity(position.quantity)}</span>
                     <span>{formatMoney(position.marketValueCents)}</span>
@@ -1218,7 +1249,7 @@
           </label>
           <div class="market-filters wide">
             {#each marketFilters as filter}
-              <button class:active={marketFilter === filter.id} type="button" on:click={() => (marketFilter = filter.id)}>{filter.label}</button>
+              <button class:active={marketFilter === filter.id} type="button" title={`Zeige nur Märkte vom Typ "${filter.label}"`} on:click={() => (marketFilter = filter.id)}>{filter.label}</button>
             {/each}
           </div>
         </div>
@@ -1230,7 +1261,7 @@
             <p class="empty-state">Keine Märkte für diesen Filter.</p>
           {:else}
             {#each filteredMarkets as item}
-              <button class="market-card" class:selected={selectedMarket.assetId === item.assetId} type="button" on:click={() => selectMarket(item.assetId, true)}>
+              <button class="market-card" class:selected={selectedMarket.assetId === item.assetId} type="button" title={`Öffne den Trading-Desk für ${item.symbol} (${item.name}).`} on:click={() => selectMarket(item.assetId, true)}>
                 <div class="card-top">
                   <div><strong>{item.symbol}</strong><small>{item.name}</small></div>
                   <span class="kind-tag">{item.kind}</span>
@@ -1312,7 +1343,7 @@
 
   {#if showShortcuts}
     <div class="shortcuts-overlay">
-      <button class="shortcuts-backdrop" type="button" aria-label="Schließen" on:click={() => (showShortcuts = false)}></button>
+      <button class="shortcuts-backdrop" type="button" aria-label="Schließen" title="Hilfefenster schließen" on:click={() => (showShortcuts = false)}></button>
       <div class="shortcuts-card" role="dialog" aria-label="Tastenkürzel" aria-modal="true">
         <div class="panel-head"><div><p class="eyebrow">Hilfe</p><h2>Tastenkürzel</h2></div><Keyboard size={18} /></div>
         <ul>
@@ -1321,20 +1352,20 @@
           <li><kbd>1</kbd>–<kbd>6</kbd><span>Markt wählen</span></li>
           <li><kbd>?</kbd><span>Diese Hilfe</span></li>
         </ul>
-        <button class="primary-button" type="button" on:click={() => (showShortcuts = false)}>Schließen</button>
+        <button class="primary-button" type="button" title="Tastenkürzel-Fenster schließen" on:click={() => (showShortcuts = false)}>Schließen</button>
       </div>
     </div>
   {/if}
 
   {#if showResetConfirm}
     <div class="shortcuts-overlay">
-      <button class="shortcuts-backdrop" type="button" aria-label="Schließen" on:click={() => (showResetConfirm = false)}></button>
+      <button class="shortcuts-backdrop" type="button" aria-label="Schließen" title="Dialog schließen und abbrechen" on:click={() => (showResetConfirm = false)}></button>
       <div class="shortcuts-card" role="dialog" aria-label="Portfolio zurücksetzen" aria-modal="true">
         <div class="panel-head"><div><p class="eyebrow">Bestätigen</p><h2>Portfolio zurücksetzen?</h2></div><RotateCcw size={18} /></div>
         <p class="confirm-text">Alle Positionen, Trades und dein Verlauf werden gelöscht und das Startkapital von {formatMoney(portfolio?.startingCashCents ?? config?.startingCashCents ?? 1_000_000)} wiederhergestellt. Das kann nicht rückgängig gemacht werden.</p>
         <div class="confirm-actions">
-          <button class="ghost-button" type="button" on:click={() => (showResetConfirm = false)}>Abbrechen</button>
-          <button class="primary-button danger" type="button" on:click={handleResetPortfolio}>Zurücksetzen</button>
+          <button class="ghost-button" type="button" title="Zurücksetzen abbrechen" on:click={() => (showResetConfirm = false)}>Abbrechen</button>
+          <button class="primary-button danger" type="button" title="Alle Trades löschen und Guthaben auf Startkapital zurücksetzen" on:click={handleResetPortfolio}>Zurücksetzen</button>
         </div>
       </div>
     </div>
@@ -1342,7 +1373,7 @@
 
   {#if showOnboarding}
     <div class="shortcuts-overlay">
-      <button class="shortcuts-backdrop" type="button" aria-label="Schließen" on:click={dismissOnboarding}></button>
+      <button class="shortcuts-backdrop" type="button" aria-label="Schließen" title="Tour schließen" on:click={dismissOnboarding}></button>
       <div class="shortcuts-card onboarding-card" role="dialog" aria-label="Willkommen" aria-modal="true">
         <div class="panel-head"><div><p class="eyebrow">Willkommen bei KoalaTrade</p><h2>Paper-Trading in 30 Sekunden</h2></div><Sparkles size={18} /></div>
         <ul class="onboarding-list">
@@ -1351,7 +1382,7 @@
           <li><Trophy size={16} /><span>Wette im <strong>eSports</strong>-Bereich auf LoL-Matches – Yes zahlt {formatMoney(10_000)} bei Sieg.</span></li>
           <li><UserCircle2 size={16} /><span>Optional: Account anlegen, um dein Portfolio geräteübergreifend zu synchronisieren.</span></li>
         </ul>
-        <button class="primary-button" type="button" on:click={dismissOnboarding}>Los geht's</button>
+        <button class="primary-button" type="button" title="Paper-Trading starten" on:click={dismissOnboarding}>Los geht's</button>
       </div>
     </div>
   {/if}

@@ -1593,7 +1593,7 @@ kbd {
   line-height: 1.45;
 }
 
-.onboarding-list li :global(svg) {
+.onboarding-list li svg {
   margin-top: 0.15rem;
   color: var(--accent);
 }

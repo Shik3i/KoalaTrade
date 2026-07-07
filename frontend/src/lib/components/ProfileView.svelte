@@ -148,24 +148,24 @@
     {#if user}
       <div class="account-row">
         <span>{user.username} · {user.role}</span>
-        <button class="ghost-btn" type="button" disabled={authBusy} on:click={onLogout}><LogOut size={15} /> Logout</button>
+        <button class="ghost-btn" type="button" title="Melde dich von deinem Account ab. Dein Portfolio wird lokal gespeichert." disabled={authBusy} on:click={onLogout}><LogOut size={15} /> Logout</button>
       </div>
       <div class="account-management">
         <form class="mini-form" on:submit|preventDefault={saveProfile}>
           <div class="panel-head slim"><div><p class="eyebrow">Account</p><h3>Profil</h3></div><UserCircle2 size={16} /></div>
-          <label class="field"><span>Display Name</span><input bind:value={displayName} type="text" autocomplete="name" /></label>
+          <label class="field" title="Anzeigename für dein Profil"><span>Display Name</span><input bind:value={displayName} type="text" autocomplete="name" title="Gib deinen gewünschten Anzeigenamen ein (mindestens 2 Zeichen)" /></label>
           {#if profileError}<p class="form-error">{profileError}</p>{/if}
-          <button class="primary-button" type="submit" disabled={busyAction === 'profile' || displayName.trim().length < 2}>
+          <button class="primary-button" type="submit" title="Übernehme deinen neuen Anzeigenamen" disabled={busyAction === 'profile' || displayName.trim().length < 2}>
             {busyAction === 'profile' ? 'Speichere …' : 'Profil speichern'}
           </button>
         </form>
 
         <form class="mini-form" on:submit|preventDefault={savePassword}>
           <div class="panel-head slim"><div><p class="eyebrow">Security</p><h3>Passwort</h3></div><KeyRound size={16} /></div>
-          <label class="field"><span>Aktuelles Passwort</span><input bind:value={currentPassword} type="password" autocomplete="current-password" /></label>
-          <label class="field"><span>Neues Passwort</span><input bind:value={newPassword} type="password" autocomplete="new-password" /></label>
+          <label class="field" title="Gib dein aktuelles Passwort ein"><span>Aktuelles Passwort</span><input bind:value={currentPassword} type="password" autocomplete="current-password" title="Dein aktuelles Passwort" /></label>
+          <label class="field" title="Wähle ein neues sicheres Passwort"><span>Neues Passwort</span><input bind:value={newPassword} type="password" autocomplete="new-password" title="Neues Passwort (mindestens 10 Zeichen)" /></label>
           {#if passwordError}<p class="form-error">{passwordError}</p>{/if}
-          <button class="primary-button" type="submit" disabled={busyAction === 'password' || currentPassword.length < 10 || newPassword.length < 10}>
+          <button class="primary-button" type="submit" title="Ändere dein Passwort. Mindestens 10 Zeichen erforderlich." disabled={busyAction === 'password' || currentPassword.length < 10 || newPassword.length < 10}>
             {busyAction === 'password' ? 'Ändere …' : 'Passwort ändern'}
           </button>
         </form>
@@ -173,26 +173,26 @@
         <section class="mini-form danger-zone">
           <div class="panel-head slim"><div><p class="eyebrow">Daten</p><h3>Export & Delete</h3></div><Trash2 size={16} /></div>
           <div class="danger-actions">
-            <button class="ghost-btn" type="button" disabled={busyAction === 'export'} on:click={exportData}><Download size={15} /> Export</button>
+            <button class="ghost-btn" type="button" title="Lade alle deine Profildaten, Transaktionen und Portfoliowerte als JSON-Datei herunter (GDPR/DSGVO-konform)." disabled={busyAction === 'export'} on:click={exportData}><Download size={15} /> Export</button>
           </div>
-          <label class="field"><span>Passwort für Löschaktionen</span><input bind:value={dangerPassword} type="password" autocomplete="current-password" /></label>
+          <label class="field" title="Wird zur Bestätigung für Daten- und Kontolöschungen benötigt."><span>Passwort für Löschaktionen</span><input bind:value={dangerPassword} type="password" autocomplete="current-password" title="Passwort zur Bestätigung" /></label>
           {#if dangerError}<p class="form-error">{dangerError}</p>{/if}
           <div class="danger-actions">
-            <button class="ghost-btn danger" type="button" disabled={busyAction === 'portfolio' || dangerPassword.length < 10} on:click={deletePortfolioData}>Portfolio-Daten löschen</button>
-            <button class="ghost-btn danger" type="button" disabled={busyAction === 'account' || dangerPassword.length < 10} on:click={deleteAccount}>Account löschen</button>
+            <button class="ghost-btn danger" type="button" title="Löscht all deine Trades und Transaktionsdaten dauerhaft vom Server" disabled={busyAction === 'portfolio' || dangerPassword.length < 10} on:click={deletePortfolioData}>Portfolio-Daten löschen</button>
+            <button class="ghost-btn danger" type="button" title="Löscht dein Benutzerkonto sowie alle zugehörigen Daten endgültig vom Server" disabled={busyAction === 'account' || dangerPassword.length < 10} on:click={deleteAccount}>Account löschen</button>
           </div>
         </section>
       </div>
     {:else}
       <form class="auth-form" on:submit|preventDefault={submitAuth}>
         <div class="segmented compact-segment">
-          <button class:active={authMode === 'login'} type="button" on:click={() => (authMode = 'login')}>Login</button>
-          <button class:active={authMode === 'register'} type="button" disabled={!registrationOpen} on:click={() => (authMode = 'register')}>Registrieren</button>
+          <button class:active={authMode === 'login'} type="button" title="Melde dich mit deinem bestehenden Account an" on:click={() => (authMode = 'login')}>Login</button>
+          <button class:active={authMode === 'register'} type="button" title="Erstelle ein neues Benutzerkonto, falls die Registrierung geöffnet ist" disabled={!registrationOpen} on:click={() => (authMode = 'register')}>Registrieren</button>
         </div>
-        <label class="field"><span>Benutzername</span><input bind:value={username} type="text" autocomplete="username" /></label>
-        <label class="field"><span>Passwort</span><input bind:value={password} type="password" autocomplete={authMode === 'login' ? 'current-password' : 'new-password'} /></label>
+        <label class="field" title="Benutzername für dein Konto (mindestens 3 Zeichen)"><span>Benutzername</span><input bind:value={username} type="text" autocomplete="username" title="Benutzername eingeben" /></label>
+        <label class="field" title="Passwort für dein Konto (mindestens 10 Zeichen)"><span>Passwort</span><input bind:value={password} type="password" autocomplete={authMode === 'login' ? 'current-password' : 'new-password'} title="Passwort eingeben" /></label>
         {#if authError}<p class="form-error">{authError}</p>{/if}
-        <button class="primary-button" type="submit" disabled={authBusy || username.trim().length < 3 || password.length < 10}>
+        <button class="primary-button" type="submit" title={authMode === 'register' ? 'Erstelle dein neues Benutzerkonto und melde dich an' : 'Melde dich an, um dein Portfolio zu synchronisieren'} disabled={authBusy || username.trim().length < 3 || password.length < 10}>
           <LogIn size={15} /> {authMode === 'register' ? 'Account erstellen' : 'Einloggen'}
         </button>
       </form>
@@ -204,7 +204,7 @@
     <p class="hint">Diese Ligen werden auf der eSports-Seite standardmäßig angezeigt.</p>
     <div class="league-chips">
       {#each leagueOptions as league}
-        <button class:active={esportsLeagues.includes(league)} type="button" on:click={() => onToggleLeague(league)}>
+        <button class:active={esportsLeagues.includes(league)} type="button" title={`Standardmäßig Spiele der Liga ${league} auf der eSports-Seite anzeigen`} on:click={() => onToggleLeague(league)}>
           {league}
         </button>
       {/each}
@@ -217,7 +217,7 @@
     {#if favoriteTeamInfos.length > 0}
       <div class="fav-chips">
         {#each favoriteTeamInfos as team}
-          <button class="fav-chip" type="button" on:click={() => onToggleTeam(team.code)} title="Entfernen">
+          <button class="fav-chip" type="button" on:click={() => onToggleTeam(team.code)} title={`Entferne ${team.code} (${team.name}) aus deinen Favoriten`}>
             {#if team.image}<img src={team.image} alt="" width="18" height="18" />{/if}
             <span>{team.code}</span>
             <em>×</em>
@@ -248,6 +248,7 @@
               class="t-action"
               class:selected
               type="button"
+              title={selected ? `Entferne ${team.code} aus deinen Favoriten` : atLimit ? `Maximale Anzahl an Favoriten (${MAX_FAVORITE_TEAMS}) erreicht.` : `Füge ${team.code} zu deinen Favoriten hinzu`}
               disabled={!selected && atLimit}
               on:click={() => onToggleTeam(team.code)}
             >
