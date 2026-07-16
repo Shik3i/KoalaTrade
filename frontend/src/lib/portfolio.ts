@@ -67,6 +67,46 @@ export type PriceUpdate = {
   updatedAt?: string;
 };
 
+export type OpenOrderType = 'limit' | 'stop';
+
+/**
+ * A pending Limit or Stop order. Unlike a Market order it does NOT execute on
+ * submit — it waits in the local open-orders queue and is filled by the quote
+ * poll once its trigger condition is met. This is the fix for the old UX where
+ * Limit/Stop were cosmetic and filled instantly.
+ */
+export type OpenOrder = {
+  id: string;
+  assetId: string;
+  symbol: string;
+  name: string;
+  kind: AssetKind;
+  side: TransactionSide;
+  orderType: OpenOrderType;
+  quantity: number;
+  triggerPriceCents: number;
+  createdAt: string;
+};
+
+/**
+ * Whether a pending Limit/Stop order should fill at the given live price.
+ * - Limit buy  fills when price drops to/through the limit (buy at or better).
+ * - Limit sell fills when price rises to/through the limit (sell at or better).
+ * - Stop buy   fires when price rises to/through the stop (breakout / short cover).
+ * - Stop sell  fires when price falls to/through the stop (classic stop-loss).
+ */
+export function shouldTriggerOrder(order: OpenOrder, priceCents: number): boolean {
+  if (!Number.isFinite(priceCents) || priceCents <= 0) return false;
+  if (order.orderType === 'limit') {
+    return order.side === 'buy'
+      ? priceCents <= order.triggerPriceCents
+      : priceCents >= order.triggerPriceCents;
+  }
+  return order.side === 'buy'
+    ? priceCents >= order.triggerPriceCents
+    : priceCents <= order.triggerPriceCents;
+}
+
 export function createInitialPortfolio(startingCashCents: number, now = new Date()): PortfolioSnapshot {
   const timestamp = now.toISOString();
 

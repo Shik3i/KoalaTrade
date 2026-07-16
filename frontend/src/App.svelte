@@ -53,7 +53,7 @@
     type PublicConfig,
     type SessionUser
   } from './lib/api';
-  import { loadClientId, loadPortfolio, loadPreferences, resetPortfolio, savePortfolio, savePreferences } from './lib/portfolio-db';
+  import { loadClientId, loadOpenOrders, loadPortfolio, loadPreferences, resetPortfolio, saveOpenOrders, savePortfolio, savePreferences } from './lib/portfolio-db';
   import { DEFAULT_LEAGUES, MAX_FAVORITE_TEAMS, defaultPreferences, type Preferences } from './lib/preferences';
   import { toast } from './lib/toast';
   import {
@@ -65,8 +65,11 @@
     formatPercentFromBps,
     markPositionsToMarket,
     resolveEventPosition,
+    shouldTriggerOrder,
     summarizePortfolio,
     PORTFOLIO_ID,
+    type OpenOrder,
+    type OpenOrderType,
     type PortfolioSnapshot
   } from './lib/portfolio';
 
@@ -116,8 +119,11 @@
   let marketQuery = '';
   let marketFilter: MarketFilter = 'all';
   let orderSide: 'buy' | 'sell' = 'buy';
+  let orderType: 'market' | OpenOrderType = 'market';
   let orderQuantity: number | string = 1;
+  let triggerPrice: number | string = '';
   let orderError = '';
+  let openOrders: OpenOrder[] = [];
   let isSyncing = false;
   let syncMessage = 'Sync bereit';
   type AppView = 'landing' | DeskView | 'profile' | 'admin';
@@ -130,7 +136,8 @@
   let quoteTimer: ReturnType<typeof setInterval> | undefined;
   let showShortcuts = false;
   let showResetConfirm = false;
-  let showOnboarding = false;
+  let showOnboardingBanner = false;
+  let showTour = false;
   const ONBOARDING_KEY = 'koala-onboarded';
 
   // Chart state
@@ -158,6 +165,14 @@
   let preferences: Preferences = defaultPreferences();
 
   onMount(async () => {
+    // Non-blocking first-run welcome banner (dismissible, shown on the Trade
+    // desk). Set early so it never waits on the slower market/portfolio loads.
+    try {
+      showOnboardingBanner = localStorage.getItem(ONBOARDING_KEY) !== '1';
+    } catch {
+      showOnboardingBanner = false;
+    }
+
     try {
       preferences = await loadPreferences();
     } catch {
@@ -203,22 +218,22 @@
       portfolio = createInitialPortfolio(config?.startingCashCents ?? 1_000_000);
     }
 
+    try {
+      openOrders = await loadOpenOrders();
+    } catch {
+      openOrders = [];
+    }
+
     await restoreSyncedPortfolio(!!user);
     await refreshQuotes();
     await loadHistory();
     void settleResolvedBets();
     quoteTimer = setInterval(refreshQuotes, 30_000);
-
-    // Show the one-time welcome the first time someone opens the app.
-    try {
-      showOnboarding = localStorage.getItem(ONBOARDING_KEY) !== '1';
-    } catch {
-      showOnboarding = false;
-    }
   });
 
   function dismissOnboarding() {
-    showOnboarding = false;
+    showOnboardingBanner = false;
+    showTour = false;
     try {
       localStorage.setItem(ONBOARDING_KEY, '1');
     } catch {
@@ -257,6 +272,32 @@
     (orderSide === 'buy' ? estimatedOrderTotal <= summary.cashCents : selectedPositionQuantity >= normalizedOrderQuantity);
   $: orderPowerLabel = orderSide === 'buy' ? 'Kaufkraft' : 'Verfügbar';
   $: orderPowerValue = orderSide === 'buy' ? formatMoney(summary.cashCents) : `${formatQuantity(selectedPositionQuantity)} ${selectedMarket ? selectedMarket.symbol : ''}`;
+
+  // --- Order-type (Market / Limit / Stop) ---------------------------------
+  $: isOpenOrderType = orderType !== 'market';
+  $: triggerPriceCents = Math.round((Number.isFinite(Number(triggerPrice)) ? Number(triggerPrice) : 0) * 100);
+  $: orderTypeHint =
+    orderType === 'market'
+      ? 'Wird sofort zum aktuellen Marktpreis ausgeführt.'
+      : orderType === 'limit'
+        ? orderSide === 'buy'
+          ? 'Kauf-Limit: füllt erst, wenn der Kurs auf dein Limit oder darunter fällt.'
+          : 'Verkaufs-Limit: füllt erst, wenn der Kurs auf dein Limit oder darüber steigt.'
+        : orderSide === 'buy'
+          ? 'Stop-Buy: löst aus, wenn der Kurs auf deinen Stop oder darüber steigt.'
+          : 'Stop-Loss: löst aus, wenn der Kurs auf deinen Stop oder darunter fällt.';
+  $: orderStatusLabel = isOpenOrderType ? 'Landet als' : 'Ausführung';
+  $: orderStatusValue = isOpenOrderType ? 'Offene Order (wartet)' : 'Sofort';
+  $: assetOpenOrders = openOrders.filter((order) => order.assetId === selectedMarket.assetId);
+  $: canPlaceOpenOrder =
+    !!portfolio &&
+    normalizedOrderQuantity > 0 &&
+    triggerPriceCents > 0 &&
+    (orderSide === 'sell' ? selectedPositionQuantity >= normalizedOrderQuantity : true);
+  $: canPlaceOrder = isOpenOrderType ? canPlaceOpenOrder : canSubmitOrder;
+  $: submitLabel = isOpenOrderType
+    ? `${orderSide === 'buy' ? 'Kauf' : 'Verkauf'}-Order vormerken`
+    : `${orderSide === 'buy' ? 'Kaufen' : 'Verkaufen'} ${selectedMarket.symbol}`;
   $: positionList = portfolio?.positions ?? [];
   $: transactionList = portfolio?.transactions.slice(0, 6) ?? [];
   $: positionRows = positionList.map((position) => {
@@ -640,12 +681,71 @@
   async function handleResetPortfolio() {
     showResetConfirm = false;
     portfolio = await resetPortfolio(config?.startingCashCents ?? portfolio?.startingCashCents ?? 1_000_000);
+    openOrders = [];
+    await saveOpenOrders([]);
     orderError = '';
     toast.info('Portfolio zurückgesetzt', 'Startkapital wiederhergestellt.');
   }
 
+  function setOrderType(type: 'market' | OpenOrderType) {
+    orderType = type;
+    orderError = '';
+    // Seed the trigger field with the current price as a sensible starting point.
+    if (type !== 'market' && !triggerPrice && effectivePriceCents > 0) {
+      triggerPrice = (effectivePriceCents / 100).toFixed(2);
+    }
+  }
+
+  async function placeOpenOrder() {
+    if (!portfolio) {
+      orderError = 'Portfolio wird noch geladen';
+      return;
+    }
+    if (triggerPriceCents <= 0) {
+      orderError = orderType === 'limit' ? 'Gib einen gültigen Limit-Preis ein' : 'Gib einen gültigen Stop-Preis ein';
+      return;
+    }
+    if (!canPlaceOpenOrder) {
+      orderError = orderSide === 'sell' ? 'Nicht genug verfügbare Position' : 'Ungültige Menge';
+      return;
+    }
+
+    const order: OpenOrder = {
+      id: crypto.randomUUID(),
+      assetId: selectedMarket.assetId,
+      symbol: selectedMarket.symbol,
+      name: selectedMarket.name,
+      kind: selectedMarket.kind,
+      side: orderSide,
+      orderType: orderType as OpenOrderType,
+      quantity: normalizedOrderQuantity,
+      triggerPriceCents,
+      createdAt: new Date().toISOString()
+    };
+    openOrders = [order, ...openOrders];
+    await saveOpenOrders(openOrders);
+    toast.success(
+      'Order vorgemerkt',
+      `${orderType === 'limit' ? 'Limit' : 'Stop'} ${orderSide === 'buy' ? 'Kauf' : 'Verkauf'} · ${formatQuantity(order.quantity)} ${order.symbol} @ ${formatMoney(triggerPriceCents)}`
+    );
+    orderError = '';
+
+    // Instant fill guard: if the trigger is already satisfied at the current
+    // price, execute now so the queue never holds an already-met order.
+    void evaluateOpenOrders(markets);
+  }
+
+  async function cancelOpenOrder(id: string) {
+    openOrders = openOrders.filter((order) => order.id !== id);
+    await saveOpenOrders(openOrders);
+  }
+
   async function handleSubmitOrder() {
     orderError = '';
+    if (isOpenOrderType) {
+      await placeOpenOrder();
+      return;
+    }
     if (!portfolio) {
       orderError = 'Portfolio wird noch geladen';
       return;
@@ -732,6 +832,59 @@
     }
   }
 
+  /**
+   * Fills any pending Limit/Stop order whose trigger is met at the latest
+   * prices. Runs on every quote poll (and right after an order is queued).
+   * A triggered order that can't fill (e.g. insufficient cash) is dropped with
+   * a warning rather than retried forever.
+   */
+  async function evaluateOpenOrders(currentMarkets: Market[]) {
+    if (openOrders.length === 0 || !portfolio) return;
+    const priceByAsset = new Map(currentMarkets.map((market) => [market.assetId, market.priceCents]));
+    const remaining: OpenOrder[] = [];
+    let working = portfolio;
+    let portfolioChanged = false;
+
+    for (const order of openOrders) {
+      const price = priceByAsset.get(order.assetId) ?? 0;
+      if (!shouldTriggerOrder(order, price)) {
+        remaining.push(order);
+        continue;
+      }
+      const grossCents = Math.round(order.quantity * price);
+      const feeCents = Math.max(0, Math.round((grossCents * ORDER_FEE_BPS) / 10_000));
+      try {
+        working = applyTrade(working, {
+          id: crypto.randomUUID(),
+          assetId: order.assetId,
+          symbol: order.symbol,
+          name: order.name,
+          kind: order.kind,
+          side: order.side,
+          quantity: order.quantity,
+          priceCents: price,
+          feeCents
+        });
+        portfolioChanged = true;
+        toast.success(
+          'Order ausgeführt',
+          `${order.orderType === 'limit' ? 'Limit' : 'Stop'} ${order.side === 'buy' ? 'Kauf' : 'Verkauf'} · ${formatQuantity(order.quantity)} ${order.symbol} @ ${formatMoney(price)}`
+        );
+      } catch (error) {
+        toast.error('Order storniert', `${order.symbol}: ${error instanceof Error ? error.message : 'konnte nicht ausgeführt werden'}`);
+      }
+    }
+
+    if (portfolioChanged) {
+      portfolio = working;
+      await savePortfolio(working);
+    }
+    if (remaining.length !== openOrders.length) {
+      openOrders = remaining;
+      await saveOpenOrders(remaining);
+    }
+  }
+
   async function refreshQuotes() {
     if (markets.length === 0) return;
     try {
@@ -743,6 +896,8 @@
           ? { ...market, priceCents: quote.priceCents, changeBps: quote.changeBps, source: quote.source, updatedAt: quote.updatedAt }
           : market;
       });
+
+      await evaluateOpenOrders(markets);
 
       // Background eSports matches updates if relevant
       const hasEsportsPositions = portfolio?.positions.some((p) => p.kind === 'event');
@@ -954,6 +1109,28 @@
     </section>
   </main>
 {:else}
+  <div class="app-shell">
+    <nav class="icon-rail" aria-label="Hauptnavigation">
+      <div class="rail-logo" aria-hidden="true"></div>
+      {#each deskTabs as tab}
+        <button class="rail-item" class:active={activeView === tab.id} type="button"
+                title={tab.id === 'trade' ? 'Handelsbildschirm: Kaufe und verkaufe Assets zum aktuellen Marktpreis' :
+                       tab.id === 'portfolio' ? 'Portfolio: Zeige deine Positionen, deinen Kontostand, P&L-Statistiken und Wertentwicklung' :
+                       tab.id === 'markets' ? 'Märkte: Übersicht aller handelbaren Aktien, ETFs, Kryptowährungen und Rohstoffe' :
+                       tab.id === 'esports' ? 'eSports: Vorhersagemärkte für anstehende Matches mit Polymarket-Quoten' : ''}
+                on:click={() => setActiveView(tab.id)}>
+          <svelte:component this={tab.icon} size={17} />
+          <span>{tab.label}</span>
+        </button>
+      {/each}
+      <button class="rail-item rail-avatar" class:active={activeView === 'profile'} type="button"
+              title="Profil & Favoriten: Verwalte deine Einstellungen, Lieblingsteams und Kontodaten"
+              on:click={() => setActiveView('profile')}>
+        <UserCircle2 size={18} />
+        <span>Profil</span>
+      </button>
+    </nav>
+
   <main class="trading-shell">
     <header class="trading-topbar">
       <div class="brand">
@@ -964,26 +1141,10 @@
         </div>
       </div>
 
-      <nav class="desk-tabs" aria-label="Trading sections">
-        {#each deskTabs as tab}
-          <button class:active={activeView === tab.id} type="button" 
-                  title={tab.id === 'trade' ? 'Handelsbildschirm: Kaufe und verkaufe Assets zum aktuellen Marktpreis' :
-                         tab.id === 'portfolio' ? 'Portfolio: Zeige deine Positionen, deinen Kontostand, P&L-Statistiken und Wertentwicklung' :
-                         tab.id === 'markets' ? 'Märkte: Übersicht aller handelbaren Aktien, ETFs, Kryptowährungen und Rohstoffe' :
-                         tab.id === 'esports' ? 'eSports: Vorhersagemärkte für anstehende Matches mit Polymarket-Quoten' : ''}
-                  on:click={() => setActiveView(tab.id)}>
-            <svelte:component this={tab.icon} size={16} /> {tab.label}
-          </button>
-        {/each}
-      </nav>
-
       <div class="desk-actions">
         <span class:online={config && !configError} class="status-pill" title="Status der Verbindung zum KoalaTrade-Backend-Server.">
           <i class="dot"></i>{config && !configError ? 'API online' : 'Local mode'}
         </span>
-        <button class="icon-button" class:active={activeView === 'profile'} type="button" aria-label="Profil" title="Profil & Favoriten: Verwalte deine Einstellungen, Lieblingsteams und Kontodaten" on:click={() => setActiveView('profile')}>
-          <UserCircle2 size={18} />
-        </button>
         <button class="icon-button" class:active={activeView === 'admin'} type="button" aria-label="Admin" title="Admin-Bereich: Teammappings verwalten, Cache leeren und Registrierungsmodus umschalten" on:click={() => setActiveView('admin')}>
           <ShieldCheck size={18} />
         </button>
@@ -1011,6 +1172,21 @@
     </section>
 
     {#if activeView === 'trade'}
+      {#if showOnboardingBanner}
+        <div class="onboarding-banner" role="note">
+          <div class="ob-text">
+            <span class="ob-emoji" aria-hidden="true">👋</span>
+            <div>
+              <strong>Neu hier? Du handelst mit {formatMoney(config?.startingCashCents ?? 1_000_000)} Spielgeld.</strong>
+              <p>Wähle links einen Markt, rechts einen Order-Typ – und platziere deinen ersten Trade.</p>
+            </div>
+          </div>
+          <div class="ob-actions">
+            <button type="button" class="ob-tour" title="Kurze Einführung in KoalaTrade ansehen" on:click={() => (showTour = true)}>Tour ansehen</button>
+            <button type="button" class="ob-dismiss" title="Diesen Hinweis dauerhaft ausblenden" on:click={dismissOnboarding}>Ausblenden</button>
+          </div>
+        </div>
+      {/if}
       <section class="trade-layout" aria-label="Trading workspace">
         <aside class="watchlist panel" aria-label="Markets">
           <label class="search compact" aria-label="Märkte durchsuchen">
@@ -1032,8 +1208,12 @@
               {#each filteredMarkets as item}
                 <button class:selected={selectedMarket && selectedMarket.assetId === item.assetId} class="market-row" type="button" title={`Wähle ${item.symbol} (${item.name}) aus.`} on:click={() => selectMarket(item.assetId)}>
                   <span class="asset"><strong>{item.symbol}</strong><small>{item.kind}</small></span>
-                  <span class="price">{formatPrice(item.priceCents)}</span>
-                  <em class={item.priceCents > 0 ? marketTone(item.changeBps) : ''}>{item.priceCents > 0 ? formatPercentFromBps(item.changeBps) : '—'}</em>
+                  {#if item.priceCents > 0}
+                    <span class="price">{formatMoney(item.priceCents)}</span>
+                    <em class={marketTone(item.changeBps)}>{formatPercentFromBps(item.changeBps)}</em>
+                  {:else}
+                    <span class="no-feed" title="Für dieses Asset liegt aktuell kein Live-Kurs vor (kein Feed/API-Key)."><i></i>no feed</span>
+                  {/if}
                 </button>
               {/each}
             {/if}
@@ -1132,7 +1312,7 @@
 
           <section class="order-panel panel" aria-label="Order ticket">
             <div class="panel-head">
-              <div><p class="eyebrow">Order-Ticket · Market</p><h2>{orderSide === 'buy' ? 'Kaufen' : 'Verkaufen'} {selectedMarket.symbol}</h2></div>
+              <div><p class="eyebrow">Order-Ticket · {orderType === 'market' ? 'Market' : orderType === 'limit' ? 'Limit' : 'Stop'}</p><h2>{orderSide === 'buy' ? 'Kaufen' : 'Verkaufen'} {selectedMarket.symbol}</h2></div>
               <Zap size={18} />
             </div>
             <form class="order-form" on:submit|preventDefault={handleSubmitOrder}>
@@ -1141,32 +1321,78 @@
                 <button class:active={orderSide === 'sell'} class="sell" type="button" title="Verkaufs-Order: Assets aus deinem Bestand veräußern" on:click={() => setOrderSide('sell')}>Verkaufen</button>
               </div>
 
+              <div class="order-types" role="tablist" aria-label="Order-Typ">
+                <button class:active={orderType === 'market'} type="button" role="tab" aria-selected={orderType === 'market'} title="Market-Order: wird sofort zum aktuellen Marktpreis ausgeführt." on:click={() => setOrderType('market')}>Market</button>
+                <button class:active={orderType === 'limit'} type="button" role="tab" aria-selected={orderType === 'limit'} title="Limit-Order: wird erst ausgeführt, wenn der Kurs dein Limit erreicht – bleibt bis dahin als offene Order stehen." on:click={() => setOrderType('limit')}>Limit</button>
+                <button class:active={orderType === 'stop'} type="button" role="tab" aria-selected={orderType === 'stop'} title="Stop-Order: löst bei Erreichen deines Stop-Preises aus und wird dann zur Marktorder – bleibt bis dahin offen." on:click={() => setOrderType('stop')}>Stop</button>
+              </div>
+
+              <p class="order-hint">{orderTypeHint}</p>
+
               <label class="field" title="Menge: Gib die Stückzahl ein, die du handeln möchtest.">
                 <span>Menge</span>
                 <input bind:value={orderQuantity} min="0.0001" step="0.0001" type="number" title="Gewünschte Stückzahl für die Order" />
               </label>
 
-              <div class="presets" aria-label="Mengen-Presets">
-                {#each quantityPresets as preset}
-                  <button type="button" disabled={orderLimitQuantity <= 0} title={`Setzt die Menge auf ${Math.round(preset * 100)}% deines verfügbaren Budgets bzw. Bestands`} on:click={() => applyPreset(preset)}>{Math.round(preset * 100)}%</button>
-                {/each}
-              </div>
+              {#if orderType === 'limit'}
+                <label class="field trigger limit" title="Limit-Preis: Kauf füllt nur zu diesem Preis oder besser (tiefer), Verkauf nur zu diesem oder besser (höher).">
+                  <span>Limit-Preis <small>nur zu diesem Preis oder besser</small></span>
+                  <input bind:value={triggerPrice} min="0" step="0.01" type="number" placeholder={(effectivePriceCents / 100).toFixed(2)} title="Kurs, bei dem die Limit-Order füllt" />
+                </label>
+              {:else if orderType === 'stop'}
+                <label class="field trigger stop" title="Stop-Preis: Sobald der Kurs diesen Wert erreicht, wird die Order als Marktorder ausgeführt.">
+                  <span>Stop-Preis <small>löst als Marktorder aus</small></span>
+                  <input bind:value={triggerPrice} min="0" step="0.01" type="number" placeholder={(effectivePriceCents / 100).toFixed(2)} title="Auslöse-Kurs der Stop-Order" />
+                </label>
+              {/if}
+
+              {#if orderType === 'market'}
+                <div class="presets" aria-label="Mengen-Presets">
+                  {#each quantityPresets as preset}
+                    <button type="button" disabled={orderLimitQuantity <= 0} title={`Setzt die Menge auf ${Math.round(preset * 100)}% deines verfügbaren Budgets bzw. Bestands`} on:click={() => applyPreset(preset)}>{Math.round(preset * 100)}%</button>
+                  {/each}
+                </div>
+              {/if}
 
               <div class="order-power"><span>{orderPowerLabel}</span><strong>{orderPowerValue}</strong></div>
 
               <div class="order-summary">
-                <div title="Der aktuelle Preis pro Einheit des Assets."><span>Marktpreis</span><strong>{formatMoney(effectivePriceCents)}</strong></div>
-                <div title="Reiner Preis der Einheiten ohne Gebühren."><span>Bruttowert</span><strong>{formatMoney(estimatedOrderValue)}</strong></div>
-                <div title="Simulierte Transaktionsgebühr für diesen Trade."><span>Gebühr ({(ORDER_FEE_BPS / 100).toFixed(2)}%)<InfoTip text={`Simulierte Handelsgebühr von ${(ORDER_FEE_BPS / 100).toFixed(2)}% auf den Ordervolumen – wie bei einem echten Broker, damit die Simulation realistisch bleibt.`} /></span><strong>{formatMoney(estimatedOrderFee)}</strong></div>
-                <div class="total" title="Gesamter Cash-Betrag, der nach Gebühren belastet oder gutgeschrieben wird."><span>{orderSide === 'buy' ? 'Cash-Belastung' : 'Cash-Gutschrift'}</span><strong>{formatMoney(estimatedOrderTotal)}</strong></div>
+                {#if isOpenOrderType}
+                  <div title="Kurs, bei dem diese Order auslöst."><span>{orderType === 'limit' ? 'Limit-Preis' : 'Stop-Preis'}</span><strong>{triggerPriceCents > 0 ? formatMoney(triggerPriceCents) : '—'}</strong></div>
+                  <div title="Ordervolumen zum Trigger-Preis (ohne Gebühr)."><span>Volumen</span><strong>{triggerPriceCents > 0 ? formatMoney(Math.round(normalizedOrderQuantity * triggerPriceCents)) : '—'}</strong></div>
+                {:else}
+                  <div title="Der aktuelle Preis pro Einheit des Assets."><span>Marktpreis</span><strong>{formatMoney(effectivePriceCents)}</strong></div>
+                  <div title="Reiner Preis der Einheiten ohne Gebühren."><span>Bruttowert</span><strong>{formatMoney(estimatedOrderValue)}</strong></div>
+                  <div title="Simulierte Transaktionsgebühr für diesen Trade."><span>Gebühr ({(ORDER_FEE_BPS / 100).toFixed(2)}%)<InfoTip text={`Simulierte Handelsgebühr von ${(ORDER_FEE_BPS / 100).toFixed(2)}% auf den Ordervolumen – wie bei einem echten Broker, damit die Simulation realistisch bleibt.`} /></span><strong>{formatMoney(estimatedOrderFee)}</strong></div>
+                  <div class="total" title="Gesamter Cash-Betrag, der nach Gebühren belastet oder gutgeschrieben wird."><span>{orderSide === 'buy' ? 'Cash-Belastung' : 'Cash-Gutschrift'}</span><strong>{formatMoney(estimatedOrderTotal)}</strong></div>
+                {/if}
+                <div class="status-row" title="Ob die Order sofort füllt oder als offene Order auf ihren Trigger wartet."><span>{orderStatusLabel}</span><strong>{orderStatusValue}</strong></div>
               </div>
 
               {#if orderError}<p class="form-error">{orderError}</p>{/if}
-              <button class="primary-button" class:danger={orderSide === 'sell'} type="submit" title={orderSide === 'buy' ? `Simulierten Kauf von ${normalizedOrderQuantity}x ${selectedMarket.symbol} ausführen` : `Simulierten Verkauf von ${normalizedOrderQuantity}x ${selectedMarket.symbol} ausführen`} disabled={!canSubmitOrder}>
-                {orderSide === 'buy' ? 'Kaufen' : 'Verkaufen'} {selectedMarket.symbol}
+              <button class="primary-button" class:danger={orderSide === 'sell'} type="submit" title={isOpenOrderType ? 'Order in die Warteschlange offener Orders legen' : orderSide === 'buy' ? `Simulierten Kauf von ${normalizedOrderQuantity}x ${selectedMarket.symbol} ausführen` : `Simulierten Verkauf von ${normalizedOrderQuantity}x ${selectedMarket.symbol} ausführen`} disabled={!canPlaceOrder}>
+                {submitLabel}
               </button>
             </form>
           </section>
+
+          {#if openOrders.length > 0}
+            <section class="panel open-orders" aria-label="Offene Orders">
+              <div class="panel-head"><div><p class="eyebrow">Warteschlange</p><h2>Offene Orders ({openOrders.length})</h2></div><Activity size={18} /></div>
+              <div class="open-orders-list">
+                {#each openOrders as order (order.id)}
+                  <div class="open-order-row" class:this-asset={order.assetId === selectedMarket.assetId}>
+                    <div class="oo-id">
+                      <strong>{order.orderType === 'limit' ? 'Limit' : 'Stop'} {order.side === 'buy' ? 'Kauf' : 'Verkauf'}</strong>
+                      <small>{formatQuantity(order.quantity)} {order.symbol} @ {formatMoney(order.triggerPriceCents)}</small>
+                    </div>
+                    <span class="oo-status">wartet</span>
+                    <button type="button" class="oo-cancel" title="Diese offene Order stornieren" on:click={() => cancelOpenOrder(order.id)}>Stornieren</button>
+                  </div>
+                {/each}
+              </div>
+            </section>
+          {/if}
         </aside>
       </section>
     {:else if activeView === 'portfolio'}
@@ -1327,6 +1553,7 @@
           matches={esportsMatches}
           onLogin={handleAdminLogin}
           onLogout={handleAdminLogout}
+          onRefreshMatches={loadEsports}
         />
       </section>
     {/if}
@@ -1340,6 +1567,7 @@
       </div>
     {/if}
   </main>
+  </div>
 
   {#if showShortcuts}
     <div class="shortcuts-overlay">
@@ -1371,9 +1599,9 @@
     </div>
   {/if}
 
-  {#if showOnboarding}
+  {#if showTour}
     <div class="shortcuts-overlay">
-      <button class="shortcuts-backdrop" type="button" aria-label="Schließen" title="Tour schließen" on:click={dismissOnboarding}></button>
+      <button class="shortcuts-backdrop" type="button" aria-label="Schließen" title="Tour schließen" on:click={() => (showTour = false)}></button>
       <div class="shortcuts-card onboarding-card" role="dialog" aria-label="Willkommen" aria-modal="true">
         <div class="panel-head"><div><p class="eyebrow">Willkommen bei KoalaTrade</p><h2>Paper-Trading in 30 Sekunden</h2></div><Sparkles size={18} /></div>
         <ul class="onboarding-list">

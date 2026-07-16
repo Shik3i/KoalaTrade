@@ -6,9 +6,18 @@ import (
 	"time"
 )
 
-func TestServiceQuotesCachesProviderResults(t *testing.T) {
-	provider := NewRegistryProvider()
-	service := NewService(provider, time.Minute)
+func TestServiceQuotesDedupsAndNeverCallsProvider(t *testing.T) {
+	now := time.Now().UTC()
+	provider := &countingProvider{}
+	store := &memoryStore{quotes: []Quote{{
+		AssetID:     "crypto:btc",
+		Symbol:      "BTC",
+		PriceCents:  6_200_000,
+		Source:      "sqlite",
+		UpdatedAt:   now,
+		CachedUntil: now.Add(time.Minute),
+	}}}
+	service := NewService(provider, time.Minute, store)
 
 	first, err := service.Quotes(context.Background(), []string{"crypto:btc", "crypto:btc"})
 	if err != nil {
@@ -27,6 +36,14 @@ func TestServiceQuotesCachesProviderResults(t *testing.T) {
 	}
 	if !second[0].CachedUntil.Equal(first[0].CachedUntil) {
 		t.Fatal("expected cached quote to keep cached-until timestamp")
+	}
+
+	// Regression guard for the 502/poller-starvation bug: the read path must
+	// serve stored quotes only and NEVER call the provider. The background
+	// poller (Refresh) is the sole live fetcher, so a burst of quote reads can
+	// never stampede the provider or saturate the shared rate limiter.
+	if provider.quoteCalls != 0 {
+		t.Fatalf("read path must not call the provider, got %d calls", provider.quoteCalls)
 	}
 }
 

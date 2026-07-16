@@ -21,6 +21,7 @@
   export let matches: EsportsMatch[] = [];
   export let onLogin: (username: string, password: string) => Promise<void>;
   export let onLogout: () => void;
+  export let onRefreshMatches: () => Promise<void> = async () => {};
 
   let username = 'admin';
   let password = '';
@@ -53,6 +54,81 @@
   $: mappingTeam = selectedMatch
     ? [selectedMatch.team1, selectedMatch.team2].find((team) => team.code === originalCode.trim().toUpperCase()) ?? null
     : null;
+
+  // --- Per-team slug management -------------------------------------------
+  // Show every upcoming/live match so the admin can spot, at a glance, which
+  // team already has a Polymarket-code mapping in the DB and which is missing —
+  // and add/update it inline right on that team's row.
+  let slugFilter: 'missing' | 'all' = 'missing';
+  let slugEdits: Record<string, string> = {};
+  let savingCode = '';
+
+  $: mappingByCode = new Map(mappings.map((m) => [m.originalCode.toUpperCase(), m.polymarketCode]));
+
+  function mappedCode(code: string): string | null {
+    return mappingByCode.get(code.trim().toUpperCase()) ?? null;
+  }
+
+  $: playableMatches = matches.filter((m) => m.team1.code !== 'TBD' && m.team2.code !== 'TBD');
+  $: teamSlugMatches =
+    slugFilter === 'all'
+      ? playableMatches
+      : playableMatches.filter((m) => !mappedCode(m.team1.code) || !mappedCode(m.team2.code));
+
+  // Matches where at least one team still lacks a Polymarket-code mapping.
+  $: incompleteMatchCount = playableMatches.filter((m) => !mappedCode(m.team1.code) || !mappedCode(m.team2.code)).length;
+
+  function slugValue(code: string): string {
+    const key = code.trim().toUpperCase();
+    if (key in slugEdits) return slugEdits[key];
+    return mappedCode(code) ?? '';
+  }
+
+  function setSlug(code: string, value: string) {
+    slugEdits = { ...slugEdits, [code.trim().toUpperCase()]: value };
+  }
+
+  async function saveTeamSlug(code: string) {
+    if (!token) return;
+    const poly = slugValue(code).trim();
+    const original = code.trim();
+    if (!original || !poly) return;
+    savingCode = original.toUpperCase();
+    error = '';
+    try {
+      mappings = await upsertTeamMapping(token, original, poly);
+      // Drop the local edit so the row reflects the saved mapping, then
+      // re-fetch odds so a now-complete match lights up immediately.
+      const { [original.toUpperCase()]: _drop, ...rest } = slugEdits;
+      slugEdits = rest;
+      await onRefreshMatches();
+      status = await fetchAdminStatus(token);
+    } catch (e) {
+      handleError(e);
+    } finally {
+      savingCode = '';
+    }
+  }
+
+  async function clearTeamSlug(code: string) {
+    if (!token) return;
+    try {
+      mappings = await deleteTeamMapping(token, code.trim());
+      const { [code.trim().toUpperCase()]: _drop, ...rest } = slugEdits;
+      slugEdits = rest;
+      await onRefreshMatches();
+    } catch (e) {
+      handleError(e);
+    }
+  }
+
+  async function testTeamSlug(match: EsportsMatch, code: string) {
+    if (!token) return;
+    selectedMatchId = match.id;
+    originalCode = code;
+    polymarketCode = slugValue(code).trim();
+    await testMapping(true);
+  }
 
   async function handleLoginSubmit() {
     loginError = '';
@@ -154,13 +230,6 @@
     }
   }
 
-  function prefill(match: EsportsMatch, code: string) {
-    selectedMatchId = match.id;
-    originalCode = code;
-    polymarketCode = '';
-    slugDiagnostic = null;
-    slugError = '';
-  }
 </script>
 
 <div class="admin">
@@ -258,18 +327,54 @@
     </section>
 
     <section class="panel">
-      <div class="panel-head"><div><p class="eyebrow">Diagnose</p><h2>Matches ohne Quote</h2></div></div>
-      <p class="hint">Diese anstehenden Matches haben keine Polymarket-Quote — oft ein fehlendes Mapping. Klick legt ein Mapping an.</p>
-      <div class="noodds-list">
-        {#if noOddsMatches.length === 0}
-          <p class="empty-state">Alle sichtbaren Matches haben eine Quote.</p>
+      <div class="panel-head">
+        <div><p class="eyebrow">Diagnose</p><h2>Team-Slugs pro Match</h2></div>
+        <div class="slug-filter">
+          <button class:active={slugFilter === 'missing'} type="button" title="Nur Matches zeigen, bei denen mindestens einem Team der Polymarket-Slug fehlt" on:click={() => (slugFilter = 'missing')}>Unvollständig ({incompleteMatchCount})</button>
+          <button class:active={slugFilter === 'all'} type="button" title="Alle anstehenden Matches zeigen" on:click={() => (slugFilter = 'all')}>Alle ({playableMatches.length})</button>
+        </div>
+      </div>
+      <p class="hint">Pro Team siehst du, ob ein Polymarket-Code in der DB hinterlegt ist (<span class="ok-chip">✓</span>) oder fehlt (<span class="miss-chip">✗</span>). Trag ihn direkt in der Zeile ein und speichere — die Quote wird sofort neu geholt.</p>
+
+      <div class="team-slugs">
+        {#if teamSlugMatches.length === 0}
+          <p class="empty-state">{slugFilter === 'missing' ? 'Alle sichtbaren Teams haben einen Slug. 🎉' : 'Keine Matches geladen.'}</p>
         {:else}
-          {#each noOddsMatches.slice(0, 30) as m (m.id)}
-            <div class="noodds-row">
-              <span class="lg">{m.league}</span>
-              <button type="button" title={`Mapping für ${m.team1.name} anlegen`} on:click={() => prefill(m, m.team1.code)}><strong>{m.team1.code}</strong><small>{m.team1.name}</small></button>
-              <span class="vs">vs</span>
-              <button type="button" title={`Mapping für ${m.team2.name} anlegen`} on:click={() => prefill(m, m.team2.code)}><strong>{m.team2.code}</strong><small>{m.team2.name}</small></button>
+          {#each teamSlugMatches.slice(0, 40) as m (m.id)}
+            <div class="slug-match" class:complete={mappedCode(m.team1.code) && mappedCode(m.team2.code)}>
+              <div class="sm-head">
+                <span class="lg">{m.league}{m.bestOf ? ` · BO${m.bestOf}` : ''}</span>
+                {#if m.hasOdds}<span class="odds-ok">● Quote aktiv</span>{:else}<span class="odds-miss">● keine Quote</span>{/if}
+              </div>
+              {#each [m.team1, m.team2] as team}
+                {@const mapped = mappedCode(team.code)}
+                {@const key = team.code.trim().toUpperCase()}
+                {@const draft = slugEdits[key] ?? mapped ?? ''}
+                <div class="slug-team" class:mapped={!!mapped}>
+                  <div class="st-id">
+                    <span class="st-flag">{mapped ? '✓' : '✗'}</span>
+                    <div><strong>{team.code}</strong><small>{team.name}</small></div>
+                  </div>
+                  <div class="st-edit">
+                    <input
+                      value={draft}
+                      on:input={(e) => setSlug(team.code, e.currentTarget.value)}
+                      type="text"
+                      placeholder={mapped ? `aktuell: ${mapped}` : 'Polymarket-Code'}
+                      title={`Polymarket-Code für ${team.name} (${team.code}) eintragen`}
+                    />
+                    <button
+                      class="save"
+                      type="button"
+                      title={`Slug für ${team.code} speichern und Quote neu holen`}
+                      disabled={savingCode === key || !draft.trim() || draft.trim() === (mapped ?? '')}
+                      on:click={() => saveTeamSlug(team.code)}
+                    >{savingCode === key ? '…' : mapped ? 'Update' : 'Anlegen'}</button>
+                    <button class="test" type="button" title={`Slugs für ${team.code} live gegen Polymarket testen`} disabled={slugBusy} on:click={() => testTeamSlug(m, team.code)}><FlaskConical size={14} /></button>
+                    {#if mapped}<button class="del" type="button" aria-label="Mapping löschen" title={`Mapping ${team.code} → ${mapped} löschen`} on:click={() => clearTeamSlug(team.code)}><Trash2 size={14} /></button>{/if}
+                  </div>
+                </div>
+              {/each}
             </div>
           {/each}
         {/if}
@@ -527,50 +632,131 @@
     border-color: var(--red);
   }
 
-  .noodds-list {
-    display: grid;
+  .slug-filter {
+    display: flex;
     gap: 0.3rem;
-    max-height: 18rem;
+  }
+
+  .slug-filter button {
+    min-height: 1.9rem;
+    padding: 0 0.7rem;
+    border: 1px solid var(--line-2);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 0.76rem;
+    background: var(--panel-3);
+    transition: 120ms ease;
+  }
+
+  .slug-filter button.active {
+    color: var(--text);
+    border-color: var(--green-soft);
+    background: var(--green-soft);
+  }
+
+  .ok-chip {
+    color: var(--green);
+  }
+
+  .miss-chip {
+    color: var(--amber);
+  }
+
+  .team-slugs {
+    display: grid;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    max-height: 32rem;
     overflow-y: auto;
     scrollbar-width: thin;
   }
 
-  .noodds-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.4rem 0.6rem;
+  .slug-match {
+    display: grid;
+    gap: 0.35rem;
+    padding: 0.6rem 0.7rem;
     border: 1px solid var(--line);
     border-radius: var(--r-sm);
     background: var(--bg-2);
-    font-size: 0.85rem;
   }
 
-  .noodds-row .lg {
+  .slug-match.complete {
+    border-color: var(--green-soft);
+  }
+
+  .sm-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.72rem;
     color: var(--muted);
-    min-width: 9rem;
+  }
+
+  .sm-head .lg {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .noodds-row .vs {
-    color: var(--muted);
+  .odds-ok {
+    color: var(--green);
   }
 
-  .noodds-row button {
+  .odds-miss {
+    color: var(--amber);
+  }
+
+  .slug-team {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+  }
+
+  .slug-team.mapped {
+    border-color: var(--green-soft);
+  }
+
+  .st-id {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1 1 9rem;
+    min-width: 0;
+  }
+
+  .st-flag {
+    display: grid;
+    place-items: center;
+    width: 1.4rem;
+    height: 1.4rem;
+    flex-shrink: 0;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    color: var(--amber);
+    background: hsla(var(--amber-hsl), 0.12);
+  }
+
+  .slug-team.mapped .st-flag {
+    color: var(--green);
+    background: var(--green-soft);
+  }
+
+  .st-id div {
     display: grid;
     gap: 0.05rem;
-    min-width: 7.5rem;
-    padding: 0.25rem 0.55rem;
-    border: 1px solid var(--line-2);
-    border-radius: 6px;
-    color: var(--text);
-    background: var(--panel-3);
-    text-align: left;
+    min-width: 0;
   }
 
-  .noodds-row button small {
+  .st-id strong {
+    font-size: 0.88rem;
+  }
+
+  .st-id small {
     color: var(--muted);
     font-size: 0.68rem;
     overflow: hidden;
@@ -578,14 +764,79 @@
     white-space: nowrap;
   }
 
-  .noodds-row button:hover {
+  .st-edit {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex: 1 1 12rem;
+  }
+
+  .st-edit input {
+    flex: 1 1 6rem;
+    min-width: 0;
+    min-height: 2.1rem;
+    padding: 0 0.6rem;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    color: var(--text);
+    background: var(--bg-2);
+    outline: none;
+    text-transform: uppercase;
+    font-size: 0.82rem;
+  }
+
+  .st-edit input:focus {
     border-color: var(--green);
-    color: var(--green);
+  }
+
+  .st-edit .save {
+    flex-shrink: 0;
+    min-height: 2.1rem;
+    padding: 0 0.7rem;
+    border: 0;
+    border-radius: 7px;
+    color: #03140c;
+    font-weight: 600;
+    font-size: 0.78rem;
+    background: linear-gradient(180deg, #4ade9f, var(--green));
+    transition: 120ms ease;
+  }
+
+  .st-edit .save:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .st-edit .test,
+  .st-edit .del {
+    display: grid;
+    place-items: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    flex-shrink: 0;
+    border: 1px solid var(--line-2);
+    border-radius: 7px;
+    color: var(--muted);
+    background: transparent;
+    transition: 120ms ease;
+  }
+
+  .st-edit .test:hover:not(:disabled) {
+    color: var(--cyan);
+    border-color: var(--cyan);
+  }
+
+  .st-edit .del:hover {
+    color: var(--red);
+    border-color: var(--red);
   }
 
   @media (max-width: 640px) {
     .status-grid {
       grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .slug-team {
+      flex-wrap: wrap;
     }
   }
 </style>

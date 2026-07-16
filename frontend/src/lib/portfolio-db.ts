@@ -1,4 +1,4 @@
-import { createInitialPortfolio, PORTFOLIO_ID, type PortfolioSnapshot } from './portfolio';
+import { createInitialPortfolio, PORTFOLIO_ID, type OpenOrder, type PortfolioSnapshot } from './portfolio';
 import { defaultPreferences, type Preferences } from './preferences';
 
 const DB_NAME = 'koalatrade';
@@ -7,6 +7,7 @@ const PORTFOLIO_STORE = 'portfolios';
 const META_STORE = 'meta';
 const CLIENT_ID_KEY = 'client-id';
 const PREFERENCES_KEY = 'preferences';
+const OPEN_ORDERS_KEY = 'open-orders';
 
 export async function loadPortfolio(startingCashCents: number): Promise<PortfolioSnapshot> {
   const db = await openDatabase();
@@ -73,6 +74,28 @@ export async function loadPreferences(): Promise<Preferences> {
 export async function savePreferences(preferences: Preferences): Promise<void> {
   const db = await openDatabase();
   await writeMeta(db, PREFERENCES_KEY, JSON.stringify(preferences));
+  db.close();
+}
+
+// Open (pending Limit/Stop) orders live in the local meta store, deliberately
+// outside the PortfolioSnapshot: the sync endpoint rejects unknown fields, so
+// bundling them into the synced snapshot would break cross-device sync.
+export async function loadOpenOrders(): Promise<OpenOrder[]> {
+  const db = await openDatabase();
+  const raw = await readMeta(db, OPEN_ORDERS_KEY);
+  db.close();
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as OpenOrder[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveOpenOrders(orders: OpenOrder[]): Promise<void> {
+  const db = await openDatabase();
+  await writeMeta(db, OPEN_ORDERS_KEY, JSON.stringify(orders));
   db.close();
 }
 

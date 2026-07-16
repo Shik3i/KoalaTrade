@@ -217,40 +217,20 @@ func (s *Service) Quotes(ctx context.Context, assetIDs []string) ([]Quote, error
 			return quotes, nil
 		}
 
-		fresh, err := s.provider.Quotes(ctx, missing)
-		if err != nil {
-			if s.store != nil {
-				stored, storedErr := s.store.LatestQuotes(ctx, missing)
-				if storedErr == nil && len(stored) > 0 {
-					s.mu.Lock()
-					for _, quote := range stored {
-						s.cache[quote.AssetID] = quote
-						quotes = append(quotes, quote)
-					}
-					s.mu.Unlock()
-
-					sort.Slice(quotes, func(i, j int) bool {
-						return quotes[i].Symbol < quotes[j].Symbol
-					})
-					return quotes, nil
-				}
-			}
-			return nil, err
-		}
-
-		cachedUntil := now.Add(s.ttl)
-		cachedFresh := make([]Quote, 0, len(fresh))
-		s.mu.Lock()
-		for _, quote := range fresh {
-			quote.CachedUntil = cachedUntil
-			s.cache[quote.AssetID] = quote
-			quotes = append(quotes, quote)
-			cachedFresh = append(cachedFresh, quote)
-		}
-		s.mu.Unlock()
-
+		// Read path is intentionally DB-only. The background poller (Refresh) is
+		// the sole live fetcher — staggered under the per-minute rate limit — so a
+		// burst of quote requests can never stampede the provider, saturate the
+		// shared limiter, or blow the 30s request deadline. (The old fallthrough
+		// here synchronously live-fetched *every* stale symbol at once; under a
+		// cold cache that meant ~129 serialized provider calls per request →
+		// request timeouts, 502s, and starvation of the poller waiting on the
+		// same limiter.) Serve the latest stored quote even if past its freshness
+		// window; assets the poller hasn't reached yet have none and render as
+		// "no feed" upstream — honest, and never blocking.
 		if s.store != nil {
-			_ = s.store.StoreQuotes(ctx, cachedFresh)
+			if stored, storedErr := s.store.LatestQuotes(ctx, missing); storedErr == nil {
+				quotes = append(quotes, stored...)
+			}
 		}
 	}
 
