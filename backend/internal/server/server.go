@@ -109,6 +109,7 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/esports/results", s.handleEsportsResults)
 		r.Get("/sync/portfolio", s.handleGetPortfolioSync)
 		r.Put("/sync/portfolio", s.handlePutPortfolioSync)
+		r.Post("/orders", s.handleCreateOrder)
 
 		r.Post("/auth/register", s.handleRegister)
 		r.Post("/auth/login", s.handleLogin)
