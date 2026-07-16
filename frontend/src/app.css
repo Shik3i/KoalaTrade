@@ -565,6 +565,156 @@ h4 {
 }
 
 /* ---------- trading shell ---------- */
+/* ---------- app shell: left icon rail + workspace ---------- */
+.app-shell {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  min-height: 100vh;
+  background:
+    radial-gradient(1000px 500px at 80% -10%, hsla(var(--green-hsl), 0.06), transparent 75%),
+    radial-gradient(800px 450px at 12% 12%, hsla(var(--cyan-hsl), 0.04), transparent 75%);
+}
+
+.icon-rail {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 1rem 0.6rem;
+  border-right: 1px solid var(--line);
+  background: var(--bg-2);
+  z-index: 5;
+}
+
+.rail-logo {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, var(--green), var(--cyan));
+  margin-bottom: 0.75rem;
+}
+
+.rail-item {
+  width: 64px;
+  display: grid;
+  justify-items: center;
+  gap: 0.2rem;
+  padding: 0.55rem 0 0.5rem;
+  border: 0;
+  border-radius: 12px;
+  color: var(--muted);
+  background: transparent;
+  transition: 150ms ease;
+}
+
+.rail-item span {
+  font-size: 0.6rem;
+  font-weight: 600;
+  font-family: var(--font-display);
+}
+
+.rail-item svg {
+  opacity: 0.7;
+}
+
+.rail-item:hover {
+  color: var(--text);
+}
+
+.rail-item:hover svg {
+  opacity: 1;
+}
+
+.rail-item.active {
+  color: var(--text);
+  background: var(--panel-3);
+  box-shadow:
+    inset 0 1px 0 0 hsla(0, 0%, 100%, 0.05),
+    0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.rail-item.active svg {
+  opacity: 1;
+}
+
+.rail-avatar {
+  margin-top: auto;
+}
+
+/* Dismissible first-run welcome banner (Trade view) */
+.onboarding-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid hsla(var(--green-hsl), 0.25);
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, hsla(var(--green-hsl), 0.08), transparent 60%),
+    var(--panel);
+}
+
+.onboarding-banner .ob-text {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.onboarding-banner .ob-emoji {
+  font-size: 1.25rem;
+}
+
+.onboarding-banner strong {
+  font-size: 0.9rem;
+  font-family: var(--font-display);
+}
+
+.onboarding-banner p {
+  margin: 0.15rem 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.onboarding-banner .ob-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.onboarding-banner .ob-tour,
+.onboarding-banner .ob-dismiss {
+  min-height: 2rem;
+  padding: 0 0.85rem;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  background: transparent;
+  transition: 120ms ease;
+}
+
+.onboarding-banner .ob-tour {
+  border: 1px solid var(--line-2);
+  color: var(--soft);
+}
+
+.onboarding-banner .ob-tour:hover {
+  border-color: hsla(var(--green-hsl), 0.4);
+  color: var(--text);
+}
+
+.onboarding-banner .ob-dismiss {
+  border: 0;
+  color: var(--muted);
+}
+
+.onboarding-banner .ob-dismiss:hover {
+  color: var(--text);
+}
+
 .trading-shell {
   display: grid;
   grid-template-rows: auto auto 1fr;
@@ -1029,6 +1179,165 @@ h4 {
 .segmented button.sell.active {
   color: var(--red);
   background: var(--red-soft);
+}
+
+/* Market / Limit / Stop order-type selector */
+.order-types {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.3rem;
+  padding: 0.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--bg-2);
+}
+
+.order-types button {
+  min-height: 2.3rem;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.85rem;
+  font-family: var(--font-display);
+  background: transparent;
+  transition: 120ms ease;
+}
+
+.order-types button:hover {
+  color: var(--text);
+}
+
+.order-types button.active {
+  color: var(--text);
+  background: var(--panel-3);
+  box-shadow: inset 0 1px 0 0 hsla(0, 0%, 100%, 0.05), 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.order-hint {
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  background: var(--bg-2);
+}
+
+.field.trigger span small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 400;
+}
+
+.field.trigger.limit input {
+  border-color: hsla(var(--amber-hsl), 0.3);
+  background: hsla(var(--amber-hsl), 0.06);
+}
+
+.field.trigger.stop input {
+  border-color: hsla(var(--red-hsl), 0.3);
+  background: hsla(var(--red-hsl), 0.06);
+}
+
+.order-summary .status-row {
+  margin-top: 0.15rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.order-summary .status-row strong {
+  color: var(--text);
+}
+
+/* Open orders (pending Limit/Stop queue) */
+.open-orders-list {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.open-order-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--bg-2);
+}
+
+.open-order-row.this-asset {
+  border-color: hsla(var(--green-hsl), 0.25);
+}
+
+.open-order-row .oo-id {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.open-order-row .oo-id strong {
+  font-size: 0.82rem;
+}
+
+.open-order-row .oo-id small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.open-order-row .oo-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--amber);
+  font-size: 0.72rem;
+}
+
+.open-order-row .oo-status::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--amber);
+}
+
+.open-order-row .oo-cancel {
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--line-2);
+  border-radius: 7px;
+  color: var(--soft);
+  font-size: 0.72rem;
+  background: transparent;
+  transition: 120ms ease;
+}
+
+.open-order-row .oo-cancel:hover {
+  color: var(--red);
+  border-color: hsla(var(--red-hsl), 0.4);
+  background: var(--red-soft);
+}
+
+/* Amber "no feed" indicator (replaces bare $0.00 when a live price is missing) */
+.market-row .no-feed {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  grid-column: 2 / span 2;
+  justify-self: end;
+  color: #fbbf73;
+  font-size: 0.72rem;
+}
+
+.market-row .no-feed i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #fbbf73;
 }
 
 .field {
@@ -1627,13 +1936,38 @@ kbd {
 }
 
 @media (max-width: 840px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+  .icon-rail {
+    position: sticky;
+    top: 0;
+    height: auto;
+    width: 100%;
+    flex-direction: row;
+    justify-content: space-around;
+    gap: 0.25rem;
+    padding: 0.4rem 0.6rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .rail-logo {
+    display: none;
+  }
+  .rail-item {
+    width: auto;
+    flex: 1;
+    padding: 0.4rem 0.3rem;
+  }
+  .rail-avatar {
+    margin-top: 0;
+  }
+  .onboarding-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
   .trading-topbar {
     flex-wrap: wrap;
-  }
-  .desk-tabs {
-    order: 3;
-    width: 100%;
-    justify-content: space-between;
   }
   .trade-layout {
     grid-template-columns: 1fr;

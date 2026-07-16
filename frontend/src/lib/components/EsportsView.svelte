@@ -24,6 +24,7 @@
   let stakes: Record<string, number> = {};
   let manageQty: Record<string, number> = {};
   let showOnlyFavorites = false;
+  let showAllLeagues = false;
 
   function manageFor(assetId: string, max: number) {
     const value = manageQty[assetId];
@@ -51,6 +52,7 @@
     if (match.team1.code === 'TBD' || match.team2.code === 'TBD') return false;
     const isFavorite = favoriteTeams.includes(match.team1.code) || favoriteTeams.includes(match.team2.code);
     if (showOnlyFavorites) return isFavorite;
+    if (showAllLeagues) return true;
     const inLeague = selectedLeagues.length === 0 || selectedLeagues.some((league) => matchesLeague(match.league, league));
     return inLeague || isFavorite;
   });
@@ -94,6 +96,33 @@
 
   function cancelBet() {
     pending = null;
+  }
+
+  // Deterministic team colour for the logo roundel (placeholder until real
+  // badge images are dropped in). Same code -> same hue every render.
+  function teamHue(code: string) {
+    let h = 0;
+    for (let i = 0; i < code.length; i++) h = (h * 31 + code.charCodeAt(i)) % 360;
+    return h;
+  }
+
+  function roundelStyle(team: EsportsTeam, hasOdds: boolean) {
+    if (!hasOdds) return 'background: var(--panel-3); color: #94a3b8;';
+    const h = teamHue(team.code);
+    return `background: linear-gradient(135deg, hsl(${h}, 70%, 55%), hsl(${(h + 40) % 360}, 68%, 44%)); color: #fff;`;
+  }
+
+  // Left-segment width of the win-probability bar, normalised so the two
+  // segments always sum to 100% even if the raw odds don't.
+  function team1Pct(match: EsportsMatch) {
+    const a = match.team1.probBps;
+    const b = match.team2.probBps;
+    const total = a + b;
+    return total > 0 ? Math.round((a / total) * 100) : 50;
+  }
+
+  function probLabel(bps: number) {
+    return `${Math.round(bps / 100)}%`;
   }
 </script>
 
@@ -139,9 +168,14 @@
           <button class:active={selectedLeagues.includes(league)} type="button" title={`Zeige nur Spiele aus der Liga ${league} an`} on:click={() => onToggleLeague(league)}>{league}</button>
         {/each}
       </div>
-      <button class="fav-toggle" class:active={showOnlyFavorites} type="button" title="Zeigt nur Spiele von deinen als Favorit markierten Teams an" on:click={() => (showOnlyFavorites = !showOnlyFavorites)}>
-        <Star size={14} fill={showOnlyFavorites ? 'currentColor' : 'none'} /> Nur Favoriten
-      </button>
+      <div class="filter-toggles">
+        <button class="fav-toggle" class:active={showAllLeagues} type="button" title="Zeigt alle anstehenden Matches unabhängig von der Liga – auch solche ohne Quote." on:click={() => (showAllLeagues = !showAllLeagues)}>
+          Alle Ligen
+        </button>
+        <button class="fav-toggle" class:active={showOnlyFavorites} type="button" title="Zeigt nur Spiele von deinen als Favorit markierten Teams an" on:click={() => (showOnlyFavorites = !showOnlyFavorites)}>
+          <Star size={14} fill={showOnlyFavorites ? 'currentColor' : 'none'} /> Nur Favoriten
+        </button>
+      </div>
     </div>
   </section>
 
@@ -166,27 +200,43 @@
             </span>
           </header>
 
-          <div class="teams">
-            {#each [match.team1, match.team2] as team}
-              <div class="team">
-                <div class="team-id">
+          <div class="vs" class:no-odds={!match.hasOdds}>
+            {#each [match.team1, match.team2] as team, i}
+              <div class="team-side" class:right={i === 1}>
+                <button class="roundel" style={roundelStyle(team, match.hasOdds)}
+                        type="button"
+                        disabled={!match.hasOdds || team.priceCents <= 0 || refreshingId === match.id}
+                        title={match.hasOdds && team.priceCents > 0 ? `Wette auf ${team.code} (Siegchance ca. ${Math.round(team.probBps / 100)}%)` : 'Für dieses Match liegt aktuell keine Quote vor.'}
+                        on:click={() => startBet(match, team)}>
+                  {#if team.image}<img src={team.image} alt="" width="58" height="58" loading="lazy" />{:else}{team.code.slice(0, 3)}{/if}
+                </button>
+                <div class="team-name">
                   <button class="star" class:on={favoriteTeams.includes(team.code)} type="button" title={`Markiere ${team.code} als Lieblingsteam (beeinflusst den Filter)`} on:click={() => onToggleFavorite(team.code)}>
-                    <Star size={14} fill={favoriteTeams.includes(team.code) ? 'currentColor' : 'none'} />
+                    <Star size={12} fill={favoriteTeams.includes(team.code) ? 'currentColor' : 'none'} />
                   </button>
-                  {#if team.image}<img src={team.image} alt="" width="28" height="28" loading="lazy" />{:else}<span class="team-fallback">{team.code}</span>{/if}
-                  <div><strong>{team.code}</strong><small>{team.name}</small></div>
+                  <strong>{team.code}</strong>
                 </div>
-                {#if match.hasOdds && team.priceCents > 0}
-                  <button class="bet-btn" type="button" title={`Wette auf ${team.code} (Siegchance ca. ${Math.round(team.probBps / 100)}%)`} disabled={refreshingId === match.id} on:click={() => startBet(match, team)}>
-                    <span class="prob">{Math.round(team.probBps / 100)}%</span>
-                    <span class="px">{formatMoney(team.priceCents)}</span>
-                  </button>
-                {:else}
-                  <span class="no-odds">keine Quote</span>
-                {/if}
+                <small>{team.name}</small>
               </div>
+              {#if i === 0}<span class="vs-badge">VS</span>{/if}
             {/each}
           </div>
+
+          {#if match.hasOdds && (match.team1.priceCents > 0 || match.team2.priceCents > 0)}
+            <div class="prob-wrap" title="Live-Siegwahrscheinlichkeit laut Polymarket – linke Farbe: Team 1, rechte Farbe: Team 2.">
+              <div class="prob-bar" role="img" aria-label={`Siegchance ${probLabel(match.team1.probBps)} zu ${probLabel(match.team2.probBps)}`}>
+                <span class="seg a" style={`width:${team1Pct(match)}%`}></span>
+                <span class="seg b" style={`width:${100 - team1Pct(match)}%`}></span>
+              </div>
+              <div class="prob-legend">
+                <span class="a">{probLabel(match.team1.probBps)} · {formatMoney(match.team1.priceCents)}</span>
+                <span class="src">Live-Quoten von Polymarket</span>
+                <span class="b">{probLabel(match.team2.probBps)} · {formatMoney(match.team2.priceCents)}</span>
+              </div>
+            </div>
+          {:else}
+            <div class="no-odds-box">⚠ Noch keine Quote – Polymarket hat dieses Match nicht gelistet.</div>
+          {/if}
 
           {#if confirmTeam}
             <footer class="confirm-bar">
@@ -268,6 +318,12 @@
     color: var(--green);
     border-color: var(--green-soft);
     background: var(--green-soft);
+  }
+
+  .filter-toggles {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
   }
 
   .fav-toggle {
@@ -395,10 +451,13 @@
   .match-card {
     display: grid;
     gap: 0.7rem;
-    padding: 1rem;
-    border: 1px solid var(--line);
+    padding: 1rem 1.1rem;
+    border: 1px solid hsla(var(--green-hsl), 0.22);
     border-radius: var(--r);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent), var(--panel);
+    background:
+      radial-gradient(120px 90px at 88% -10%, hsla(var(--green-hsl), 0.12), transparent 70%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent),
+      var(--panel);
     box-shadow: var(--shadow);
   }
 
@@ -442,32 +501,75 @@
     font-weight: 600;
   }
 
-  .teams {
+  /* VS layout: roundel — VS badge — roundel */
+  .vs {
     display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: start;
     gap: 0.5rem;
   }
 
-  .team {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-  }
-
-  .team-id {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
+  .team-side {
+    display: grid;
+    justify-items: center;
+    gap: 0.3rem;
     min-width: 0;
+  }
+
+  .roundel {
+    display: grid;
+    place-items: center;
+    width: 58px;
+    height: 58px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    overflow: hidden;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 1.1rem;
+    letter-spacing: 0.01em;
+    box-shadow: inset 0 1px 0 0 hsla(0, 0%, 100%, 0.15);
+    transition: 140ms ease;
+  }
+
+  .roundel:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px -6px rgba(0, 0, 0, 0.6), inset 0 1px 0 0 hsla(0, 0%, 100%, 0.15);
+  }
+
+  .roundel:disabled {
+    cursor: default;
+  }
+
+  .roundel img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .vs.no-odds .roundel {
+    filter: grayscale(1);
+    opacity: 0.75;
+  }
+
+  .team-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+  }
+
+  .team-name strong {
+    font-size: 0.92rem;
   }
 
   .star {
     display: grid;
     place-items: center;
-    width: 1.6rem;
-    height: 1.6rem;
+    width: 1.2rem;
+    height: 1.2rem;
     border: 0;
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--muted);
     background: transparent;
     transition: 120ms ease;
@@ -482,77 +584,87 @@
     color: var(--amber);
   }
 
-  .team-id img {
-    border-radius: 6px;
-    object-fit: contain;
-    background: rgba(255, 255, 255, 0.04);
-  }
-
-  .team-fallback {
-    display: grid;
-    place-items: center;
-    width: 28px;
-    height: 28px;
-    border-radius: 6px;
+  .team-side small {
     color: var(--muted);
-    font-size: 0.62rem;
-    background: var(--panel-3);
-  }
-
-  .team-id div {
-    display: grid;
-    gap: 0.05rem;
-    min-width: 0;
-  }
-
-  .team-id strong {
-    font-size: 0.95rem;
-  }
-
-  .team-id small {
-    color: var(--muted);
-    font-size: 0.7rem;
+    font-size: 0.68rem;
+    text-align: center;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .bet-btn {
+  .vs-badge {
+    align-self: center;
     display: grid;
-    gap: 0.05rem;
-    min-width: 4.6rem;
-    padding: 0.4rem 0.6rem;
-    border: 1px solid var(--line-2);
-    border-radius: var(--r-sm);
-    color: var(--text);
-    text-align: right;
-    background: var(--bg-2);
-    transition: 120ms ease;
-  }
-
-  .bet-btn:hover:not(:disabled) {
-    border-color: var(--green);
-    background: var(--green-soft);
-  }
-
-  .bet-btn:disabled {
-    cursor: progress;
-    opacity: 0.6;
-  }
-
-  .bet-btn .prob {
-    font-size: 0.92rem;
-    font-weight: 650;
-  }
-
-  .bet-btn .px {
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 1px solid var(--line);
     color: var(--muted);
+    font-family: var(--font-display);
+    font-weight: 700;
     font-size: 0.72rem;
+    background: var(--bg-2);
   }
 
-  .no-odds {
-    color: var(--muted);
+  /* two-colour win-probability bar */
+  .prob-wrap {
+    display: grid;
+    gap: 0.3rem;
+  }
+
+  .prob-bar {
+    display: flex;
+    height: 14px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--bg-2);
+  }
+
+  .prob-bar .seg {
+    height: 100%;
+  }
+
+  .prob-bar .seg.a {
+    background: linear-gradient(90deg, hsl(var(--green-hsl)), hsla(var(--green-hsl), 0.75));
+  }
+
+  .prob-bar .seg.b {
+    background: linear-gradient(90deg, hsla(var(--red-hsl), 0.75), hsl(var(--red-hsl)));
+  }
+
+  .prob-legend {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
     font-size: 0.74rem;
+  }
+
+  .prob-legend .a {
+    color: var(--green);
+    font-weight: 600;
+  }
+
+  .prob-legend .b {
+    color: var(--red);
+    font-weight: 600;
+  }
+
+  .prob-legend .src {
+    color: var(--tertiary, #64748b);
+    font-size: 0.66rem;
+  }
+
+  .no-odds-box {
+    padding: 0.6rem 0.75rem;
+    border: 1px dashed var(--line-2);
+    border-radius: var(--r-sm);
+    color: var(--muted);
+    font-size: 0.76rem;
+    text-align: center;
   }
 
   .match-foot {
