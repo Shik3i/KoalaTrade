@@ -40,6 +40,7 @@
     fetchSyncedPortfolio,
     login,
     logout,
+    placeOrder,
     refreshMatchOdds,
     register,
     syncPortfolio,
@@ -759,6 +760,15 @@
       return;
     }
 
+    // Competitive mode: when the backend is reachable, market orders are
+    // executed and priced server-side (authoritative) so a client can't
+    // fabricate the fill. Only when fully offline do we fall back to the local
+    // simulation (unranked practice).
+    if (config && !configError) {
+      await submitServerOrder();
+      return;
+    }
+
     try {
       const nextPortfolio = applyTrade(portfolio, {
         id: crypto.randomUUID(),
@@ -776,6 +786,38 @@
       toast.success(
         `${orderSide === 'buy' ? 'Kauf' : 'Verkauf'} ausgeführt`,
         `${formatQuantity(normalizedOrderQuantity)} ${selectedMarket.symbol} @ ${formatMoney(effectivePriceCents)}`
+      );
+    } catch (error) {
+      orderError = error instanceof Error ? error.message : 'Order konnte nicht platziert werden';
+      toast.error('Order fehlgeschlagen', orderError);
+    }
+  }
+
+  // Server-authoritative market order. We first push the current local state
+  // (including un-synced eSports positions) so the server operates on the
+  // latest snapshot, then place the order; the returned portfolio is truth.
+  async function submitServerOrder() {
+    if (!portfolio) return;
+    const symbol = selectedMarket.symbol;
+    try {
+      const id = clientId || (await loadClientId());
+      try {
+        await syncPortfolio(id, portfolio);
+      } catch {
+        // A sync hiccup shouldn't block the trade; the server still applies to
+        // its last-known snapshot. Surfaced only if the order itself fails.
+      }
+      const updated = await placeOrder(id, {
+        portfolioId: PORTFOLIO_ID,
+        assetId: selectedMarket.assetId,
+        side: orderSide,
+        quantity: normalizedOrderQuantity
+      });
+      portfolio = updated;
+      await savePortfolio(updated, { touchUpdatedAt: false });
+      toast.success(
+        `${orderSide === 'buy' ? 'Kauf' : 'Verkauf'} ausgeführt`,
+        `${formatQuantity(normalizedOrderQuantity)} ${symbol}`
       );
     } catch (error) {
       orderError = error instanceof Error ? error.message : 'Order konnte nicht platziert werden';

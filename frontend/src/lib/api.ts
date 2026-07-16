@@ -411,6 +411,45 @@ export async function fetchQuotes(assetIds: string[]): Promise<Quote[]> {
   return payload.quotes;
 }
 
+export type OrderRequest = {
+  portfolioId: string;
+  assetId: string;
+  side: 'buy' | 'sell';
+  quantity: number;
+  orderType?: 'market';
+};
+
+/**
+ * Places a market order server-side. The server fills at its own quote price
+ * and validates cash/position, so the returned portfolio is authoritative —
+ * the client cannot fabricate prices, cash, or positions (competitive mode).
+ */
+export async function placeOrder(clientId: string, input: OrderRequest): Promise<PortfolioSnapshot> {
+  const response = await fetch('/api/orders', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'X-Koala-Client-ID': clientId
+    },
+    body: JSON.stringify({ orderType: 'market', ...input })
+  });
+
+  if (!response.ok) {
+    let message = `Order fehlgeschlagen (${response.status})`;
+    try {
+      const body = (await response.json()) as { error?: string };
+      if (body?.error) message = body.error;
+    } catch {
+      // keep the status-based message
+    }
+    throw new Error(message);
+  }
+
+  const payload = (await response.json()) as { portfolio: PortfolioSnapshot };
+  return payload.portfolio;
+}
+
 export async function syncPortfolio(
   clientId: string,
   snapshot: PortfolioSnapshot
