@@ -32,7 +32,8 @@ func main() {
 		logger.Warn("AUTH_SECRET is not set: a random key is generated per start, so all sessions are invalidated on restart. Set AUTH_SECRET in production.")
 	}
 	if cfg.Environment == "production" && cfg.AdminPassword == "" {
-		logger.Warn("ADMIN_PASSWORD is not set in production: the admin account cannot be seeded with a password.")
+		logger.Error("ADMIN_PASSWORD is not set in production: the admin account can't be seeded, leaving eSports slug mapping and moderation inaccessible. Server exiting.")
+		os.Exit(1)
 	}
 
 	db, err := storage.OpenSQLite(cfg.DatabasePath)

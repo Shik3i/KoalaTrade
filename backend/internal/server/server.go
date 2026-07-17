@@ -101,7 +101,13 @@ func (s *Server) Routes() http.Handler {
 
 	r.Get("/healthz", s.handleHealth)
 
+	// Per-IP request cap on the public API. Generous enough for normal use
+	// (the frontend polls a handful of times a minute) but bounds spam/scraping;
+	// the login lockout still guards auth brute-force specifically.
+	apiLimiter := newIPRateLimiter(600, time.Minute)
+
 	r.Route("/api", func(r chi.Router) {
+		r.Use(apiLimiter.middleware)
 		r.Get("/config", s.handleConfig)
 		r.Get("/markets", s.handleMarkets)
 		r.Get("/markets/{assetId}/history", s.handleMarketHistory)
@@ -154,6 +160,10 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+		// This origin serves only JSON; lock it right down and forbid framing.
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+		// HSTS is a no-op over plain HTTP but pins TLS once served over HTTPS.
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		next.ServeHTTP(w, r)
 	})
 }
