@@ -24,6 +24,9 @@ type Server struct {
 	authSecret []byte
 	loginMu    sync.Mutex
 	loginFails map[string]loginFailure
+	// tradeMu serialises the load→apply→save sequence for a portfolio so the
+	// order endpoint and the open-order engine can't lose each other's writes.
+	tradeMu sync.Mutex
 }
 
 type loginFailure struct {
@@ -110,6 +113,8 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/sync/portfolio", s.handleGetPortfolioSync)
 		r.Put("/sync/portfolio", s.handlePutPortfolioSync)
 		r.Post("/orders", s.handleCreateOrder)
+		r.Get("/open-orders", s.handleListOpenOrders)
+		r.Delete("/open-orders/{id}", s.handleCancelOpenOrder)
 
 		r.Post("/auth/register", s.handleRegister)
 		r.Post("/auth/login", s.handleLogin)

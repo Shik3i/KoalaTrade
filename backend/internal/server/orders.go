@@ -21,11 +21,52 @@ const orderFeeBPS = 8
 const maxOrderBodyBytes = 4 << 10
 
 type orderRequest struct {
-	PortfolioID string  `json:"portfolioId"`
-	AssetID     string  `json:"assetId"`
-	Side        string  `json:"side"`
-	Quantity    float64 `json:"quantity"`
-	OrderType   string  `json:"orderType"` // currently only "market"; limit/stop are server-side open orders (phase 2)
+	PortfolioID       string  `json:"portfolioId"`
+	AssetID           string  `json:"assetId"`
+	Side              string  `json:"side"`
+	Quantity          float64 `json:"quantity"`
+	OrderType         string  `json:"orderType"`         // "market" fills now; "limit"/"stop" queue a server-side open order
+	TriggerPriceCents int64   `json:"triggerPriceCents"` // required for limit/stop
+}
+
+// orderResponse is the unified reply for the orders endpoint: the (possibly
+// updated) portfolio plus the caller's current open-order queue.
+type orderResponse struct {
+	Portfolio  portfolioSyncRequest `json:"portfolio"`
+	OpenOrders []openOrderPayload   `json:"openOrders"`
+	SyncedAt   time.Time            `json:"syncedAt"`
+}
+
+type openOrderPayload struct {
+	ID                string               `json:"id"`
+	AssetID           string               `json:"assetId"`
+	Symbol            string               `json:"symbol"`
+	Name              string               `json:"name"`
+	Kind              marketdata.AssetKind `json:"kind"`
+	Side              string               `json:"side"`
+	OrderType         string               `json:"orderType"`
+	Quantity          float64              `json:"quantity"`
+	TriggerPriceCents int64                `json:"triggerPriceCents"`
+	CreatedAt         string               `json:"createdAt"`
+}
+
+func openOrderPayloads(orders []storage.OpenOrder) []openOrderPayload {
+	out := make([]openOrderPayload, 0, len(orders))
+	for _, o := range orders {
+		out = append(out, openOrderPayload{
+			ID:                o.ID,
+			AssetID:           o.AssetID,
+			Symbol:            o.Symbol,
+			Name:              o.Name,
+			Kind:              o.Kind,
+			Side:              o.Side,
+			OrderType:         o.OrderType,
+			Quantity:          float64(o.QuantityMicro) / quantityScale,
+			TriggerPriceCents: o.TriggerPriceCents,
+			CreatedAt:         o.CreatedAt.Format(time.RFC3339Nano),
+		})
+	}
+	return out
 }
 
 // handleCreateOrder executes a market order server-side: it loads the caller's
@@ -57,8 +98,12 @@ func (s *Server) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "side must be buy or sell"})
 		return
 	}
-	if req.OrderType != "" && req.OrderType != "market" {
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "only market orders are supported here"})
+	orderType := req.OrderType
+	if orderType == "" {
+		orderType = "market"
+	}
+	if orderType != "market" && orderType != "limit" && orderType != "stop" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid order type"})
 		return
 	}
 	quantityMicro, err := quantityToMicro(req.Quantity)
@@ -68,46 +113,114 @@ func (s *Server) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Resolve the tradable asset from the catalogue (server owns symbol/name/kind).
+	// This also upserts the catalogue into the assets table, satisfying the
+	// foreign keys used by positions and open orders.
 	asset, err := s.marketAsset(r, req.AssetID)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
 		return
 	}
 
+	if orderType == "market" {
+		s.executeMarketOrder(w, r, clientID, user, hasUser, req.PortfolioID, asset, req.Side, quantityMicro)
+		return
+	}
+	s.queueOpenOrder(w, r, clientID, user, hasUser, req.PortfolioID, asset, req.Side, orderType, quantityMicro, req.TriggerPriceCents)
+}
+
+func (s *Server) executeMarketOrder(w http.ResponseWriter, r *http.Request, clientID string, user sessionUser, hasUser bool, portfolioID string, asset marketdata.Market, side string, quantityMicro int64) {
 	// Fill price comes from the server's own quote store. If the poller hasn't
 	// refreshed this asset yet, do a single bounded live fetch (one symbol, on
 	// explicit user action — never a stampede) so a trade always fills at a real
 	// current price rather than a stale or zero one.
-	priceCents := s.serverQuotePrice(r, req.AssetID)
+	priceCents := s.serverQuotePrice(r, asset.AssetID)
 	if priceCents <= 0 {
 		writeJSON(w, http.StatusConflict, errorResponse{Error: "no live price available for this asset right now"})
 		return
 	}
 
-	portfolio, err := s.loadOrCreatePortfolio(r, clientID, user, hasUser, req.PortfolioID)
+	s.tradeMu.Lock()
+	defer s.tradeMu.Unlock()
+
+	portfolio, err := s.loadOrCreatePortfolio(r, clientID, user, hasUser, portfolioID)
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "portfolio unavailable"})
 		return
 	}
 
-	now := time.Now().UTC()
-	updated, _, err := applyMarketTrade(portfolio, asset, req.Side, quantityMicro, priceCents, now)
+	updated, _, err := applyMarketTrade(portfolio, asset, side, quantityMicro, priceCents, time.Now().UTC())
 	if err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: err.Error()})
 		return
 	}
-
 	if err := s.db.UpsertPortfolio(r.Context(), updated); err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "could not save order"})
 		return
 	}
+	s.writeOrderResponse(w, r, updated)
+}
 
-	payload, err := portfolioToSyncPayload(updated)
+func (s *Server) queueOpenOrder(w http.ResponseWriter, r *http.Request, clientID string, user sessionUser, hasUser bool, portfolioID string, asset marketdata.Market, side, orderType string, quantityMicro, triggerPriceCents int64) {
+	if triggerPriceCents <= 0 {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "trigger price must be greater than zero"})
+		return
+	}
+
+	s.tradeMu.Lock()
+	defer s.tradeMu.Unlock()
+
+	portfolio, err := s.loadOrCreatePortfolio(r, clientID, user, hasUser, portfolioID)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "portfolio unavailable"})
+		return
+	}
+	// Persist the portfolio row so the open_orders foreign key holds (a freshly
+	// created portfolio isn't in the DB yet).
+	if err := s.db.UpsertPortfolio(r.Context(), portfolio); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "portfolio unavailable"})
+		return
+	}
+
+	order := storage.OpenOrder{
+		ID:                newOpenOrderID(),
+		PortfolioID:       portfolio.ID,
+		AssetID:           asset.AssetID,
+		Symbol:            asset.Symbol,
+		Name:              asset.Name,
+		Kind:              asset.Kind,
+		Side:              side,
+		OrderType:         orderType,
+		QuantityMicro:     quantityMicro,
+		TriggerPriceCents: triggerPriceCents,
+		CreatedAt:         time.Now().UTC(),
+	}
+	if err := s.db.CreateOpenOrder(r.Context(), order); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "could not save order"})
+		return
+	}
+	s.writeOrderResponse(w, r, portfolio)
+}
+
+// writeOrderResponse returns the portfolio plus the caller's current open-order
+// queue, so a single round-trip keeps the client fully in sync.
+func (s *Server) writeOrderResponse(w http.ResponseWriter, r *http.Request, portfolio storage.Portfolio) {
+	payload, err := portfolioToSyncPayload(portfolio)
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "could not serialize portfolio"})
 		return
 	}
-	writeJSON(w, http.StatusOK, portfolioSyncResponse{Portfolio: payload, SyncedAt: now})
+	orders, _ := s.db.OpenOrdersByPortfolio(r.Context(), portfolio.ID)
+	writeJSON(w, http.StatusOK, orderResponse{
+		Portfolio:  payload,
+		OpenOrders: openOrderPayloads(orders),
+		SyncedAt:   time.Now().UTC(),
+	})
+}
+
+func newOpenOrderID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	return "oo-" + hex.EncodeToString(b[:])
 }
 
 // marketAsset returns the catalogue entry for a tradable asset id, or an error

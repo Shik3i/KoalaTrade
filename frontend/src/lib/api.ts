@@ -1,4 +1,4 @@
-import type { AssetKind, PortfolioSnapshot } from './portfolio';
+import type { AssetKind, OpenOrder, PortfolioSnapshot } from './portfolio';
 
 export type PublicConfig = {
   appName: string;
@@ -416,15 +416,34 @@ export type OrderRequest = {
   assetId: string;
   side: 'buy' | 'sell';
   quantity: number;
-  orderType?: 'market';
+  orderType?: 'market' | 'limit' | 'stop';
+  triggerPriceCents?: number;
 };
 
+export type OrderResult = {
+  portfolio: PortfolioSnapshot;
+  openOrders: OpenOrder[];
+};
+
+async function orderErrorMessage(response: Response): Promise<string> {
+  let message = `Order fehlgeschlagen (${response.status})`;
+  try {
+    const body = (await response.json()) as { error?: string };
+    if (body?.error) message = body.error;
+  } catch {
+    // keep the status-based message
+  }
+  return message;
+}
+
 /**
- * Places a market order server-side. The server fills at its own quote price
- * and validates cash/position, so the returned portfolio is authoritative —
- * the client cannot fabricate prices, cash, or positions (competitive mode).
+ * Places an order server-side. A market order fills at the server's own quote
+ * price; a limit/stop order is queued as a server-side open order that the
+ * backend engine fills when its trigger is met (even with the browser closed).
+ * The returned portfolio + open orders are authoritative — the client cannot
+ * fabricate prices, cash, or positions (competitive mode).
  */
-export async function placeOrder(clientId: string, input: OrderRequest): Promise<PortfolioSnapshot> {
+export async function placeOrder(clientId: string, input: OrderRequest): Promise<OrderResult> {
   const response = await fetch('/api/orders', {
     method: 'POST',
     headers: {
@@ -436,18 +455,34 @@ export async function placeOrder(clientId: string, input: OrderRequest): Promise
   });
 
   if (!response.ok) {
-    let message = `Order fehlgeschlagen (${response.status})`;
-    try {
-      const body = (await response.json()) as { error?: string };
-      if (body?.error) message = body.error;
-    } catch {
-      // keep the status-based message
-    }
-    throw new Error(message);
+    throw new Error(await orderErrorMessage(response));
   }
 
-  const payload = (await response.json()) as { portfolio: PortfolioSnapshot };
-  return payload.portfolio;
+  const payload = (await response.json()) as { portfolio: PortfolioSnapshot; openOrders?: OpenOrder[] };
+  return { portfolio: payload.portfolio, openOrders: payload.openOrders ?? [] };
+}
+
+export async function fetchOpenOrders(clientId: string, portfolioId: string): Promise<OpenOrder[]> {
+  const response = await fetch(`/api/open-orders?id=${encodeURIComponent(portfolioId)}`, {
+    headers: { Accept: 'application/json', 'X-Koala-Client-ID': clientId }
+  });
+  if (!response.ok) {
+    throw new Error(`Open orders request failed with ${response.status}`);
+  }
+  const payload = (await response.json()) as { openOrders?: OpenOrder[] };
+  return payload.openOrders ?? [];
+}
+
+export async function cancelServerOpenOrder(clientId: string, portfolioId: string, id: string): Promise<OpenOrder[]> {
+  const response = await fetch(`/api/open-orders/${encodeURIComponent(id)}?id=${encodeURIComponent(portfolioId)}`, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json', 'X-Koala-Client-ID': clientId }
+  });
+  if (!response.ok) {
+    throw new Error(await orderErrorMessage(response));
+  }
+  const payload = (await response.json()) as { openOrders?: OpenOrder[] };
+  return payload.openOrders ?? [];
 }
 
 export async function syncPortfolio(
