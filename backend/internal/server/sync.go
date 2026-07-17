@@ -78,15 +78,55 @@ func (s *Server) handlePutPortfolioSync(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Ranked (authenticated) accounts are server-authoritative: the competition
+	// portfolio is only ever mutated by the server's own order/bet endpoints, so
+	// we IGNORE the client-supplied cash/positions/transactions here and return
+	// the server's own state (get-or-create + settle). This closes the last
+	// cheat vector — a client can no longer inject a fabricated portfolio.
+	if hasUser {
+		s.syncRankedPortfolio(w, r, clientID, user, payload.ID)
+		return
+	}
+
+	// Anonymous practice portfolios stay client-authoritative (unranked): the
+	// client is the source of truth and this simply persists it for cross-device.
 	portfolio, err := s.syncPayloadToPortfolio(r, clientID, payload)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
 		return
 	}
-	if hasUser {
-		portfolio.UserID = user.ID
+
+	if err := s.db.UpsertPortfolio(r.Context(), portfolio); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "portfolio sync unavailable"})
+		return
 	}
 
+	responsePayload, err := portfolioToSyncPayload(portfolio)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "portfolio sync unavailable"})
+		return
+	}
+	writeJSON(w, http.StatusOK, portfolioSyncResponse{Portfolio: responsePayload, SyncedAt: time.Now().UTC()})
+}
+
+// syncRankedPortfolio returns the authoritative server portfolio for an
+// authenticated user, creating a fresh one (starting cash) if none exists and
+// settling any resolved bets. The client body is deliberately ignored.
+func (s *Server) syncRankedPortfolio(w http.ResponseWriter, r *http.Request, clientID string, user sessionUser, clientPortfolioID string) {
+	if _, ok := validToken(clientPortfolioID); !ok {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "valid portfolio id is required"})
+		return
+	}
+
+	s.tradeMu.Lock()
+	defer s.tradeMu.Unlock()
+
+	portfolio, err := s.loadOrCreatePortfolio(r, clientID, user, true, clientPortfolioID)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "portfolio unavailable"})
+		return
+	}
+	portfolio, _ = s.settlePortfolioBets(r.Context(), portfolio)
 	if err := s.db.UpsertPortfolio(r.Context(), portfolio); err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "portfolio sync unavailable"})
 		return
