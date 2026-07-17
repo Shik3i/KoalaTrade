@@ -689,11 +689,7 @@
     if (online) {
       try {
         const id = clientId || (await loadClientId());
-        try {
-          await syncPortfolio(id, portfolio);
-        } catch {
-          // non-fatal; server bets against its last-known snapshot
-        }
+        await pushPracticeState(id);
         const result = await submitEsportsBet(id, {
           portfolioId: PORTFOLIO_ID,
           matchId: match.id,
@@ -746,11 +742,7 @@
       if (!parsed) return;
       try {
         const id = clientId || (await loadClientId());
-        try {
-          await syncPortfolio(id, portfolio);
-        } catch {
-          // non-fatal
-        }
+        await pushPracticeState(id);
         const result = await submitEsportsBet(id, {
           portfolioId: PORTFOLIO_ID,
           matchId: parsed.matchId,
@@ -830,11 +822,7 @@
     if (online) {
       try {
         const id = clientId || (await loadClientId());
-        try {
-          await syncPortfolio(id, portfolio);
-        } catch {
-          // non-fatal; the server queues against its last-known snapshot
-        }
+        await pushPracticeState(id);
         const result = await placeOrder(id, {
           portfolioId: PORTFOLIO_ID,
           assetId: selectedMarket.assetId,
@@ -974,20 +962,26 @@
     }
   }
 
-  // Server-authoritative market order. We first push the current local state
-  // (including un-synced eSports positions) so the server operates on the
-  // latest snapshot, then place the order; the returned portfolio is truth.
+  // Anonymous practice portfolios are client-authoritative, so push the current
+  // local state before a server action so the server operates on the latest
+  // snapshot. Ranked (logged-in) accounts are server-authoritative — the server
+  // ignores any pushed state — so we skip the push entirely.
+  async function pushPracticeState(id: string) {
+    if (user || !portfolio) return;
+    try {
+      await syncPortfolio(id, portfolio);
+    } catch {
+      // non-fatal; the server applies to its last-known snapshot
+    }
+  }
+
+  // Server-authoritative market order: the returned portfolio is truth.
   async function submitServerOrder() {
     if (!portfolio) return;
     const symbol = selectedMarket.symbol;
     try {
       const id = clientId || (await loadClientId());
-      try {
-        await syncPortfolio(id, portfolio);
-      } catch {
-        // A sync hiccup shouldn't block the trade; the server still applies to
-        // its last-known snapshot. Surfaced only if the order itself fails.
-      }
+      await pushPracticeState(id);
       const result = await placeOrder(id, {
         portfolioId: PORTFOLIO_ID,
         assetId: selectedMarket.assetId,

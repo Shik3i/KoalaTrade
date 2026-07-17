@@ -309,8 +309,10 @@ func TestAuthenticatedPortfolioSyncCanRestoreByUser(t *testing.T) {
 	if getRes.Code != http.StatusOK {
 		t.Fatalf("expected account GET status %d, got %d body=%s", http.StatusOK, getRes.Code, getRes.Body.String())
 	}
-	if got := getRes.Body.String(); !strings.Contains(got, `"cashCents":880000`) {
-		t.Fatalf("expected account portfolio body, got %s", got)
+	// Server-authoritative: the forged client cash (880000) is ignored; the PUT
+	// created a fresh ranked portfolio, and GET-by-user returns that server state.
+	if got := getRes.Body.String(); !strings.Contains(got, `"cashCents":1000000`) || strings.Contains(got, `"cashCents":880000`) {
+		t.Fatalf("expected server-authoritative account portfolio body, got %s", got)
 	}
 }
 
@@ -389,8 +391,13 @@ func TestAccountExportAndDeletePortfolioData(t *testing.T) {
 	if exportRes.Code != http.StatusOK {
 		t.Fatalf("expected export status %d, got %d body=%s", http.StatusOK, exportRes.Code, exportRes.Body.String())
 	}
-	if got := exportRes.Body.String(); !strings.Contains(got, `"username":"exportuser"`) || !strings.Contains(got, `"cashCents":770000`) {
-		t.Fatalf("expected exported user portfolio, got %s", got)
+	// A ranked account is server-authoritative: the authenticated sync above
+	// ignored the client-supplied cash (770000) and created a fresh portfolio at
+	// the starting cash. Export must reflect the server state, never the forged
+	// value — this is the regression guard for the sync-trust fix.
+	if got := exportRes.Body.String(); !strings.Contains(got, `"username":"exportuser"`) ||
+		!strings.Contains(got, `"cashCents":1000000`) || strings.Contains(got, `"cashCents":770000`) {
+		t.Fatalf("expected exported user portfolio at server-authoritative cash, got %s", got)
 	}
 
 	del := httptest.NewRequest(http.MethodDelete, "/api/account/portfolio-data", bytes.NewBufferString(`{"password":"long-enough-password"}`))
