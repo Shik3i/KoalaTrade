@@ -45,6 +45,7 @@
     placeOrder,
     refreshMatchOdds,
     register,
+    submitEsportsBet,
     syncPortfolio,
     updateAccount,
     type Candle,
@@ -407,6 +408,9 @@
   // losing Yes settles at 0¢, both credited automatically.
   async function settleResolvedBets() {
     if (!portfolio) return;
+    // Online, the server settler owns payouts; running it here too would fight
+    // the authoritative snapshot. This path is offline practice only.
+    if (online) return;
     const held = portfolio.positions.filter((position) => position.assetId.startsWith('event:lol:'));
     if (held.length === 0) return;
 
@@ -622,6 +626,10 @@
   // Re-price held esports bet positions to the latest Polymarket odds.
   async function reconcileEsportsPositions() {
     if (!portfolio || esportsMatches.length === 0) return;
+    // Online, event positions are priced and settled server-side; a local
+    // mark-to-market here would bump updatedAt and block adopting the
+    // authoritative snapshot. Offline practice only.
+    if (online) return;
     const priceByAsset = new Map<string, number>();
     for (const match of esportsMatches) {
       if (!match.hasOdds) continue;
@@ -646,6 +654,35 @@
 
   async function placeEsportsBet(match: EsportsMatch, team: EsportsTeam, contracts: number) {
     if (!portfolio) return;
+
+    // Online: the server prices the fill from its own odds and validates it
+    // (authoritative for the competition). Offline falls back to local practice.
+    if (online) {
+      try {
+        const id = clientId || (await loadClientId());
+        try {
+          await syncPortfolio(id, portfolio);
+        } catch {
+          // non-fatal; server bets against its last-known snapshot
+        }
+        const result = await submitEsportsBet(id, {
+          portfolioId: PORTFOLIO_ID,
+          matchId: match.id,
+          teamCode: team.code,
+          side: 'buy',
+          contracts
+        });
+        portfolio = result.portfolio;
+        openOrders = result.openOrders;
+        await savePortfolio(result.portfolio, { touchUpdatedAt: false });
+        await saveOpenOrders(result.openOrders);
+        toast.success('Wette platziert', `${contracts}× ${team.code} @ ${formatMoney(team.priceCents)}`);
+      } catch (error) {
+        toast.error('Wette fehlgeschlagen', error instanceof Error ? error.message : undefined);
+      }
+      return;
+    }
+
     const other = team.code === match.team1.code ? match.team2 : match.team1;
     const grossCents = Math.round(contracts * team.priceCents);
     const feeCents = Math.max(0, Math.round((grossCents * ORDER_FEE_BPS) / 10_000));
@@ -673,6 +710,36 @@
     if (!portfolio) return;
     const position = portfolio.positions.find((item) => item.assetId === assetId);
     if (!position) return;
+
+    // Online: cash out server-side at the current server odds.
+    if (online) {
+      const parsed = parseEsportsAsset(assetId);
+      if (!parsed) return;
+      try {
+        const id = clientId || (await loadClientId());
+        try {
+          await syncPortfolio(id, portfolio);
+        } catch {
+          // non-fatal
+        }
+        const result = await submitEsportsBet(id, {
+          portfolioId: PORTFOLIO_ID,
+          matchId: parsed.matchId,
+          teamCode: parsed.teamCode,
+          side: 'sell',
+          contracts: quantity
+        });
+        portfolio = result.portfolio;
+        openOrders = result.openOrders;
+        await savePortfolio(result.portfolio, { touchUpdatedAt: false });
+        await saveOpenOrders(result.openOrders);
+        toast.success('Cash-out', `${position.symbol}`);
+      } catch (error) {
+        toast.error('Cash-out fehlgeschlagen', error instanceof Error ? error.message : undefined);
+      }
+      return;
+    }
+
     const grossCents = Math.round(quantity * position.lastPriceCents);
     const feeCents = Math.max(0, Math.round((grossCents * ORDER_FEE_BPS) / 10_000));
     try {
@@ -861,6 +928,11 @@
       const shrank = server.length < openOrders.length;
       openOrders = server;
       await saveOpenOrders(server);
+
+      // An open order just filled server-side → adopt the authoritative
+      // portfolio so the new position/cash show up. (Background bet settlement
+      // is reflected on the next user action or reload; the server settler keeps
+      // the stored state correct in the meantime.)
       if (shrank) {
         const synced = await fetchSyncedPortfolio(id, PORTFOLIO_ID);
         if (synced) {

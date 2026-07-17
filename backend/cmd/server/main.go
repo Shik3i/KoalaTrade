@@ -61,6 +61,7 @@ func main() {
 	app.StartEsportsPoller(ctx, logger)
 	app.StartEsportsTeamsPoller(ctx, logger)
 	app.StartOpenOrderEngine(ctx, logger)
+	app.StartBetSettler(ctx, logger)
 
 	go func() {
 		logger.Info("server listening", "addr", cfg.ListenAddr())

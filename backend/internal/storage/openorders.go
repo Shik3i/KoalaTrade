@@ -119,3 +119,14 @@ func toOpenOrders(rows []openOrderRow) []OpenOrder {
 	}
 	return orders
 }
+
+// PortfolioIDsWithEventPositions returns the ids of every portfolio currently
+// holding an eSports event position — the input to the settlement sweep.
+func (s *SQLite) PortfolioIDsWithEventPositions(ctx context.Context) ([]string, error) {
+	var ids []string
+	if err := s.db.SelectContext(ctx, &ids,
+		`SELECT DISTINCT portfolio_id FROM portfolio_positions WHERE asset_id LIKE 'event:%'`); err != nil {
+		return nil, fmt.Errorf("list event-position portfolios: %w", err)
+	}
+	return ids, nil
+}

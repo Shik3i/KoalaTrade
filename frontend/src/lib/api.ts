@@ -462,6 +462,36 @@ export async function placeOrder(clientId: string, input: OrderRequest): Promise
   return { portfolio: payload.portfolio, openOrders: payload.openOrders ?? [] };
 }
 
+export type EsportsBetRequest = {
+  portfolioId: string;
+  matchId: string;
+  teamCode: string;
+  side: 'buy' | 'sell';
+  contracts: number;
+};
+
+/**
+ * Buys/sells "Yes" contracts on a match winner server-side. The server prices
+ * the fill from its own (freshly refreshed) Polymarket odds and validates
+ * against the server portfolio, so odds and payouts can't be self-reported.
+ */
+export async function submitEsportsBet(clientId: string, input: EsportsBetRequest): Promise<OrderResult> {
+  const response = await fetch('/api/esports/bet', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'X-Koala-Client-ID': clientId
+    },
+    body: JSON.stringify(input)
+  });
+  if (!response.ok) {
+    throw new Error(await orderErrorMessage(response));
+  }
+  const payload = (await response.json()) as { portfolio: PortfolioSnapshot; openOrders?: OpenOrder[] };
+  return { portfolio: payload.portfolio, openOrders: payload.openOrders ?? [] };
+}
+
 export async function fetchOpenOrders(clientId: string, portfolioId: string): Promise<OpenOrder[]> {
   const response = await fetch(`/api/open-orders?id=${encodeURIComponent(portfolioId)}`, {
     headers: { Accept: 'application/json', 'X-Koala-Client-ID': clientId }
