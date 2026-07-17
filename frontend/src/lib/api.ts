@@ -462,6 +462,23 @@ export async function placeOrder(clientId: string, input: OrderRequest): Promise
   return { portfolio: payload.portfolio, openOrders: payload.openOrders ?? [] };
 }
 
+export type LeaderboardEntry = {
+  rank: number;
+  displayName: string;
+  totalEquityCents: number;
+  totalReturnBps: number;
+  isYou: boolean;
+};
+
+export async function fetchLeaderboard(): Promise<LeaderboardEntry[]> {
+  const response = await fetch('/api/leaderboard', { headers: { Accept: 'application/json' } });
+  if (!response.ok) {
+    throw new Error(`Leaderboard request failed with ${response.status}`);
+  }
+  const payload = (await response.json()) as { leaderboard?: LeaderboardEntry[] };
+  return payload.leaderboard ?? [];
+}
+
 export type EsportsBetRequest = {
   portfolioId: string;
   matchId: string;

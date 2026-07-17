@@ -2,6 +2,7 @@
   import {
     Activity,
     ArrowLeft,
+    Award,
     CandlestickChart,
     CloudUpload,
     LineChart,
@@ -21,6 +22,7 @@
   import AreaChart from './lib/components/AreaChart.svelte';
   import EsportsView from './lib/components/EsportsView.svelte';
   import InfoTip from './lib/components/InfoTip.svelte';
+  import LeaderboardView from './lib/components/LeaderboardView.svelte';
   import ProfileView from './lib/components/ProfileView.svelte';
   import Toasts from './lib/components/Toasts.svelte';
   import {
@@ -33,6 +35,7 @@
     fetchEsportsMatches,
     fetchEsportsResults,
     fetchEsportsTeams,
+    fetchLeaderboard,
     fetchMarketHistory,
     fetchMarkets,
     fetchPublicConfig,
@@ -53,6 +56,7 @@
     type EsportsMatch,
     type EsportsTeam,
     type EsportsTeamInfo,
+    type LeaderboardEntry,
     type Market,
     type PublicConfig,
     type SessionUser
@@ -108,7 +112,8 @@
     { id: 'trade', label: 'Trade', icon: CandlestickChart },
     { id: 'portfolio', label: 'Portfolio', icon: WalletCards },
     { id: 'markets', label: 'Markets', icon: LineChart },
-    { id: 'esports', label: 'eSports', icon: Trophy }
+    { id: 'esports', label: 'eSports', icon: Trophy },
+    { id: 'leaderboard', label: 'Rangliste', icon: Award }
   ] as const;
   type DeskView = (typeof deskTabs)[number]['id'];
 
@@ -153,6 +158,12 @@
 
   // Portfolio view controls
   let positionSort: 'value' | 'pnl' = 'value';
+
+  // Leaderboard state
+  let leaderboard: LeaderboardEntry[] = [];
+  let leaderboardLoading = false;
+  let leaderboardLoaded = false;
+  let leaderboardError = '';
 
   // Esports state
   let esportsMatches: EsportsMatch[] = [];
@@ -354,6 +365,11 @@
     void loadEsports();
   }
 
+  // Load the leaderboard when its tab is opened.
+  $: if (activeView === 'leaderboard' && !leaderboardLoaded && !leaderboardLoading) {
+    void loadLeaderboard();
+  }
+
   // Lazy-load the team catalogue when the profile is opened (favorites picker).
   $: if (activeView === 'profile' && !teamsLoaded && !teamsLoading) {
     void loadTeams();
@@ -380,6 +396,19 @@
       if (token === historyToken) candles = [];
     } finally {
       if (token === historyToken) chartLoading = false;
+    }
+  }
+
+  async function loadLeaderboard() {
+    leaderboardLoading = true;
+    leaderboardError = '';
+    try {
+      leaderboard = await fetchLeaderboard();
+      leaderboardLoaded = true;
+    } catch (error) {
+      leaderboardError = error instanceof Error ? error.message : 'Rangliste nicht erreichbar';
+    } finally {
+      leaderboardLoading = false;
     }
   }
 
@@ -1721,6 +1750,17 @@
           onToggleFavorite={toggleFavoriteTeam}
           onToggleLeague={toggleDefaultLeague}
           onRefreshOdds={handleRefreshOdds}
+        />
+      </section>
+    {:else if activeView === 'leaderboard'}
+      <section class="view-scroll" aria-label="Rangliste">
+        <LeaderboardView
+          entries={leaderboard}
+          loading={leaderboardLoading}
+          error={leaderboardError}
+          {user}
+          onRefresh={() => { leaderboardLoaded = false; void loadLeaderboard(); }}
+          onGoToProfile={() => setActiveView('profile')}
         />
       </section>
     {:else if activeView === 'profile'}
