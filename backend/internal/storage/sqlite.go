@@ -220,6 +220,23 @@ func (s *SQLite) configure() error {
 			polymarket_code TEXT NOT NULL,
 			updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 		);`,
+		`CREATE TABLE IF NOT EXISTS open_orders (
+			id TEXT PRIMARY KEY,
+			portfolio_id TEXT NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+			asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE RESTRICT,
+			symbol TEXT NOT NULL,
+			name TEXT NOT NULL,
+			kind TEXT NOT NULL CHECK (kind IN ('stock', 'etf', 'crypto', 'commodity', 'event')),
+			side TEXT NOT NULL CHECK (side IN ('buy', 'sell')),
+			order_type TEXT NOT NULL CHECK (order_type IN ('limit', 'stop')),
+			quantity_micro INTEGER NOT NULL CHECK (quantity_micro > 0),
+			trigger_price_cents INTEGER NOT NULL CHECK (trigger_price_cents > 0),
+			created_at TEXT NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_open_orders_portfolio
+			ON open_orders(portfolio_id, created_at DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_open_orders_asset
+			ON open_orders(asset_id);`,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -87,3 +87,32 @@ func TestApplyMarketTradeRejectsZeroPrice(t *testing.T) {
 		t.Fatal("expected zero-price rejection")
 	}
 }
+
+func TestShouldTriggerOrder(t *testing.T) {
+	cases := []struct {
+		name      string
+		side      string
+		orderType string
+		trigger   int64
+		price     int64
+		want      bool
+	}{
+		{"limit buy fills at/below", "buy", "limit", 10_000, 9_999, true},
+		{"limit buy waits above", "buy", "limit", 10_000, 10_001, false},
+		{"limit sell fills at/above", "sell", "limit", 10_000, 10_001, true},
+		{"limit sell waits below", "sell", "limit", 10_000, 9_999, false},
+		{"stop buy fires at/above", "buy", "stop", 10_000, 10_000, true},
+		{"stop buy waits below", "buy", "stop", 10_000, 9_999, false},
+		{"stop sell fires at/below", "sell", "stop", 10_000, 10_000, true},
+		{"stop sell waits above", "sell", "stop", 10_000, 10_001, false},
+		{"no price never triggers", "sell", "stop", 10_000, 0, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			order := storage.OpenOrder{Side: c.side, OrderType: c.orderType, TriggerPriceCents: c.trigger}
+			if got := shouldTriggerOrder(order, c.price); got != c.want {
+				t.Fatalf("shouldTriggerOrder = %v, want %v", got, c.want)
+			}
+		})
+	}
+}

@@ -36,6 +36,8 @@
     fetchMarketHistory,
     fetchMarkets,
     fetchPublicConfig,
+    cancelServerOpenOrder,
+    fetchOpenOrders,
     fetchQuotes,
     fetchSyncedPortfolio,
     login,
@@ -219,10 +221,21 @@
       portfolio = createInitialPortfolio(config?.startingCashCents ?? 1_000_000);
     }
 
+    // Open orders: server-managed when online (survive a closed browser),
+    // local-only in offline practice.
     try {
-      openOrders = await loadOpenOrders();
+      if (config && !configError) {
+        openOrders = await fetchOpenOrders(clientId || (await loadClientId()), PORTFOLIO_ID);
+        await saveOpenOrders(openOrders);
+      } else {
+        openOrders = await loadOpenOrders();
+      }
     } catch {
-      openOrders = [];
+      try {
+        openOrders = await loadOpenOrders();
+      } catch {
+        openOrders = [];
+      }
     }
 
     await restoreSyncedPortfolio(!!user);
@@ -246,6 +259,9 @@
     if (quoteTimer) clearInterval(quoteTimer);
   });
 
+  // Online = backend reachable → trades and open orders are server-authoritative
+  // (competitive). Offline falls back to the local simulation (unranked practice).
+  $: online = !!config && !configError;
   $: summary = summarizePortfolio(portfolio ?? createInitialPortfolio(config?.startingCashCents ?? 1_000_000));
   $: selectedMarket = markets.find((item) => item.assetId === selectedAssetId) ?? markets[0] ?? EMPTY_MARKET;
   $: query = marketQuery.trim().toLowerCase();
@@ -711,6 +727,41 @@
       return;
     }
 
+    const label = `${orderType === 'limit' ? 'Limit' : 'Stop'} ${orderSide === 'buy' ? 'Kauf' : 'Verkauf'} · ${formatQuantity(normalizedOrderQuantity)} ${selectedMarket.symbol} @ ${formatMoney(triggerPriceCents)}`;
+
+    // Online: queue the order server-side so the backend engine fills it even
+    // when this browser is closed (and at the server's own price).
+    if (online) {
+      try {
+        const id = clientId || (await loadClientId());
+        try {
+          await syncPortfolio(id, portfolio);
+        } catch {
+          // non-fatal; the server queues against its last-known snapshot
+        }
+        const result = await placeOrder(id, {
+          portfolioId: PORTFOLIO_ID,
+          assetId: selectedMarket.assetId,
+          side: orderSide,
+          quantity: normalizedOrderQuantity,
+          orderType,
+          triggerPriceCents
+        });
+        portfolio = result.portfolio;
+        openOrders = result.openOrders;
+        await savePortfolio(result.portfolio, { touchUpdatedAt: false });
+        await saveOpenOrders(result.openOrders);
+        toast.success('Order vorgemerkt', label);
+        orderError = '';
+      } catch (error) {
+        orderError = error instanceof Error ? error.message : 'Order konnte nicht vorgemerkt werden';
+        toast.error('Order fehlgeschlagen', orderError);
+      }
+      return;
+    }
+
+    // Offline (practice): keep the pending order locally and let the client
+    // engine fill it while the app is open.
     const order: OpenOrder = {
       id: crypto.randomUUID(),
       assetId: selectedMarket.assetId,
@@ -725,10 +776,7 @@
     };
     openOrders = [order, ...openOrders];
     await saveOpenOrders(openOrders);
-    toast.success(
-      'Order vorgemerkt',
-      `${orderType === 'limit' ? 'Limit' : 'Stop'} ${orderSide === 'buy' ? 'Kauf' : 'Verkauf'} · ${formatQuantity(order.quantity)} ${order.symbol} @ ${formatMoney(triggerPriceCents)}`
-    );
+    toast.success('Order vorgemerkt', label);
     orderError = '';
 
     // Instant fill guard: if the trigger is already satisfied at the current
@@ -737,6 +785,15 @@
   }
 
   async function cancelOpenOrder(id: string) {
+    if (online) {
+      try {
+        openOrders = await cancelServerOpenOrder(clientId || (await loadClientId()), PORTFOLIO_ID, id);
+        await saveOpenOrders(openOrders);
+      } catch (error) {
+        toast.error('Stornieren fehlgeschlagen', error instanceof Error ? error.message : undefined);
+      }
+      return;
+    }
     openOrders = openOrders.filter((order) => order.id !== id);
     await saveOpenOrders(openOrders);
   }
@@ -764,7 +821,7 @@
     // executed and priced server-side (authoritative) so a client can't
     // fabricate the fill. Only when fully offline do we fall back to the local
     // simulation (unranked practice).
-    if (config && !configError) {
+    if (online) {
       await submitServerOrder();
       return;
     }
@@ -793,6 +850,29 @@
     }
   }
 
+  // Reflects the server-side open-order engine: refresh the pending queue, and
+  // if any order disappeared (filled/cancelled), adopt the authoritative
+  // server portfolio so the new position/cash show up.
+  async function refreshServerOrders() {
+    if (!online) return;
+    try {
+      const id = clientId || (await loadClientId());
+      const server = await fetchOpenOrders(id, PORTFOLIO_ID);
+      const shrank = server.length < openOrders.length;
+      openOrders = server;
+      await saveOpenOrders(server);
+      if (shrank) {
+        const synced = await fetchSyncedPortfolio(id, PORTFOLIO_ID);
+        if (synced) {
+          portfolio = synced;
+          await savePortfolio(synced, { touchUpdatedAt: false });
+        }
+      }
+    } catch {
+      // transient; try again next poll
+    }
+  }
+
   // Server-authoritative market order. We first push the current local state
   // (including un-synced eSports positions) so the server operates on the
   // latest snapshot, then place the order; the returned portfolio is truth.
@@ -807,14 +887,16 @@
         // A sync hiccup shouldn't block the trade; the server still applies to
         // its last-known snapshot. Surfaced only if the order itself fails.
       }
-      const updated = await placeOrder(id, {
+      const result = await placeOrder(id, {
         portfolioId: PORTFOLIO_ID,
         assetId: selectedMarket.assetId,
         side: orderSide,
         quantity: normalizedOrderQuantity
       });
-      portfolio = updated;
-      await savePortfolio(updated, { touchUpdatedAt: false });
+      portfolio = result.portfolio;
+      openOrders = result.openOrders;
+      await savePortfolio(result.portfolio, { touchUpdatedAt: false });
+      await saveOpenOrders(result.openOrders);
       toast.success(
         `${orderSide === 'buy' ? 'Kauf' : 'Verkauf'} ausgeführt`,
         `${formatQuantity(normalizedOrderQuantity)} ${symbol}`
@@ -939,7 +1021,14 @@
           : market;
       });
 
-      await evaluateOpenOrders(markets);
+      // Open orders: online, the server engine fills them — just refresh the
+      // queue (and adopt the authoritative portfolio if a fill happened).
+      // Offline, run the local engine against the fresh prices.
+      if (online) {
+        await refreshServerOrders();
+      } else {
+        await evaluateOpenOrders(markets);
+      }
 
       // Background eSports matches updates if relevant
       const hasEsportsPositions = portfolio?.positions.some((p) => p.kind === 'event');

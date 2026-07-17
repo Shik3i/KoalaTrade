@@ -60,6 +60,7 @@ func main() {
 	app.StartHistoryMaintainer(ctx, logger)
 	app.StartEsportsPoller(ctx, logger)
 	app.StartEsportsTeamsPoller(ctx, logger)
+	app.StartOpenOrderEngine(ctx, logger)
 
 	go func() {
 		logger.Info("server listening", "addr", cfg.ListenAddr())
