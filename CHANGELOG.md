@@ -6,6 +6,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-17
+
+### Fixed
+
+- Security headers at the nginx edge: HSTS (`Strict-Transport-Security`) is now sent for the SPA document and static assets, not only for `/api/` responses. v0.3.0 added CSP/HSTS on the backend, which only reached the client on proxied `/api/` responses, leaving the main document without HSTS.
+- The backend's `Content-Security-Policy` and `Strict-Transport-Security` are now hidden on proxied `/api/` and `/healthz` responses (via `proxy_hide_header`), matching how the other backend security headers were already handled — nginx owns the edge headers, so `/api/` no longer carries duplicate/conflicting CSP headers.
+
 ## [0.3.0] - 2026-07-17
 
 ### Added
