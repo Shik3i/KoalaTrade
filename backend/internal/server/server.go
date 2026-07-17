@@ -106,6 +106,7 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/markets", s.handleMarkets)
 		r.Get("/markets/{assetId}/history", s.handleMarketHistory)
 		r.Get("/quotes", s.handleQuotes)
+		r.Post("/esports/bet", s.handleEsportsBet)
 		r.Get("/esports/matches", s.handleEsportsMatches)
 		r.Get("/esports/matches/{matchId}/odds", s.handleMatchOdds)
 		r.Get("/esports/teams", s.handleEsportsTeams)
