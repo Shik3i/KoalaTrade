@@ -1340,6 +1340,13 @@ h4 {
   background: #fbbf73;
 }
 
+/* Stale (aging) price: real but older than the freshness window. */
+.market-row .price.stale,
+.detail-grid strong.stale,
+strong.stale {
+  color: #fbbf73;
+}
+
 .field {
   display: grid;
   gap: 0.35rem;

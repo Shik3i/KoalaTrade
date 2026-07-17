@@ -1232,6 +1232,16 @@
     return 'flat';
   }
 
+  // A priced asset whose last update is older than this is flagged "stale": the
+  // read path serves the last stored quote, so an outage/rate-limit upstream can
+  // leave a real but aging price — better to say so than to imply it's live.
+  const STALE_PRICE_MS = 5 * 60 * 1000;
+  function isStalePrice(market: Market): boolean {
+    if (!market || market.priceCents <= 0 || !market.updatedAt) return false;
+    const t = new Date(market.updatedAt).getTime();
+    return Number.isFinite(t) && Date.now() - t > STALE_PRICE_MS;
+  }
+
   function setActiveView(view: AppView) {
     activeView = view;
     requestAnimationFrame(() => window.scrollTo(0, 0));
@@ -1441,7 +1451,7 @@
                 <button class:selected={selectedMarket && selectedMarket.assetId === item.assetId} class="market-row" type="button" title={`Wähle ${item.symbol} (${item.name}) aus.`} on:click={() => selectMarket(item.assetId)}>
                   <span class="asset"><strong>{item.symbol}</strong><small>{item.kind}</small></span>
                   {#if item.priceCents > 0}
-                    <span class="price">{formatMoney(item.priceCents)}</span>
+                    <span class="price" class:stale={isStalePrice(item)} title={isStalePrice(item) ? `Kurs veraltet (${formatUpdatedAt(item.updatedAt)}) – Datenquelle gerade nicht erreichbar.` : undefined}>{isStalePrice(item) ? '⚠ ' : ''}{formatMoney(item.priceCents)}</span>
                     <em class={marketTone(item.changeBps)}>{formatPercentFromBps(item.changeBps)}</em>
                   {:else}
                     <span class="no-feed" title="Für dieses Asset liegt aktuell kein Live-Kurs vor (kein Feed/API-Key)."><i></i>no feed</span>
@@ -1525,7 +1535,13 @@
               <div><span>Preis</span><strong>{formatPrice(selectedMarket.priceCents)}</strong></div>
               <div><span>24h</span><strong class={selectedMarket.priceCents > 0 ? changeColor(selectedMarket.changeBps) : ''}>{selectedMarket.priceCents > 0 ? formatPercentFromBps(selectedMarket.changeBps) : '—'}</strong></div>
               <div><span>Typ</span><strong>{selectedMarket.kind}</strong></div>
-              <div><span>Aktualisiert</span><strong>{selectedMarket.updatedAt ? formatUpdatedAt(selectedMarket.updatedAt) : '—'}</strong></div>
+              <div><span>Aktualisiert</span>
+                {#if isStalePrice(selectedMarket)}
+                  <strong class="stale" title="Dieser Kurs ist älter als 5 Minuten – möglicherweise nicht aktuell (Datenquelle gerade nicht erreichbar).">⚠ {formatUpdatedAt(selectedMarket.updatedAt)}</strong>
+                {:else}
+                  <strong>{selectedMarket.updatedAt ? formatUpdatedAt(selectedMarket.updatedAt) : '—'}</strong>
+                {/if}
+              </div>
             </div>
             {#if selectedPositionRow}
               <div class="detail-position">
