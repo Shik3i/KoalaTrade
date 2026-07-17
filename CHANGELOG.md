@@ -6,6 +6,32 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-17
+
+### Added
+
+- Server-authoritative competitive trading: market orders, Limit/Stop orders, and eSports bets are executed, priced, and validated server-side (`POST /api/orders`, `POST /api/esports/bet`) at the server's own quote, so prices, cash, and positions can no longer be fabricated by a client.
+- Server-side Limit/Stop open-order engine (`open_orders` table + background evaluator, `GET`/`DELETE /api/open-orders`) that fills pending orders at the server price when their trigger is met — even when the browser is closed.
+- Background bet settler that pays out resolved eSports "Yes" contracts (100¢ win / 0¢ loss) for every holder, so competition equity stays correct while owners are offline.
+- Competitive leaderboard (`GET /api/leaderboard`, new "Rangliste" view) ranking accounts by server-valued equity; anonymous practice portfolios are excluded.
+- UX restructure (design "1c"): persistent left icon rail; a real Market/Limit/Stop order ticket with distinct trigger fields and an open-orders queue; a dismissible inline onboarding banner; amber "no feed" and stale-price (⚠) indicators; and a redesigned eSports match card (VS badge, gradient team roundels, two-colour win-probability bar, greyscale no-odds state).
+- Admin per-team Polymarket slug management: a per-match view showing which team has a mapping (✓/✗) with inline add/update/remove, plus an "Alle Ligen" toggle to show every match.
+- Per-IP request rate limiting on the public API, and Content-Security-Policy + HSTS response headers.
+
+### Changed
+
+- Quote read path is DB-only: `/api/quotes` serves the latest stored quote and never calls a provider, so a burst of requests can no longer stampede the provider, saturate the rate limiter, or blow the request deadline (the staggered poller remains the sole live fetcher).
+- Ranked (authenticated) portfolios are fully server-authoritative: `PUT /api/sync/portfolio` ignores client-supplied cash/positions/transactions for a logged-in account and returns the server's own portfolio. A ranked run therefore starts fresh at the starting cash; anonymous practice sync is unchanged.
+- `ADMIN_PASSWORD` is now required (fail-fast) in production, matching `AUTH_SECRET`.
+
+### Fixed
+
+- `/api/quotes` no longer hangs and returns 502 under a cold or stale cache (the old read-path fell through to a synchronous live fetch of every stale symbol, which starved the poller).
+
+### Security
+
+- Prices, cash, positions, Limit/Stop triggers, eSports bets, and portfolio sync are all server-authoritative for ranked accounts, so a client can no longer manipulate competition standings.
+
 ## [0.2.0] - 2026-07-04
 
 ### Added
