@@ -23,8 +23,12 @@ type Server struct {
 	yahoo      *marketdata.YahooProvider
 	esports    *esports.Service
 	authSecret []byte
-	loginMu    sync.Mutex
-	loginFails map[string]loginFailure
+	// secureCookies marks session cookies Secure (HTTPS-only). Enabled in
+	// production; behind a TLS-terminating proxy the app sees plain HTTP, so we
+	// gate on APP_ENV rather than r.TLS.
+	secureCookies bool
+	loginMu       sync.Mutex
+	loginFails    map[string]loginFailure
 	// tradeMu serialises the load→apply→save sequence for a portfolio so the
 	// order endpoint and the open-order engine can't lose each other's writes.
 	tradeMu sync.Mutex
@@ -74,13 +78,14 @@ func New(cfg config.Config, db *storage.SQLite) *Server {
 	}
 
 	return &Server{
-		cfg:        cfg,
-		db:         db,
-		authSecret: secret,
-		loginFails: make(map[string]loginFailure),
-		coingecko:  coingecko,
-		yahoo:      yahoo,
-		marketData: marketdata.NewService(provider, time.Duration(cfg.MarketDataCacheSeconds)*time.Second, db),
+		cfg:           cfg,
+		db:            db,
+		authSecret:    secret,
+		secureCookies: cfg.Environment == "production",
+		loginFails:    make(map[string]loginFailure),
+		coingecko:     coingecko,
+		yahoo:         yahoo,
+		marketData:    marketdata.NewService(provider, time.Duration(cfg.MarketDataCacheSeconds)*time.Second, db),
 		esports: esports.NewService(
 			cfg.LolesportsAPIKey,
 			cfg.LolesportsBaseURL,

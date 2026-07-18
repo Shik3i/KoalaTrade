@@ -34,7 +34,7 @@ Today only the admin user exists; regular users are anonymous (browser-local por
 
 ## v0.4.0 — Competition & Social
 
-- [ ] **Leaderboard** (schema already exists) — opt-in, periodic snapshots, return-based ranking
+- [x] **Leaderboard** — server-computed, server-valued equity ranking with a dedicated view (shipped v0.3.0)
 - [ ] **Seasons** with optional resets and historical archives
 - [ ] **Private group leaderboards / leagues** with invite links
 - [ ] **Profiles** — public (opt-in) profile pages, badges, achievements
@@ -44,7 +44,7 @@ Today only the admin user exists; regular users are anonymous (browser-local por
 
 - [ ] **More eSports titles** beyond LoL (Valorant, CS, Dota) via the same odds pipeline
 - [ ] **Real Polymarket coverage expansion** — better slug matching, more leagues, props markets
-- [ ] **Functional limit/stop orders** with a server-side matching/trigger engine (currently paper-filled)
+- [x] **Functional limit/stop orders** — server-side open-order engine fills pending Limit/Stop orders at the server price (shipped v0.3.0)
 - [ ] **Short selling** toggle (off by default)
 - [ ] **Watchlists & price alerts**
 - [ ] **More history/candles** with real provider candles where available
@@ -57,14 +57,14 @@ Today only the admin user exists; regular users are anonymous (browser-local por
 - [ ] **Test coverage** — backend handler/integration tests for esports, admin, auth; frontend component tests; an e2e smoke test
 - [ ] **Accessibility** audit (focus management, ARIA, keyboard nav)
 - [ ] **Public, documented API** + rate limiting for third-party clients
-- [ ] **Deployment guide** — Hetzner VPS + Caddy/Traefik + Docker, TLS, secrets management
+- [x] **Deployment guide** — single-image Compose + Caddy reverse proxy with automatic TLS ([docs/deployment.md](docs/deployment.md), shipped v0.4.0)
 
 ## Known follow-ups from v0.1.0
 
 - [ ] eSports bet positions only re-price when the eSports tab is opened (not via the 30s quote poll) — unify mark-to-market
 - [ ] Auto-resolution depends on results staying in the lolesports window; persisted results mitigate this, but add a longer-term results store / cleanup
-- [ ] `AUTH_SECRET` defaults to a random per-start value — document that production must set it (done in `.env.example`); consider failing fast if unset in `production`
-- [ ] Add a healthcheck to `docker-compose.yml` and `depends_on: condition: service_healthy`
+- [x] `AUTH_SECRET` defaults to a random per-start value — the server now fails fast in `production` if it (or `ADMIN_PASSWORD`) is unset
+- [x] Add a healthcheck to `docker-compose.yml` and `depends_on: condition: service_healthy`
 
 ---
 

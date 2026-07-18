@@ -160,17 +160,18 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, _ *http.Request) {
-	clearSessionCookie(w)
+	s.clearSessionCookie(w)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-func clearSessionCookie(w http.ResponseWriter) {
+func (s *Server) clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   s.secureCookies,
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -236,7 +237,7 @@ func (s *Server) userFromClaims(ctx context.Context, claims auth.Claims) (sessio
 	return publicUser(user), true
 }
 
-func setSessionCookie(w http.ResponseWriter, token string, expires time.Time) {
+func (s *Server) setSessionCookie(w http.ResponseWriter, token string, expires time.Time) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    token,
@@ -244,6 +245,7 @@ func setSessionCookie(w http.ResponseWriter, token string, expires time.Time) {
 		Expires:  expires,
 		MaxAge:   int(time.Until(expires).Seconds()),
 		HttpOnly: true,
+		Secure:   s.secureCookies,
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -254,7 +256,7 @@ func (s *Server) writeLoginResponse(w http.ResponseWriter, user storage.UserProf
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "login failed"})
 		return
 	}
-	setSessionCookie(w, token, expiresAt)
+	s.setSessionCookie(w, token, expiresAt)
 
 	adminToken := ""
 	if user.Role == storage.RoleAdmin {

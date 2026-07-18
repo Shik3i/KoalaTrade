@@ -6,6 +6,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-18
+
+### Security
+
+- Session cookies are now marked `Secure` in production (`APP_ENV=production`), so browsers only send them over HTTPS. Behind a TLS-terminating reverse proxy the app sees plain HTTP and cannot rely on `r.TLS`, so the flag is gated on the environment.
+
+### Changed
+
+- The embedded frontend now sends caching headers: content-hashed `assets/*` are served `public, max-age=31536000, immutable`, while `index.html` and client-side routes are `no-cache` so a new deploy's asset references are always picked up.
+- ROADMAP updated to reflect shipped work (server-computed leaderboard, server-side Limit/Stop engine, deployment guide, production fail-fast, compose healthcheck).
+
 ## [0.4.0] - 2026-07-18
 
 ### Changed

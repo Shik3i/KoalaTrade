@@ -41,10 +41,21 @@ func Handler() http.Handler {
 
 		// Unknown path (a client-side route, not a file): serve the SPA shell.
 		if _, statErr := fs.Stat(sub, reqPath); statErr != nil {
+			// The shell must always be revalidated so a new deploy's index.html
+			// (which references the new hashed asset names) is picked up.
+			w.Header().Set("Cache-Control", "no-cache")
 			shell := r.Clone(r.Context())
 			shell.URL.Path = "/"
 			fileServer.ServeHTTP(w, shell)
 			return
+		}
+
+		// Vite emits content-hashed filenames under assets/, so they can be
+		// cached forever; index.html and other root files stay revalidated.
+		if strings.HasPrefix(reqPath, "assets/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			w.Header().Set("Cache-Control", "no-cache")
 		}
 
 		fileServer.ServeHTTP(w, r)

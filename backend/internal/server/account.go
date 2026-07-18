@@ -146,7 +146,7 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "delete account failed"})
 		return
 	}
-	clearSessionCookie(w)
+	s.clearSessionCookie(w)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
