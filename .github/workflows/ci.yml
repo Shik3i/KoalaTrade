@@ -47,8 +47,5 @@ jobs:
         working-directory: frontend
         run: npm run build
 
-      - name: Build backend image
-        run: docker build -f Dockerfile.backend -t koalatrade-backend:ci .
-
-      - name: Build frontend image
-        run: docker build -f Dockerfile.frontend -t koalatrade-frontend:ci .
+      - name: Build image
+        run: docker build -f Dockerfile -t koalatrade:ci .
