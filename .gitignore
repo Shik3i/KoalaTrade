@@ -29,6 +29,10 @@ Thumbs.db
 
 # --- Build ---
 dist/
+# ...except the committed placeholder SPA shell the `web` package embeds so it
+# compiles without a frontend build (the Docker image overwrites it).
+!backend/internal/web/dist/
+!backend/internal/web/dist/index.html
 tmp/
 *.log
 backend/.env

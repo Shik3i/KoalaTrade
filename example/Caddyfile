@@ -9,5 +9,5 @@
 		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
 	}
 
-	reverse_proxy frontend:8080
+	reverse_proxy app:8080
 }

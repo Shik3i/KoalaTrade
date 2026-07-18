@@ -6,6 +6,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-18
+
+### Changed
+
+- **Single Docker image.** The backend now embeds and serves the built frontend from the same origin, replacing the separate `koalatrade-backend` and `koalatrade-frontend` images (and the standalone nginx) with one image: `ghcr.io/shik3i/koalatrade`. The Go server serves the SPA (with client-side-route fallback to `index.html`) for all non-`/api`, non-`/healthz` requests, applying the SPA's `Content-Security-Policy` to HTML/asset responses while the API keeps its strict `default-src 'none'` policy. Deployments now run a single `app` service; update `docker-compose.yml` and the Caddy `reverse_proxy` target accordingly.
+
 ## [0.3.1] - 2026-07-17
 
 ### Fixed

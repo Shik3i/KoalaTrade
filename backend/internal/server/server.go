@@ -10,6 +10,7 @@ import (
 	"github.com/Shik3i/KoalaTrade/backend/internal/esports"
 	"github.com/Shik3i/KoalaTrade/backend/internal/marketdata"
 	"github.com/Shik3i/KoalaTrade/backend/internal/storage"
+	"github.com/Shik3i/KoalaTrade/backend/internal/web"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -150,6 +151,11 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/refresh", s.handleAdminRefresh)
 		})
 	})
+
+	// Serve the embedded single-page frontend for everything that isn't an API
+	// or health route. The web handler overrides the strict JSON CSP set by
+	// securityHeaders with one that permits the SPA's own assets.
+	r.Handle("/*", web.Handler())
 
 	return r
 }

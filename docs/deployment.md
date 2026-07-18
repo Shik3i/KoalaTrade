@@ -3,12 +3,12 @@
 This guide covers a small production-style deployment using the published GHCR
 images and the example Caddy reverse proxy.
 
-## Images
+## Image
 
-Release tags publish two images:
+Release tags publish a single image that bundles the Go backend and the built
+frontend (the backend serves the SPA from the same origin):
 
-- `ghcr.io/shik3i/koalatrade-backend:<version>`
-- `ghcr.io/shik3i/koalatrade-frontend:<version>`
+- `ghcr.io/shik3i/koalatrade:<version>`
 
 Use a fixed version tag for deployments. Avoid deploying `latest` unless you are
 comfortable with unattended upgrades.
@@ -42,8 +42,8 @@ docker compose --env-file .env -f example/docker-compose.yml up -d
 ```
 
 Caddy listens on ports `80` and `443`, obtains TLS certificates automatically,
-and proxies traffic to the frontend container. The frontend proxies `/api/*` and
-`/healthz` to the backend.
+and proxies traffic to the `app` container, which serves both the UI and the
+`/api/*` and `/healthz` endpoints.
 
 ## Required Production Settings
 
@@ -71,8 +71,8 @@ The backend stores SQLite data in the `koalatrade_data` Docker volume at
 Create a backup:
 
 ```bash
-docker compose --env-file .env -f example/docker-compose.yml exec backend sh -c 'cp /data/koalatrade.db /data/koalatrade.db.backup'
-docker cp "$(docker compose --env-file .env -f example/docker-compose.yml ps -q backend)":/data/koalatrade.db.backup ./koalatrade.db.backup
+docker compose --env-file .env -f example/docker-compose.yml exec app sh -c 'cp /data/koalatrade.db /data/koalatrade.db.backup'
+docker cp "$(docker compose --env-file .env -f example/docker-compose.yml ps -q app)":/data/koalatrade.db.backup ./koalatrade.db.backup
 ```
 
 For a quiet backup, stop writes first or run during a maintenance window.

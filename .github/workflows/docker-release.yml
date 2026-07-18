@@ -60,10 +60,6 @@ jobs:
       id-token: write
       attestations: write
 
-    strategy:
-      matrix:
-        service: [backend, frontend]
-
     steps:
       - uses: actions/checkout@v7
 
@@ -86,7 +82,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/koalatrade-${{ matrix.service }}
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/koalatrade
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -97,7 +93,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: ./Dockerfile.${{ matrix.service }}
+          file: ./Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -109,6 +105,6 @@ jobs:
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v4
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.OWNER }}/koalatrade-${{ matrix.service }}
+          subject-name: ${{ env.REGISTRY }}/${{ env.OWNER }}/koalatrade
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true

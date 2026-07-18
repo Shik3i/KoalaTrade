@@ -123,7 +123,7 @@ KoalaTrade/
 ├── frontend/           Svelte 5 + Vite SPA; src/lib/{components,api,portfolio,preferences,...}
 ├── docs/               Architecture, configuration, and feature docs
 ├── example/            Production-style Compose and Caddy examples
-├── Dockerfile.backend  Dockerfile.frontend  docker-compose.yml
+├── Dockerfile          docker-compose.yml   (single image: Go backend serves the embedded SPA)
 └── .github/            CI, release workflow, dependabot, issue/PR templates
 ```
 
