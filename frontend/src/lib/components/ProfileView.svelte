@@ -3,6 +3,7 @@
   import type { EsportsTeamInfo, SessionUser } from '../api';
   import { MAX_FAVORITE_TEAMS } from '../preferences';
   import { formatMoney } from '../portfolio';
+  import { t } from '../i18n';
 
   export let favoriteTeams: string[] = [];
   export let esportsLeagues: string[] = [];
@@ -65,7 +66,7 @@
       }
       password = '';
     } catch (error) {
-      authError = error instanceof Error ? error.message : 'Anmeldung fehlgeschlagen';
+      authError = error instanceof Error ? error.message : $t('profile.errAuth');
     }
   }
 
@@ -75,7 +76,7 @@
     try {
       await onUpdateAccount(displayName);
     } catch (error) {
-      profileError = error instanceof Error ? error.message : 'Profil konnte nicht gespeichert werden';
+      profileError = error instanceof Error ? error.message : $t('profile.errProfileSave');
     } finally {
       busyAction = '';
     }
@@ -89,7 +90,7 @@
       currentPassword = '';
       newPassword = '';
     } catch (error) {
-      passwordError = error instanceof Error ? error.message : 'Passwort konnte nicht geändert werden';
+      passwordError = error instanceof Error ? error.message : $t('profile.errPassword');
     } finally {
       busyAction = '';
     }
@@ -101,7 +102,7 @@
     try {
       await onExportAccount();
     } catch (error) {
-      dangerError = error instanceof Error ? error.message : 'Export fehlgeschlagen';
+      dangerError = error instanceof Error ? error.message : $t('profile.errExport');
     } finally {
       busyAction = '';
     }
@@ -114,7 +115,7 @@
       await onDeletePortfolioData(dangerPassword);
       dangerPassword = '';
     } catch (error) {
-      dangerError = error instanceof Error ? error.message : 'Portfolio-Daten konnten nicht gelöscht werden';
+      dangerError = error instanceof Error ? error.message : $t('profile.errPortfolioDelete');
     } finally {
       busyAction = '';
     }
@@ -127,7 +128,7 @@
       await onDeleteAccount(dangerPassword);
       dangerPassword = '';
     } catch (error) {
-      dangerError = error instanceof Error ? error.message : 'Account konnte nicht gelöscht werden';
+      dangerError = error instanceof Error ? error.message : $t('profile.errAccountDelete');
     } finally {
       busyAction = '';
     }
@@ -136,75 +137,75 @@
 
 <div class="profile">
   <section class="panel account">
-    <div class="panel-head"><div><p class="eyebrow">Profil</p><h2>Dein Account</h2></div><UserCircle2 size={18} /></div>
+    <div class="panel-head"><div><p class="eyebrow">{$t('profile.eyebrow')}</p><h2>{$t('profile.yourAccount')}</h2></div><UserCircle2 size={18} /></div>
     <div class="account-grid">
-      <div><span>Status</span><strong>{user ? user.displayName : 'Lokal'}</strong></div>
-      <div><span>Equity</span><strong>{formatMoney(equityCents)}</strong></div>
-      <div><span>Startkapital</span><strong>{formatMoney(startingCents)}</strong></div>
-      <div><span>Favoriten</span><strong>{favoriteTeams.length}/{MAX_FAVORITE_TEAMS}</strong></div>
-      <div><span>Client-ID</span><strong class="mono">{clientId ? clientId.slice(0, 8) : '—'}</strong></div>
+      <div><span>{$t('profile.status')}</span><strong>{user ? user.displayName : $t('profile.local')}</strong></div>
+      <div><span>{$t('profile.equity')}</span><strong>{formatMoney(equityCents)}</strong></div>
+      <div><span>{$t('profile.startingCapital')}</span><strong>{formatMoney(startingCents)}</strong></div>
+      <div><span>{$t('profile.favorites')}</span><strong>{favoriteTeams.length}/{MAX_FAVORITE_TEAMS}</strong></div>
+      <div><span>{$t('profile.clientId')}</span><strong class="mono">{clientId ? clientId.slice(0, 8) : '—'}</strong></div>
     </div>
 
     {#if user}
       <div class="account-row">
         <span>{user.username} · {user.role}</span>
-        <button class="ghost-btn" type="button" title="Melde dich von deinem Account ab. Dein Portfolio wird lokal gespeichert." disabled={authBusy} on:click={onLogout}><LogOut size={15} /> Logout</button>
+        <button class="ghost-btn" type="button" title={$t('profile.logoutTitle')} disabled={authBusy} on:click={onLogout}><LogOut size={15} /> {$t('profile.logout')}</button>
       </div>
       <div class="account-management">
         <form class="mini-form" on:submit|preventDefault={saveProfile}>
-          <div class="panel-head slim"><div><p class="eyebrow">Account</p><h3>Profil</h3></div><UserCircle2 size={16} /></div>
-          <label class="field" title="Anzeigename für dein Profil"><span>Display Name</span><input bind:value={displayName} type="text" autocomplete="name" title="Gib deinen gewünschten Anzeigenamen ein (mindestens 2 Zeichen)" /></label>
+          <div class="panel-head slim"><div><p class="eyebrow">{$t('profile.sectionAccount')}</p><h3>{$t('profile.profile')}</h3></div><UserCircle2 size={16} /></div>
+          <label class="field" title={$t('profile.displayNameFieldTitle')}><span>{$t('profile.displayName')}</span><input bind:value={displayName} type="text" autocomplete="name" title={$t('profile.displayNameInputTitle')} /></label>
           {#if profileError}<p class="form-error">{profileError}</p>{/if}
-          <button class="primary-button" type="submit" title="Übernehme deinen neuen Anzeigenamen" disabled={busyAction === 'profile' || displayName.trim().length < 2}>
-            {busyAction === 'profile' ? 'Speichere …' : 'Profil speichern'}
+          <button class="primary-button" type="submit" title={$t('profile.saveProfileTitle')} disabled={busyAction === 'profile' || displayName.trim().length < 2}>
+            {busyAction === 'profile' ? $t('profile.saving') : $t('profile.saveProfile')}
           </button>
         </form>
 
         <form class="mini-form" on:submit|preventDefault={savePassword}>
-          <div class="panel-head slim"><div><p class="eyebrow">Security</p><h3>Passwort</h3></div><KeyRound size={16} /></div>
-          <label class="field" title="Gib dein aktuelles Passwort ein"><span>Aktuelles Passwort</span><input bind:value={currentPassword} type="password" autocomplete="current-password" title="Dein aktuelles Passwort" /></label>
-          <label class="field" title="Wähle ein neues sicheres Passwort"><span>Neues Passwort</span><input bind:value={newPassword} type="password" autocomplete="new-password" title="Neues Passwort (mindestens 10 Zeichen)" /></label>
+          <div class="panel-head slim"><div><p class="eyebrow">{$t('profile.security')}</p><h3>{$t('profile.password')}</h3></div><KeyRound size={16} /></div>
+          <label class="field" title={$t('profile.currentPwFieldTitle')}><span>{$t('profile.currentPassword')}</span><input bind:value={currentPassword} type="password" autocomplete="current-password" title={$t('profile.currentPwInputTitle')} /></label>
+          <label class="field" title={$t('profile.newPwFieldTitle')}><span>{$t('profile.newPassword')}</span><input bind:value={newPassword} type="password" autocomplete="new-password" title={$t('profile.newPwInputTitle')} /></label>
           {#if passwordError}<p class="form-error">{passwordError}</p>{/if}
-          <button class="primary-button" type="submit" title="Ändere dein Passwort. Mindestens 10 Zeichen erforderlich." disabled={busyAction === 'password' || currentPassword.length < 10 || newPassword.length < 10}>
-            {busyAction === 'password' ? 'Ändere …' : 'Passwort ändern'}
+          <button class="primary-button" type="submit" title={$t('profile.changePwTitle')} disabled={busyAction === 'password' || currentPassword.length < 10 || newPassword.length < 10}>
+            {busyAction === 'password' ? $t('profile.changing') : $t('profile.changePassword')}
           </button>
         </form>
 
         <section class="mini-form danger-zone">
-          <div class="panel-head slim"><div><p class="eyebrow">Daten</p><h3>Export & Delete</h3></div><Trash2 size={16} /></div>
+          <div class="panel-head slim"><div><p class="eyebrow">{$t('profile.data')}</p><h3>{$t('profile.exportDelete')}</h3></div><Trash2 size={16} /></div>
           <div class="danger-actions">
-            <button class="ghost-btn" type="button" title="Lade alle deine Profildaten, Transaktionen und Portfoliowerte als JSON-Datei herunter (GDPR/DSGVO-konform)." disabled={busyAction === 'export'} on:click={exportData}><Download size={15} /> Export</button>
+            <button class="ghost-btn" type="button" title={$t('profile.exportTitle')} disabled={busyAction === 'export'} on:click={exportData}><Download size={15} /> {$t('profile.export')}</button>
           </div>
-          <label class="field" title="Wird zur Bestätigung für Daten- und Kontolöschungen benötigt."><span>Passwort für Löschaktionen</span><input bind:value={dangerPassword} type="password" autocomplete="current-password" title="Passwort zur Bestätigung" /></label>
+          <label class="field" title={$t('profile.dangerPwFieldTitle')}><span>{$t('profile.dangerPwLabel')}</span><input bind:value={dangerPassword} type="password" autocomplete="current-password" title={$t('profile.dangerPwInputTitle')} /></label>
           {#if dangerError}<p class="form-error">{dangerError}</p>{/if}
           <div class="danger-actions">
-            <button class="ghost-btn danger" type="button" title="Löscht all deine Trades und Transaktionsdaten dauerhaft vom Server" disabled={busyAction === 'portfolio' || dangerPassword.length < 10} on:click={deletePortfolioData}>Portfolio-Daten löschen</button>
-            <button class="ghost-btn danger" type="button" title="Löscht dein Benutzerkonto sowie alle zugehörigen Daten endgültig vom Server" disabled={busyAction === 'account' || dangerPassword.length < 10} on:click={deleteAccount}>Account löschen</button>
+            <button class="ghost-btn danger" type="button" title={$t('profile.deletePortfolioTitle')} disabled={busyAction === 'portfolio' || dangerPassword.length < 10} on:click={deletePortfolioData}>{$t('profile.deletePortfolioData')}</button>
+            <button class="ghost-btn danger" type="button" title={$t('profile.deleteAccountTitle')} disabled={busyAction === 'account' || dangerPassword.length < 10} on:click={deleteAccount}>{$t('profile.deleteAccount')}</button>
           </div>
         </section>
       </div>
     {:else}
       <form class="auth-form" on:submit|preventDefault={submitAuth}>
         <div class="segmented compact-segment">
-          <button class:active={authMode === 'login'} type="button" title="Melde dich mit deinem bestehenden Account an" on:click={() => (authMode = 'login')}>Login</button>
-          <button class:active={authMode === 'register'} type="button" title="Erstelle ein neues Benutzerkonto, falls die Registrierung geöffnet ist" disabled={!registrationOpen} on:click={() => (authMode = 'register')}>Registrieren</button>
+          <button class:active={authMode === 'login'} type="button" title={$t('profile.loginTabTitle')} on:click={() => (authMode = 'login')}>{$t('profile.login')}</button>
+          <button class:active={authMode === 'register'} type="button" title={$t('profile.registerTabTitle')} disabled={!registrationOpen} on:click={() => (authMode = 'register')}>{$t('profile.register')}</button>
         </div>
-        <label class="field" title="Benutzername für dein Konto (mindestens 3 Zeichen)"><span>Benutzername</span><input bind:value={username} type="text" autocomplete="username" title="Benutzername eingeben" /></label>
-        <label class="field" title="Passwort für dein Konto (mindestens 10 Zeichen)"><span>Passwort</span><input bind:value={password} type="password" autocomplete={authMode === 'login' ? 'current-password' : 'new-password'} title="Passwort eingeben" /></label>
+        <label class="field" title={$t('profile.usernameFieldTitle')}><span>{$t('profile.username')}</span><input bind:value={username} type="text" autocomplete="username" title={$t('profile.usernameInputTitle')} /></label>
+        <label class="field" title={$t('profile.pwFieldTitle')}><span>{$t('profile.password')}</span><input bind:value={password} type="password" autocomplete={authMode === 'login' ? 'current-password' : 'new-password'} title={$t('profile.pwInputTitle')} /></label>
         {#if authError}<p class="form-error">{authError}</p>{/if}
-        <button class="primary-button" type="submit" title={authMode === 'register' ? 'Erstelle dein neues Benutzerkonto und melde dich an' : 'Melde dich an, um dein Portfolio zu synchronisieren'} disabled={authBusy || username.trim().length < 3 || password.length < 10}>
-          <LogIn size={15} /> {authMode === 'register' ? 'Account erstellen' : 'Einloggen'}
+        <button class="primary-button" type="submit" title={authMode === 'register' ? $t('profile.registerSubmitTitle') : $t('profile.loginSubmitTitle')} disabled={authBusy || username.trim().length < 3 || password.length < 10}>
+          <LogIn size={15} /> {authMode === 'register' ? $t('profile.createAccount') : $t('profile.signIn')}
         </button>
       </form>
     {/if}
   </section>
 
   <section class="panel">
-    <div class="panel-head"><div><p class="eyebrow">eSports</p><h2>Standard-Ligen</h2></div><Trophy size={18} /></div>
-    <p class="hint">Diese Ligen werden auf der eSports-Seite standardmäßig angezeigt.</p>
+    <div class="panel-head"><div><p class="eyebrow">{$t('profile.esports')}</p><h2>{$t('profile.defaultLeagues')}</h2></div><Trophy size={18} /></div>
+    <p class="hint">{$t('profile.leaguesHint')}</p>
     <div class="league-chips">
       {#each leagueOptions as league}
-        <button class:active={esportsLeagues.includes(league)} type="button" title={`Standardmäßig Spiele der Liga ${league} auf der eSports-Seite anzeigen`} on:click={() => onToggleLeague(league)}>
+        <button class:active={esportsLeagues.includes(league)} type="button" title={$t('profile.leagueTitle', { league })} on:click={() => onToggleLeague(league)}>
           {league}
         </button>
       {/each}
@@ -212,12 +213,12 @@
   </section>
 
   <section class="panel">
-    <div class="panel-head"><div><p class="eyebrow">eSports</p><h2>Lieblingsteams</h2></div><Star size={18} /></div>
+    <div class="panel-head"><div><p class="eyebrow">{$t('profile.esports')}</p><h2>{$t('profile.favoriteTeams')}</h2></div><Star size={18} /></div>
 
     {#if favoriteTeamInfos.length > 0}
       <div class="fav-chips">
         {#each favoriteTeamInfos as team}
-          <button class="fav-chip" type="button" on:click={() => onToggleTeam(team.code)} title={`Entferne ${team.code} (${team.name}) aus deinen Favoriten`}>
+          <button class="fav-chip" type="button" on:click={() => onToggleTeam(team.code)} title={$t('profile.removeFavTitle', { code: team.code, name: team.name })}>
             {#if team.image}<img src={team.image} alt="" width="18" height="18" />{/if}
             <span>{team.code}</span>
             <em>×</em>
@@ -228,13 +229,13 @@
 
     <label class="search compact">
       <Search size={16} />
-      <input bind:value={teamQuery} type="search" placeholder="Team suchen (z.B. T1, G2, Fnatic)" />
+      <input bind:value={teamQuery} type="search" placeholder={$t('profile.teamSearchPlaceholder')} />
     </label>
 
     {#if teamsLoading}
       <div class="team-results">{#each Array(6) as _}<div class="skeleton-line"></div>{/each}</div>
     {:else if results.length === 0}
-      <p class="empty-state">Keine Teams gefunden.</p>
+      <p class="empty-state">{$t('profile.noTeams')}</p>
     {:else}
       <div class="team-results">
         {#each results as team (team.code)}
@@ -248,11 +249,11 @@
               class="t-action"
               class:selected
               type="button"
-              title={selected ? `Entferne ${team.code} aus deinen Favoriten` : atLimit ? `Maximale Anzahl an Favoriten (${MAX_FAVORITE_TEAMS}) erreicht.` : `Füge ${team.code} zu deinen Favoriten hinzu`}
+              title={selected ? $t('profile.removeFavShort', { code: team.code }) : atLimit ? $t('profile.limitReachedTitle', { max: MAX_FAVORITE_TEAMS }) : $t('profile.addFavTitle', { code: team.code })}
               disabled={!selected && atLimit}
               on:click={() => onToggleTeam(team.code)}
             >
-              {selected ? 'Entfernen' : atLimit ? 'Limit' : '+ Favorit'}
+              {selected ? $t('profile.remove') : atLimit ? $t('profile.limit') : $t('profile.addFav')}
             </button>
           </div>
         {/each}

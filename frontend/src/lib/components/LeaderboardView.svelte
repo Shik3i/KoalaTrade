@@ -2,6 +2,7 @@
   import { Award, RefreshCw, UserCircle2 } from '@lucide/svelte';
   import type { LeaderboardEntry, SessionUser } from '../api';
   import { formatMoney, formatPercentFromBps } from '../portfolio';
+  import { t } from '../i18n';
 
   export let entries: LeaderboardEntry[] = [];
   export let loading = false;
@@ -22,15 +23,15 @@
 <div class="leaderboard">
   <section class="panel head">
     <div class="panel-head">
-      <div><p class="eyebrow">Wettbewerb</p><h2>Rangliste</h2></div>
-      <button class="ghost-btn" type="button" title="Rangliste neu laden" disabled={loading} on:click={onRefresh}>
-        <RefreshCw size={15} /> {loading ? 'Lädt …' : 'Aktualisieren'}
+      <div><p class="eyebrow">{$t('leaderboard.competition')}</p><h2>{$t('leaderboard.title')}</h2></div>
+      <button class="ghost-btn" type="button" title={$t('leaderboard.refreshTitle')} disabled={loading} on:click={onRefresh}>
+        <RefreshCw size={15} /> {loading ? $t('leaderboard.loadingShort') : $t('common.refresh')}
       </button>
     </div>
-    <p class="sub">Gewertet wird die <strong>Gesamtrendite</strong> deines Portfolios, bewertet zu Live-Kursen auf dem Server. Nur registrierte Accounts erscheinen hier.</p>
+    <p class="sub">{$t('leaderboard.subBefore')}<strong>{$t('leaderboard.subStrong')}</strong>{$t('leaderboard.subAfter')}</p>
     {#if !user}
       <button class="cta" type="button" on:click={onGoToProfile}>
-        <UserCircle2 size={16} /> Account anlegen, um mitzuspielen
+        <UserCircle2 size={16} /> {$t('leaderboard.cta')}
       </button>
     {/if}
   </section>
@@ -43,14 +44,14 @@
     {:else if error}
       <p class="empty-state">{error}</p>
     {:else if entries.length === 0}
-      <p class="empty-state">Noch keine gewerteten Portfolios. Sei der Erste – lege einen Account an und handle.</p>
+      <p class="empty-state">{$t('leaderboard.empty')}</p>
     {:else}
-      <div class="table-head"><span>#</span><span>Trader</span><span>Rendite</span><span>Equity</span></div>
+      <div class="table-head"><span>#</span><span>{$t('leaderboard.colTrader')}</span><span>{$t('leaderboard.colReturn')}</span><span>{$t('leaderboard.colEquity')}</span></div>
       <div class="rows">
         {#each entries as entry (entry.rank + entry.displayName)}
           <div class="row" class:you={entry.isYou}>
             <span class="rank">{medal(entry.rank)}{entry.rank}</span>
-            <span class="name"><Award size={13} class={entry.rank <= 3 ? 'top' : 'dim'} />{entry.displayName}{#if entry.isYou}<em>Du</em>{/if}</span>
+            <span class="name"><Award size={13} class={entry.rank <= 3 ? 'top' : 'dim'} />{entry.displayName}{#if entry.isYou}<em>{$t('leaderboard.you')}</em>{/if}</span>
             <strong class={tone(entry.totalReturnBps)}>{entry.totalReturnBps > 0 ? '+' : ''}{formatPercentFromBps(entry.totalReturnBps)}</strong>
             <span class="equity">{formatMoney(entry.totalEquityCents)}</span>
           </div>

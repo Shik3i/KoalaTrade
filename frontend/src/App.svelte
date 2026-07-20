@@ -414,7 +414,7 @@
       leaderboard = await fetchLeaderboard();
       leaderboardLoaded = true;
     } catch (error) {
-      leaderboardError = error instanceof Error ? error.message : 'Rangliste nicht erreichbar';
+      leaderboardError = error instanceof Error ? error.message : tr('errors.leaderboardUnreachable');
     } finally {
       leaderboardLoading = false;
     }
@@ -429,7 +429,7 @@
       await reconcileEsportsPositions();
       await settleResolvedBets();
     } catch (error) {
-      esportsError = error instanceof Error ? error.message : 'eSports-Feed nicht erreichbar';
+      esportsError = error instanceof Error ? error.message : tr('errors.esportsFeedUnreachable');
     } finally {
       esportsLoading = false;
     }
@@ -1182,7 +1182,7 @@
       }
       marketsError = '';
     } catch (error) {
-      marketsError = error instanceof Error ? error.message : 'Quote-Aktualisierung fehlgeschlagen';
+      marketsError = error instanceof Error ? error.message : tr('errors.quoteRefreshFailed');
     }
   }
 
@@ -1197,28 +1197,32 @@
   }
 
   function formatUpdatedAt(value: string) {
-    return new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' }).format(new Date(value));
+    const loc = get(locale) === 'de' ? 'de-DE' : 'en-US';
+    return new Intl.DateTimeFormat(loc, { hour: '2-digit', minute: '2-digit' }).format(new Date(value));
   }
 
   // Aging quotes (closed markets / outages) can be days old, so a bare time reads
   // ambiguously — include the date once the quote is no longer from today.
   function formatUpdatedAtFull(value: string) {
+    const loc = get(locale) === 'de' ? 'de-DE' : 'en-US';
     const date = new Date(value);
     const sameDay = date.toDateString() === new Date().toDateString();
     if (sameDay) return formatUpdatedAt(value);
-    return new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(date);
+    return new Intl.DateTimeFormat(loc, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(date);
   }
 
   function formatChartTime(value: string) {
+    const loc = get(locale) === 'de' ? 'de-DE' : 'en-US';
     const date = new Date(value);
     if (chartRange === '1H' || chartRange === '1D') {
-      return new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' }).format(date);
+      return new Intl.DateTimeFormat(loc, { hour: '2-digit', minute: '2-digit' }).format(date);
     }
-    return new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: 'short' }).format(date);
+    return new Intl.DateTimeFormat(loc, { day: '2-digit', month: 'short' }).format(date);
   }
 
   function formatQuantity(value: number) {
-    return new Intl.NumberFormat('de-DE', { maximumFractionDigits: 6 }).format(value);
+    const loc = get(locale) === 'de' ? 'de-DE' : 'en-US';
+    return new Intl.NumberFormat(loc, { maximumFractionDigits: 6 }).format(value);
   }
 
   function formatSignedMoney(cents: number) {
@@ -1715,7 +1719,7 @@
             height={260}
             accent={summary.totalReturnCents >= 0 ? 'up' : 'down'}
             formatValue={formatMoney}
-            formatLabel={(value) => new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(value))}
+            formatLabel={(value) => { const loc = get(locale) === 'de' ? 'de-DE' : 'en-US'; return new Intl.DateTimeFormat(loc, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(value)); }}
           />
         </section>
 

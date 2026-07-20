@@ -4,6 +4,8 @@
   import { matchesLeague } from '../preferences';
   import { formatMoney, type Position } from '../portfolio';
   import InfoTip from './InfoTip.svelte';
+  import { get } from 'svelte/store';
+  import { t, locale } from '../i18n';
 
   export let matches: EsportsMatch[] = [];
   export let loading = false;
@@ -57,14 +59,18 @@
     return inLeague || isFavorite;
   });
 
-  function timeLabel(iso: string, state: string) {
-    if (state === 'inProgress') return 'LIVE';
+  // `_loc` is unused but passed from the template as $locale so the label
+  // re-renders when the language changes.
+  function timeLabel(iso: string, state: string, _loc?: string) {
+    const tr = get(t);
+    if (state === 'inProgress') return tr('esports.live');
     const diffMs = new Date(iso).getTime() - Date.now();
-    if (diffMs <= 0) return 'startet gleich';
+    if (diffMs <= 0) return tr('esports.startingSoon');
     const hours = Math.floor(diffMs / 3_600_000);
-    if (hours < 1) return `in ${Math.max(1, Math.round(diffMs / 60_000))} min`;
-    if (hours < 24) return `in ${hours} h`;
-    return new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
+    if (hours < 1) return tr('esports.inMin', { min: Math.max(1, Math.round(diffMs / 60_000)) });
+    if (hours < 24) return tr('esports.inHours', { hours });
+    const dateLocale = get(locale) === 'de' ? 'de-DE' : 'en-US';
+    return new Intl.DateTimeFormat(dateLocale, { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
   }
 
   // Step 1: open the confirm bar AND force-refresh this match's Polymarket odds.
@@ -129,7 +135,7 @@
 <div class="esports">
   {#if openBets.length > 0}
     <section class="panel">
-      <div class="panel-head"><div><p class="eyebrow">Aktiv</p><h2>Deine Wetten</h2></div><Ticket size={18} /></div>
+      <div class="panel-head"><div><p class="eyebrow">{$t('esports.active')}</p><h2>{$t('esports.yourBets')}</h2></div><Ticket size={18} /></div>
       <div class="bets-list">
         {#each openBets as bet}
           {@const valueCents = Math.round(bet.quantity * bet.lastPriceCents)}
@@ -146,12 +152,12 @@
                 step="1"
                 max={bet.quantity}
                 value={qty}
-                aria-label="Menge"
-                title="Menge, die verkauft oder nachgekauft werden soll"
+                aria-label={$t('esports.qty')}
+                title={$t('esports.qtyTitle')}
                 on:input={(e) => (manageQty[bet.assetId] = Math.max(1, Math.floor(Number(e.currentTarget.value)) || 1))}
               />
-              <button type="button" class="sell" title="Teile oder die gesamte Position zum aktuellen Preis verkaufen und Cash erhalten" on:click={() => onSell(bet.assetId, qty)}>Verkaufen</button>
-              <button type="button" class="buy" title="Mehr Kontrakte für diese Wette zum aktuellen Preis kaufen" on:click={() => onBuyMore(bet.assetId, qty)}>Nachkaufen</button>
+              <button type="button" class="sell" title={$t('esports.sellTitle')} on:click={() => onSell(bet.assetId, qty)}>{$t('side.sellVerb')}</button>
+              <button type="button" class="buy" title={$t('esports.buyMoreTitle')} on:click={() => onBuyMore(bet.assetId, qty)}>{$t('esports.buyMore')}</button>
             </div>
           </div>
         {/each}
@@ -160,20 +166,20 @@
   {/if}
 
   <section class="panel esports-head">
-    <div class="panel-head"><div><p class="eyebrow">Live aus League of Legends</p><h2>eSports Prediction Markets<InfoTip placement="bottom" text="Ein Prediction Market handelt Wahrscheinlichkeiten: Der Yes-Preis (z. B. 62¢) ist die vom Markt eingeschätzte Siegchance in Prozent. Gewinnt das Team, zahlt jeder Kontrakt 100¢ – du machst also 100¢ minus deinem Kaufpreis Gewinn; verliert es, verfällt der Kontrakt wertlos." /></h2></div><Trophy size={18} /></div>
-    <p class="esports-sub">Echte Match-Pläne von lolesports + Live-Quoten von Polymarket. Kaufe „Yes"-Kontrakte auf den Sieger — Auszahlung {formatMoney(100)} pro Kontrakt bei Win.</p>
+    <div class="panel-head"><div><p class="eyebrow">{$t('esports.liveFrom')}</p><h2>{$t('esports.title')}<InfoTip placement="bottom" text={$t('esports.marketTip')} /></h2></div><Trophy size={18} /></div>
+    <p class="esports-sub">{$t('esports.sub', { amount: formatMoney(100) })}</p>
     <div class="filter-bar">
       <div class="league-filter">
         {#each leagueOptions as league}
-          <button class:active={selectedLeagues.includes(league)} type="button" title={`Zeige nur Spiele aus der Liga ${league} an`} on:click={() => onToggleLeague(league)}>{league}</button>
+          <button class:active={selectedLeagues.includes(league)} type="button" title={$t('esports.leagueFilterTitle', { league })} on:click={() => onToggleLeague(league)}>{league}</button>
         {/each}
       </div>
       <div class="filter-toggles">
-        <button class="fav-toggle" class:active={showAllLeagues} type="button" title="Zeigt alle anstehenden Matches unabhängig von der Liga – auch solche ohne Quote." on:click={() => (showAllLeagues = !showAllLeagues)}>
-          Alle Ligen
+        <button class="fav-toggle" class:active={showAllLeagues} type="button" title={$t('esports.allLeaguesTitle')} on:click={() => (showAllLeagues = !showAllLeagues)}>
+          {$t('esports.allLeagues')}
         </button>
-        <button class="fav-toggle" class:active={showOnlyFavorites} type="button" title="Zeigt nur Spiele von deinen als Favorit markierten Teams an" on:click={() => (showOnlyFavorites = !showOnlyFavorites)}>
-          <Star size={14} fill={showOnlyFavorites ? 'currentColor' : 'none'} /> Nur Favoriten
+        <button class="fav-toggle" class:active={showOnlyFavorites} type="button" title={$t('esports.onlyFavoritesTitle')} on:click={() => (showOnlyFavorites = !showOnlyFavorites)}>
+          <Star size={14} fill={showOnlyFavorites ? 'currentColor' : 'none'} /> {$t('esports.onlyFavorites')}
         </button>
       </div>
     </div>
@@ -186,7 +192,7 @@
   {:else if error}
     <p class="empty-state">{error}</p>
   {:else if filteredMatches.length === 0}
-    <p class="empty-state">Keine Matches für diese Auswahl. Passe Ligen oder Favoriten an.</p>
+    <p class="empty-state">{$t('esports.noMatches')}</p>
   {:else}
     <div class="match-grid">
       {#each filteredMatches as match (match.id)}
@@ -196,7 +202,7 @@
             <span class="league">{match.league}{match.bestOf ? ` · BO${match.bestOf}` : ''}</span>
             <span class="when">
               {#if match.state === 'inProgress'}<Radio size={12} />{/if}
-              {timeLabel(match.startTime, match.state)}
+              {timeLabel(match.startTime, match.state, $locale)}
             </span>
           </header>
 
@@ -206,12 +212,12 @@
                 <button class="roundel" style={roundelStyle(team, match.hasOdds)}
                         type="button"
                         disabled={!match.hasOdds || team.priceCents <= 0 || refreshingId === match.id}
-                        title={match.hasOdds && team.priceCents > 0 ? `Wette auf ${team.code} (Siegchance ca. ${Math.round(team.probBps / 100)}%)` : 'Für dieses Match liegt aktuell keine Quote vor.'}
+                         title={match.hasOdds && team.priceCents > 0 ? $t('esports.betOnTitle', { code: team.code, pct: Math.round(team.probBps / 100) }) : $t('esports.noQuoteTitle')}
                         on:click={() => startBet(match, team)}>
                   {#if team.image}<img src={team.image} alt="" width="58" height="58" loading="lazy" />{:else}{team.code.slice(0, 3)}{/if}
                 </button>
                 <div class="team-name">
-                  <button class="star" class:on={favoriteTeams.includes(team.code)} type="button" title={`Markiere ${team.code} als Lieblingsteam (beeinflusst den Filter)`} on:click={() => onToggleFavorite(team.code)}>
+                  <button class="star" class:on={favoriteTeams.includes(team.code)} type="button" title={$t('esports.markFavTitle', { code: team.code })} on:click={() => onToggleFavorite(team.code)}>
                     <Star size={12} fill={favoriteTeams.includes(team.code) ? 'currentColor' : 'none'} />
                   </button>
                   <strong>{team.code}</strong>
@@ -223,46 +229,46 @@
           </div>
 
           {#if match.hasOdds && (match.team1.priceCents > 0 || match.team2.priceCents > 0)}
-            <div class="prob-wrap" title="Live-Siegwahrscheinlichkeit laut Polymarket – linke Farbe: Team 1, rechte Farbe: Team 2.">
-              <div class="prob-bar" role="img" aria-label={`Siegchance ${probLabel(match.team1.probBps)} zu ${probLabel(match.team2.probBps)}`}>
+            <div class="prob-wrap" title={$t('esports.probWrapTitle')}>
+              <div class="prob-bar" role="img" aria-label={$t('esports.probAria', { a: probLabel(match.team1.probBps), b: probLabel(match.team2.probBps) })}>
                 <span class="seg a" style={`width:${team1Pct(match)}%`}></span>
                 <span class="seg b" style={`width:${100 - team1Pct(match)}%`}></span>
               </div>
               <div class="prob-legend">
                 <span class="a">{probLabel(match.team1.probBps)} · {formatMoney(match.team1.priceCents)}</span>
-                <span class="src">Live-Quoten von Polymarket</span>
+                <span class="src">{$t('esports.polymarketSrc')}</span>
                 <span class="b">{probLabel(match.team2.probBps)} · {formatMoney(match.team2.priceCents)}</span>
               </div>
             </div>
           {:else}
-            <div class="no-odds-box">⚠ Noch keine Quote – Polymarket hat dieses Match nicht gelistet.</div>
+            <div class="no-odds-box">{$t('esports.noOddsBox')}</div>
           {/if}
 
           {#if confirmTeam}
             <footer class="confirm-bar">
               {#if refreshingId === match.id}
-                <span class="refreshing"><RefreshCw size={13} /> Hole aktuelle Quote …</span>
+                <span class="refreshing"><RefreshCw size={13} /> {$t('esports.fetchingQuote')}</span>
               {:else if confirmTeam.priceCents > 0}
                 <div class="confirm-info">
                   <strong>{confirmTeam.code} @ {formatMoney(confirmTeam.priceCents)}</strong>
-                  <small>{stakeFor(match.id)} Kontrakte · {formatMoney(costCents(confirmTeam.priceCents, stakeFor(match.id)))}</small>
+                  <small>{$t('esports.contractsCost', { stake: stakeFor(match.id), amount: formatMoney(costCents(confirmTeam.priceCents, stakeFor(match.id))) })}</small>
                 </div>
                 <div class="confirm-actions">
-                  <button class="ghost" type="button" title="Wettvorgang abbrechen" on:click={cancelBet}>Abbrechen</button>
-                  <button class="confirm" type="button" title="Wette verbindlich platzieren und Cash belasten" disabled={!canAfford(confirmTeam.priceCents, stakeFor(match.id))} on:click={() => confirmBet(match)}>Bestätigen</button>
+                  <button class="ghost" type="button" title={$t('esports.cancelBetTitle')} on:click={cancelBet}>{$t('common.cancel')}</button>
+                  <button class="confirm" type="button" title={$t('esports.confirmTitle')} disabled={!canAfford(confirmTeam.priceCents, stakeFor(match.id))} on:click={() => confirmBet(match)}>{$t('esports.confirm')}</button>
                 </div>
               {:else}
-                <span class="refreshing">Keine aktuelle Quote verfügbar.</span>
-                <button class="ghost" type="button" title="Dieses Fenster schließen" on:click={cancelBet}>Schließen</button>
+                <span class="refreshing">{$t('esports.noQuoteAvailable')}</span>
+                <button class="ghost" type="button" title={$t('esports.closeWindowTitle')} on:click={cancelBet}>{$t('common.close')}</button>
               {/if}
             </footer>
           {:else if match.hasOdds}
             <footer class="match-foot">
-              <label title="Gib die Anzahl der Kontrakte ein, die du erwerben möchtest.">
-                <span>Kontrakte</span>
-                <input type="number" min="1" step="1" value={stakeFor(match.id)} title="Gib die Anzahl der Kontrakte ein, die du erwerben möchtest." on:input={(e) => (stakes[match.id] = Math.max(1, Math.floor(Number(e.currentTarget.value)) || 1))} />
+              <label title={$t('esports.contractsFieldTitle')}>
+                <span>{$t('esports.contracts')}</span>
+                <input type="number" min="1" step="1" value={stakeFor(match.id)} title={$t('esports.contractsFieldTitle')} on:input={(e) => (stakes[match.id] = Math.max(1, Math.floor(Number(e.currentTarget.value)) || 1))} />
               </label>
-              <span class="hint">Einsatz ab {formatMoney(costCents(match.team1.priceCents, stakeFor(match.id)))}</span>
+              <span class="hint">{$t('esports.stakeFrom', { amount: formatMoney(costCents(match.team1.priceCents, stakeFor(match.id))) })}</span>
             </footer>
           {/if}
         </article>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { CheckCircle2, Info, X, XCircle } from '@lucide/svelte';
   import { dismissToast, toasts } from '../toast';
+  import { t } from '../i18n';
 
   const icons = { success: CheckCircle2, error: XCircle, info: Info };
 </script>
@@ -13,7 +14,7 @@
         <strong>{toast.title}</strong>
         {#if toast.detail}<span>{toast.detail}</span>{/if}
       </div>
-      <button type="button" aria-label="Schließen" on:click={() => dismissToast(toast.id)}>
+      <button type="button" aria-label={$t('common.close')} on:click={() => dismissToast(toast.id)}>
         <X size={15} />
       </button>
     </div>

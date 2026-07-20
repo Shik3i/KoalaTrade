@@ -11,6 +11,7 @@
   export let formatValue: (value: number) => string = (value) => `${value}`;
   export let formatLabel: (label: string) => string = (label) => label;
   export let accent: 'auto' | 'up' | 'down' = 'auto';
+  import { t } from '../i18n';
 
   const gradientId = `area-grad-${++uid}`;
   const padX = 8;
@@ -72,7 +73,7 @@
   {#if loading}
     <div class="chart-skeleton" aria-hidden="true"></div>
   {:else if series.length < 2}
-    <p class="chart-empty">Keine Daten in diesem Zeitraum.</p>
+    <p class="chart-empty">{$t('areaChart.empty')}</p>
   {:else}
     <svg
       viewBox={`0 0 ${width} ${height}`}
