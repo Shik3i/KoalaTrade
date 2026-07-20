@@ -18,6 +18,7 @@
     Zap
   } from '@lucide/svelte';
   import { onDestroy, onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import AdminView from './lib/components/AdminView.svelte';
   import AreaChart from './lib/components/AreaChart.svelte';
   import EsportsView from './lib/components/EsportsView.svelte';
@@ -64,6 +65,7 @@
   import { loadClientId, loadOpenOrders, loadPortfolio, loadPreferences, resetPortfolio, saveOpenOrders, savePortfolio, savePreferences } from './lib/portfolio-db';
   import { DEFAULT_LEAGUES, MAX_FAVORITE_TEAMS, defaultPreferences, type Preferences } from './lib/preferences';
   import { toast } from './lib/toast';
+  import { t, locale, setLocale, LOCALES, LOCALE_LABELS } from './lib/i18n';
   import {
     applyTrade,
     computePerformance,
@@ -81,6 +83,10 @@
     type PortfolioSnapshot
   } from './lib/portfolio';
 
+  // Imperative translator for non-reactive script contexts (toasts, status
+  // strings). Resolves against the current locale at call time.
+  const tr = (key: string, vars?: Record<string, string | number>) => get(t)(key, vars);
+
   const ORDER_FEE_BPS = 8;
   const QUANTITY_STEP = 0.0001;
   const chartRanges: ChartRange[] = ['1H', '1D', '1W', '1M', '1Y'];
@@ -91,7 +97,7 @@
   const EMPTY_MARKET: Market = {
     assetId: '',
     symbol: '—',
-    name: 'Keine Marktdaten',
+    name: '',
     kind: 'stock',
     source: '',
     priceCents: 0,
@@ -100,20 +106,20 @@
   };
 
   const marketFilters = [
-    { id: 'all', label: 'Alle' },
-    { id: 'crypto', label: 'Crypto' },
-    { id: 'etf', label: 'ETFs' },
-    { id: 'commodity', label: 'Metalle' },
-    { id: 'event', label: 'eSports' }
+    { id: 'all', labelKey: 'filter.all' },
+    { id: 'crypto', labelKey: 'filter.crypto' },
+    { id: 'etf', labelKey: 'filter.etf' },
+    { id: 'commodity', labelKey: 'filter.commodity' },
+    { id: 'event', labelKey: 'filter.event' }
   ] as const;
   type MarketFilter = (typeof marketFilters)[number]['id'];
 
   const deskTabs = [
-    { id: 'trade', label: 'Trade', icon: CandlestickChart },
-    { id: 'portfolio', label: 'Portfolio', icon: WalletCards },
-    { id: 'markets', label: 'Markets', icon: LineChart },
-    { id: 'esports', label: 'eSports', icon: Trophy },
-    { id: 'leaderboard', label: 'Rangliste', icon: Award }
+    { id: 'trade', labelKey: 'nav.trade', icon: CandlestickChart },
+    { id: 'portfolio', labelKey: 'nav.portfolio', icon: WalletCards },
+    { id: 'markets', labelKey: 'nav.markets', icon: LineChart },
+    { id: 'esports', labelKey: 'nav.esports', icon: Trophy },
+    { id: 'leaderboard', labelKey: 'nav.leaderboard', icon: Award }
   ] as const;
   type DeskView = (typeof deskTabs)[number]['id'];
 
@@ -134,7 +140,7 @@
   let orderError = '';
   let openOrders: OpenOrder[] = [];
   let isSyncing = false;
-  let syncMessage = 'Sync bereit';
+  let syncMessage = tr('sync.ready');
   type AppView = 'landing' | DeskView | 'profile' | 'admin';
   let activeView: AppView = 'landing';
   const ADMIN_TOKEN_KEY = 'koala-admin-token';
@@ -205,13 +211,13 @@
     try {
       clientId = await loadClientId();
     } catch (error) {
-      toast.error('Sync nicht verfügbar', error instanceof Error ? error.message : undefined);
+      toast.error(tr('toast.syncUnavailable'), error instanceof Error ? error.message : undefined);
     }
 
     try {
       config = await fetchPublicConfig();
     } catch (error) {
-      configError = error instanceof Error ? error.message : 'Backend nicht erreichbar';
+      configError = error instanceof Error ? error.message : tr('errors.backendUnreachable');
     }
 
     try {
@@ -220,7 +226,7 @@
         selectedAssetId = markets[0]?.assetId ?? '';
       }
     } catch (error) {
-      marketsError = error instanceof Error ? error.message : 'Marktdaten nicht verfügbar';
+      marketsError = error instanceof Error ? error.message : tr('errors.marketDataUnavailable');
       markets = [];
     } finally {
       marketsLoading = false;
@@ -229,7 +235,7 @@
     try {
       portfolio = await loadPortfolio(config?.startingCashCents ?? 1_000_000);
     } catch (error) {
-      portfolioError = error instanceof Error ? error.message : 'Lokales Portfolio nicht verfügbar';
+      portfolioError = error instanceof Error ? error.message : tr('errors.localPortfolioUnavailable');
       portfolio = createInitialPortfolio(config?.startingCashCents ?? 1_000_000);
     }
 
@@ -299,7 +305,7 @@
     normalizedOrderQuantity > 0 &&
     normalizedOrderQuantity <= orderLimitQuantity &&
     (orderSide === 'buy' ? estimatedOrderTotal <= summary.cashCents : selectedPositionQuantity >= normalizedOrderQuantity);
-  $: orderPowerLabel = orderSide === 'buy' ? 'Kaufkraft' : 'Verfügbar';
+  $: orderPowerLabel = orderSide === 'buy' ? $t('order.powerBuy') : $t('order.powerSell');
   $: orderPowerValue = orderSide === 'buy' ? formatMoney(summary.cashCents) : `${formatQuantity(selectedPositionQuantity)} ${selectedMarket ? selectedMarket.symbol : ''}`;
 
   // --- Order-type (Market / Limit / Stop) ---------------------------------
@@ -307,16 +313,16 @@
   $: triggerPriceCents = Math.round((Number.isFinite(Number(triggerPrice)) ? Number(triggerPrice) : 0) * 100);
   $: orderTypeHint =
     orderType === 'market'
-      ? 'Wird sofort zum aktuellen Marktpreis ausgeführt.'
+      ? $t('order.hintMarket')
       : orderType === 'limit'
         ? orderSide === 'buy'
-          ? 'Kauf-Limit: füllt erst, wenn der Kurs auf dein Limit oder darunter fällt.'
-          : 'Verkaufs-Limit: füllt erst, wenn der Kurs auf dein Limit oder darüber steigt.'
+          ? $t('order.hintBuyLimit')
+          : $t('order.hintSellLimit')
         : orderSide === 'buy'
-          ? 'Stop-Buy: löst aus, wenn der Kurs auf deinen Stop oder darüber steigt.'
-          : 'Stop-Loss: löst aus, wenn der Kurs auf deinen Stop oder darunter fällt.';
-  $: orderStatusLabel = isOpenOrderType ? 'Landet als' : 'Ausführung';
-  $: orderStatusValue = isOpenOrderType ? 'Offene Order (wartet)' : 'Sofort';
+          ? $t('order.hintStopBuy')
+          : $t('order.hintStopLoss');
+  $: orderStatusLabel = isOpenOrderType ? $t('order.landsAs') : $t('order.execution');
+  $: orderStatusValue = isOpenOrderType ? $t('order.openWaiting') : $t('order.immediate');
   $: assetOpenOrders = openOrders.filter((order) => order.assetId === selectedMarket.assetId);
   $: canPlaceOpenOrder =
     !!portfolio &&
@@ -325,8 +331,8 @@
     (orderSide === 'sell' ? selectedPositionQuantity >= normalizedOrderQuantity : true);
   $: canPlaceOrder = isOpenOrderType ? canPlaceOpenOrder : canSubmitOrder;
   $: submitLabel = isOpenOrderType
-    ? `${orderSide === 'buy' ? 'Kauf' : 'Verkauf'}-Order vormerken`
-    : `${orderSide === 'buy' ? 'Kaufen' : 'Verkaufen'} ${selectedMarket.symbol}`;
+    ? $t('order.queueLabel', { side: orderSide === 'buy' ? $t('side.buyNoun') : $t('side.sellNoun') })
+    : $t('order.submitLabel', { side: orderSide === 'buy' ? $t('side.buyVerb') : $t('side.sellVerb'), symbol: selectedMarket.symbol });
   $: positionList = portfolio?.positions ?? [];
   $: transactionList = portfolio?.transactions.slice(0, 6) ?? [];
   $: positionRows = positionList.map((position) => {
@@ -478,9 +484,9 @@
       await savePortfolio(snapshot);
       for (const item of settled) {
         if (item.won) {
-          toast.success('Wette gewonnen', `${item.symbol} → +${formatMoney(item.quantity * 100)}`);
+          toast.success(tr('toast.betWon'), tr('toast.betWonDetail', { symbol: item.symbol, amount: formatMoney(item.quantity * 100) }));
         } else {
-          toast.info('Wette verloren', `${item.symbol} ist wertlos verfallen.`);
+          toast.info(tr('toast.betLost'), tr('toast.betLostDetail', { symbol: item.symbol }));
         }
       }
     }
@@ -491,7 +497,7 @@
     if (!parsed) return;
     let match = esportsMatches.find((item) => item.id === parsed.matchId);
     if (!match) {
-      toast.error('Markt nicht verfügbar', 'Dieses Match ist aktuell nicht handelbar.');
+      toast.error(tr('toast.marketUnavailable'), tr('toast.marketUnavailableDetail'));
       return;
     }
     await handleRefreshOdds(parsed.matchId);
@@ -499,7 +505,7 @@
     if (!match) return;
     const team = match.team1.code === parsed.teamCode ? match.team1 : match.team2.code === parsed.teamCode ? match.team2 : null;
     if (!team || team.priceCents <= 0) {
-      toast.error('Keine aktuelle Quote', 'Für dieses Team gibt es gerade keine Quote.');
+      toast.error(tr('toast.noQuote'), tr('toast.noQuoteDetail'));
       return;
     }
     await placeEsportsBet(match, team, contracts);
@@ -510,7 +516,7 @@
     adminToken = token;
     user = await fetchMe();
     localStorage.setItem(ADMIN_TOKEN_KEY, token);
-    toast.success('Angemeldet', 'Admin-Bereich entsperrt.');
+    toast.success(tr('toast.signedIn'), tr('toast.adminUnlocked'));
   }
 
   function handleAdminLogout() {
@@ -529,7 +535,7 @@
       }
       const restored = await restoreSyncedPortfolio(true);
       if (restored !== 'restored') await handleSyncPortfolio();
-      toast.success('Eingeloggt', 'Portfolio ist mit deinem Account verbunden.');
+      toast.success(tr('toast.loggedIn'), tr('toast.loggedInDetail'));
     } finally {
       authBusy = false;
     }
@@ -541,7 +547,7 @@
       const payload = await register(username, password);
       user = payload.user;
       await handleSyncPortfolio();
-      toast.success('Account erstellt', 'Dein lokales Portfolio wurde übernommen.');
+      toast.success(tr('toast.accountCreated'), tr('toast.accountCreatedDetail'));
     } finally {
       authBusy = false;
     }
@@ -554,7 +560,7 @@
       user = null;
       adminToken = null;
       localStorage.removeItem(ADMIN_TOKEN_KEY);
-      toast.info('Ausgeloggt', 'Lokales Portfolio bleibt auf diesem Gerät.');
+      toast.info(tr('toast.loggedOut'), tr('toast.loggedOutDetail'));
     } finally {
       authBusy = false;
     }
@@ -563,12 +569,12 @@
   async function handleUpdateAccount(displayName: string) {
     const next = await updateAccount(displayName);
     user = next;
-    toast.success('Profil gespeichert', next.displayName);
+    toast.success(tr('toast.profileSaved'), next.displayName);
   }
 
   async function handleChangePassword(currentPassword: string, newPassword: string) {
     await changePassword(currentPassword, newPassword);
-    toast.success('Passwort geändert');
+    toast.success(tr('toast.passwordChanged'));
   }
 
   async function handleExportAccount() {
@@ -582,14 +588,17 @@
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
-    toast.success('Export erstellt', `${payload.portfolios.length} Portfolio-Snapshot${payload.portfolios.length === 1 ? '' : 's'}`);
+    toast.success(
+      tr('toast.exportCreated'),
+      tr(payload.portfolios.length === 1 ? 'toast.exportDetail' : 'toast.exportDetailPlural', { count: payload.portfolios.length })
+    );
   }
 
   async function handleDeletePortfolioData(password: string) {
     await deletePortfolioData(password);
     portfolio = await resetPortfolio(config?.startingCashCents ?? portfolio?.startingCashCents ?? 1_000_000);
-    syncMessage = 'Portfolio-Daten gelöscht';
-    toast.success('Portfolio-Daten gelöscht', 'Serverdaten entfernt und lokale Kopie zurückgesetzt.');
+    syncMessage = tr('sync.dataDeleted');
+    toast.success(tr('toast.portfolioDataDeleted'), tr('toast.portfolioDataDeletedDetail'));
   }
 
   async function handleDeleteAccount(password: string) {
@@ -597,7 +606,7 @@
     user = null;
     adminToken = null;
     localStorage.removeItem(ADMIN_TOKEN_KEY);
-    toast.success('Account gelöscht', 'Serverseitige Account-Daten wurden entfernt.');
+    toast.success(tr('toast.accountDeleted'), tr('toast.accountDeletedDetail'));
   }
 
   async function loadTeams() {
@@ -627,7 +636,7 @@
     } else if (favorites.length < MAX_FAVORITE_TEAMS) {
       preferences = { ...preferences, favoriteTeams: [...favorites, code] };
     } else {
-      toast.info('Limit erreicht', `Maximal ${MAX_FAVORITE_TEAMS} Lieblingsteams.`);
+      toast.info(tr('toast.limitReached'), tr('toast.limitReachedDetail', { max: MAX_FAVORITE_TEAMS }));
       return;
     }
     void persistPreferences();
@@ -703,9 +712,9 @@
         openOrders = result.openOrders;
         await savePortfolio(result.portfolio, { touchUpdatedAt: false });
         await saveOpenOrders(result.openOrders);
-        toast.success('Wette platziert', `${contracts}× ${team.code} @ ${formatMoney(team.priceCents)}`);
+        toast.success(tr('toast.betPlaced'), tr('toast.betPlacedDetail', { contracts, code: team.code, price: formatMoney(team.priceCents) }));
       } catch (error) {
-        toast.error('Wette fehlgeschlagen', error instanceof Error ? error.message : undefined);
+        toast.error(tr('toast.betFailed'), error instanceof Error ? error.message : undefined);
       }
       return;
     }
@@ -718,7 +727,7 @@
         id: crypto.randomUUID(),
         assetId: esportsAssetId(match.id, team.code),
         symbol: team.code,
-        name: `${team.name} schlägt ${other.code} · ${match.league}`,
+        name: tr('esports.beatsName', { team: team.name, other: other.code, league: match.league }),
         kind: 'event',
         side: 'buy',
         quantity: contracts,
@@ -727,9 +736,9 @@
       });
       portfolio = next;
       await savePortfolio(next);
-      toast.success('Wette platziert', `${contracts}× ${team.code} @ ${formatMoney(team.priceCents)}`);
+      toast.success(tr('toast.betPlaced'), tr('toast.betPlacedDetail', { contracts, code: team.code, price: formatMoney(team.priceCents) }));
     } catch (error) {
-      toast.error('Wette fehlgeschlagen', error instanceof Error ? error.message : undefined);
+      toast.error(tr('toast.betFailed'), error instanceof Error ? error.message : undefined);
     }
   }
 
@@ -756,9 +765,9 @@
         openOrders = result.openOrders;
         await savePortfolio(result.portfolio, { touchUpdatedAt: false });
         await saveOpenOrders(result.openOrders);
-        toast.success('Cash-out', `${position.symbol}`);
+        toast.success(tr('toast.cashOut'), `${position.symbol}`);
       } catch (error) {
-        toast.error('Cash-out fehlgeschlagen', error instanceof Error ? error.message : undefined);
+        toast.error(tr('toast.cashOutFailed'), error instanceof Error ? error.message : undefined);
       }
       return;
     }
@@ -779,9 +788,9 @@
       });
       portfolio = next;
       await savePortfolio(next);
-      toast.success('Cash-out', `${position.symbol} für ${formatMoney(grossCents - feeCents)}`);
+      toast.success(tr('toast.cashOut'), tr('toast.cashOutDetail', { symbol: position.symbol, amount: formatMoney(grossCents - feeCents) }));
     } catch (error) {
-      toast.error('Cash-out fehlgeschlagen', error instanceof Error ? error.message : undefined);
+      toast.error(tr('toast.cashOutFailed'), error instanceof Error ? error.message : undefined);
     }
   }
 
@@ -791,7 +800,7 @@
     openOrders = [];
     await saveOpenOrders([]);
     orderError = '';
-    toast.info('Portfolio zurückgesetzt', 'Startkapital wiederhergestellt.');
+    toast.info(tr('toast.portfolioReset'), tr('toast.portfolioResetDetail'));
   }
 
   function setOrderType(type: 'market' | OpenOrderType) {
@@ -805,19 +814,25 @@
 
   async function placeOpenOrder() {
     if (!portfolio) {
-      orderError = 'Portfolio wird noch geladen';
+      orderError = tr('order.errPortfolioLoading');
       return;
     }
     if (triggerPriceCents <= 0) {
-      orderError = orderType === 'limit' ? 'Gib einen gültigen Limit-Preis ein' : 'Gib einen gültigen Stop-Preis ein';
+      orderError = orderType === 'limit' ? tr('order.errInvalidLimit') : tr('order.errInvalidStop');
       return;
     }
     if (!canPlaceOpenOrder) {
-      orderError = orderSide === 'sell' ? 'Nicht genug verfügbare Position' : 'Ungültige Menge';
+      orderError = orderSide === 'sell' ? tr('order.errNotEnoughPosition') : tr('order.errInvalidQuantity');
       return;
     }
 
-    const label = `${orderType === 'limit' ? 'Limit' : 'Stop'} ${orderSide === 'buy' ? 'Kauf' : 'Verkauf'} · ${formatQuantity(normalizedOrderQuantity)} ${selectedMarket.symbol} @ ${formatMoney(triggerPriceCents)}`;
+    const label = tr('order.previewLabel', {
+      type: orderType === 'limit' ? tr('orderType.limit') : tr('orderType.stop'),
+      side: orderSide === 'buy' ? tr('side.buyNoun') : tr('side.sellNoun'),
+      qty: formatQuantity(normalizedOrderQuantity),
+      symbol: selectedMarket.symbol,
+      price: formatMoney(triggerPriceCents)
+    });
 
     // Online: queue the order server-side so the backend engine fills it even
     // when this browser is closed (and at the server's own price).
@@ -837,11 +852,11 @@
         openOrders = result.openOrders;
         await savePortfolio(result.portfolio, { touchUpdatedAt: false });
         await saveOpenOrders(result.openOrders);
-        toast.success('Order vorgemerkt', label);
+        toast.success(tr('toast.orderQueued'), label);
         orderError = '';
       } catch (error) {
-        orderError = error instanceof Error ? error.message : 'Order konnte nicht vorgemerkt werden';
-        toast.error('Order fehlgeschlagen', orderError);
+        orderError = error instanceof Error ? error.message : tr('errors.orderNotQueued');
+        toast.error(tr('toast.orderFailed'), orderError);
       }
       return;
     }
@@ -862,7 +877,7 @@
     };
     openOrders = [order, ...openOrders];
     await saveOpenOrders(openOrders);
-    toast.success('Order vorgemerkt', label);
+    toast.success(tr('toast.orderQueued'), label);
     orderError = '';
 
     // Instant fill guard: if the trigger is already satisfied at the current
@@ -876,7 +891,7 @@
         openOrders = await cancelServerOpenOrder(clientId || (await loadClientId()), PORTFOLIO_ID, id);
         await saveOpenOrders(openOrders);
       } catch (error) {
-        toast.error('Stornieren fehlgeschlagen', error instanceof Error ? error.message : undefined);
+        toast.error(tr('toast.cancelFailed'), error instanceof Error ? error.message : undefined);
       }
       return;
     }
@@ -891,15 +906,15 @@
       return;
     }
     if (!portfolio) {
-      orderError = 'Portfolio wird noch geladen';
+      orderError = tr('order.errPortfolioLoading');
       return;
     }
     if (effectivePriceCents <= 0) {
-      orderError = 'Kein gültiger Marktpreis verfügbar';
+      orderError = tr('order.errNoMarketPrice');
       return;
     }
     if (!canSubmitOrder) {
-      orderError = orderSide === 'buy' ? 'Nicht genug Kaufkraft für diese Order' : 'Nicht genug verfügbare Position';
+      orderError = orderSide === 'buy' ? tr('order.errNotEnoughBuyingPower') : tr('order.errNotEnoughPosition');
       return;
     }
 
@@ -927,12 +942,12 @@
       portfolio = nextPortfolio;
       await savePortfolio(nextPortfolio);
       toast.success(
-        `${orderSide === 'buy' ? 'Kauf' : 'Verkauf'} ausgeführt`,
+        orderSide === 'buy' ? tr('toast.buyExecuted') : tr('toast.sellExecuted'),
         `${formatQuantity(normalizedOrderQuantity)} ${selectedMarket.symbol} @ ${formatMoney(effectivePriceCents)}`
       );
     } catch (error) {
-      orderError = error instanceof Error ? error.message : 'Order konnte nicht platziert werden';
-      toast.error('Order fehlgeschlagen', orderError);
+      orderError = error instanceof Error ? error.message : tr('errors.orderNotPlaced');
+      toast.error(tr('toast.orderFailed'), orderError);
     }
   }
 
@@ -995,12 +1010,12 @@
       await savePortfolio(result.portfolio, { touchUpdatedAt: false });
       await saveOpenOrders(result.openOrders);
       toast.success(
-        `${orderSide === 'buy' ? 'Kauf' : 'Verkauf'} ausgeführt`,
+        orderSide === 'buy' ? tr('toast.buyExecuted') : tr('toast.sellExecuted'),
         `${formatQuantity(normalizedOrderQuantity)} ${symbol}`
       );
     } catch (error) {
-      orderError = error instanceof Error ? error.message : 'Order konnte nicht platziert werden';
-      toast.error('Order fehlgeschlagen', orderError);
+      orderError = error instanceof Error ? error.message : tr('errors.orderNotPlaced');
+      toast.error(tr('toast.orderFailed'), orderError);
     }
   }
 
@@ -1011,11 +1026,11 @@
       const synced = await syncPortfolio(clientId || (await loadClientId()), portfolio);
       await savePortfolio(synced, { touchUpdatedAt: false });
       portfolio = synced;
-      syncMessage = `Synchronisiert ${formatUpdatedAt(synced.updatedAt)}`;
-      toast.success('Portfolio synchronisiert');
+      syncMessage = tr('sync.syncedAt', { time: formatUpdatedAt(synced.updatedAt) });
+      toast.success(tr('toast.portfolioSynced'));
     } catch (error) {
-      syncMessage = 'Sync fehlgeschlagen';
-      toast.error('Sync fehlgeschlagen', error instanceof Error ? error.message : undefined);
+      syncMessage = tr('sync.failed');
+      toast.error(tr('sync.failed'), error instanceof Error ? error.message : undefined);
     } finally {
       isSyncing = false;
     }
@@ -1034,7 +1049,7 @@
     try {
       const synced = await fetchSyncedPortfolio(clientId, PORTFOLIO_ID);
       if (!synced) {
-        syncMessage = 'Sync bereit';
+        syncMessage = tr('sync.ready');
         return 'missing';
       }
       const remoteIsNewer = new Date(synced.updatedAt).getTime() > new Date(portfolio.updatedAt).getTime();
@@ -1042,13 +1057,13 @@
       if (shouldRestore) {
         await savePortfolio(synced, { touchUpdatedAt: false });
         portfolio = synced;
-        syncMessage = `Wiederhergestellt ${formatUpdatedAt(synced.updatedAt)}`;
+        syncMessage = tr('sync.restoredAt', { time: formatUpdatedAt(synced.updatedAt) });
         return 'restored';
       }
-      syncMessage = 'Lokales Portfolio aktuell';
+      syncMessage = tr('sync.localCurrent');
       return 'kept';
     } catch {
-      syncMessage = 'Sync nicht verfügbar';
+      syncMessage = tr('sync.unavailable');
       return 'unavailable';
     }
   }
@@ -1088,11 +1103,17 @@
         });
         portfolioChanged = true;
         toast.success(
-          'Order ausgeführt',
-          `${order.orderType === 'limit' ? 'Limit' : 'Stop'} ${order.side === 'buy' ? 'Kauf' : 'Verkauf'} · ${formatQuantity(order.quantity)} ${order.symbol} @ ${formatMoney(price)}`
+          tr('toast.orderExecuted'),
+          tr('order.previewLabel', {
+            type: order.orderType === 'limit' ? tr('orderType.limit') : tr('orderType.stop'),
+            side: order.side === 'buy' ? tr('side.buyNoun') : tr('side.sellNoun'),
+            qty: formatQuantity(order.quantity),
+            symbol: order.symbol,
+            price: formatMoney(price)
+          })
         );
       } catch (error) {
-        toast.error('Order storniert', `${order.symbol}: ${error instanceof Error ? error.message : 'konnte nicht ausgeführt werden'}`);
+        toast.error(tr('toast.orderCanceled'), `${order.symbol}: ${error instanceof Error ? error.message : tr('errors.orderNotFilled')}`);
       }
     }
 
@@ -1307,29 +1328,28 @@
           <span>Paper markets</span>
         </div>
       </div>
-      <button class="nav-action" type="button" title="Wechsle direkt zum interaktiven Trading Desk." on:click={() => setActiveView('trade')}>Trading Desk öffnen</button>
+      <button class="nav-action" type="button" title={$t('landing.openDeskTitle')} on:click={() => setActiveView('trade')}>{$t('landing.openDesk')}</button>
     </header>
 
-    <section class="landing-hero" aria-label="KoalaTrade introduction">
+    <section class="landing-hero" aria-label={$t('landing.intro')}>
       <div class="landing-copy">
-        <p class="eyebrow"><Sparkles size={14} /> Virtuelles Trading-Cockpit</p>
-        <h1>Märkte meistern, ohne echtes Geld zu riskieren.</h1>
+        <p class="eyebrow"><Sparkles size={14} /> {$t('landing.eyebrow')}</p>
+        <h1>{$t('landing.heading')}</h1>
         <p>
-          KoalaTrade vereint Aktien, ETFs, Crypto, Rohstoffe und eSports-Eventmärkte in einem schnellen Paper-Trading-Desk —
-          zum Lernen und Üben, ganz ohne echtes Risiko.
+          {$t('landing.body')}
         </p>
         <div class="landing-actions">
-          <button class="primary-button" type="button" title="Starte den KoalaTrade Trading Desk." on:click={() => setActiveView('trade')}>Desk starten</button>
-          <span class:online={config}>{config ? 'Live API bereit' : 'Lädt lokale Session'}</span>
+          <button class="primary-button" type="button" title={$t('landing.startDeskTitle')} on:click={() => setActiveView('trade')}>{$t('landing.startDesk')}</button>
+          <span class:online={config}>{config ? $t('landing.apiReady') : $t('landing.loadingSession')}</span>
         </div>
         <div class="landing-stats">
-          <div><strong>{markets.length}</strong><span>Märkte</span></div>
-          <div><strong>{formatMoney(summary.totalEquityCents)}</strong><span>Equity</span></div>
-          <div><strong>0 €</strong><span>Risiko</span></div>
+          <div><strong>{markets.length}</strong><span>{$t('landing.statMarkets')}</span></div>
+          <div><strong>{formatMoney(summary.totalEquityCents)}</strong><span>{$t('landing.statEquity')}</span></div>
+          <div><strong>0 €</strong><span>{$t('landing.statRisk')}</span></div>
         </div>
       </div>
 
-      <div class="landing-terminal" aria-label="Product preview">
+      <div class="landing-terminal" aria-label={$t('landing.preview')}>
         <div class="preview-marketbar">
           <div>
             <strong>{selectedMarket.symbol}</strong>
@@ -1355,44 +1375,44 @@
       </div>
     </section>
 
-    <section class="landing-bands" aria-label="Core product areas">
+    <section class="landing-bands" aria-label={$t('landing.bandsLabel')}>
       <article>
         <CandlestickChart size={20} />
-        <strong>Multi-Asset Watchlist</strong>
-        <span>Ein normalisiertes Marktmodell für Crypto, ETFs, Rohstoffe und Eventmärkte.</span>
+        <strong>{$t('landing.band1Title')}</strong>
+        <span>{$t('landing.band1Body')}</span>
       </article>
       <article>
         <WalletCards size={20} />
-        <strong>Portfolio-Analytics</strong>
-        <span>Equity-Kurve, realisierter & unrealisierter P&L, Drawdown und Order-History.</span>
+        <strong>{$t('landing.band2Title')}</strong>
+        <span>{$t('landing.band2Body')}</span>
       </article>
       <article>
         <TrendingUp size={20} />
-        <strong>eSports-Märkte</strong>
-        <span>LoL-Eventmärkte mit Yes/No-Ansicht und Auflösungsdatum.</span>
+        <strong>{$t('landing.band3Title')}</strong>
+        <span>{$t('landing.band3Body')}</span>
       </article>
     </section>
   </main>
 {:else}
   <div class="app-shell">
-    <nav class="icon-rail" aria-label="Hauptnavigation">
+    <nav class="icon-rail" aria-label={$t('nav.main')}>
       <div class="rail-logo" aria-hidden="true"></div>
       {#each deskTabs as tab}
         <button class="rail-item" class:active={activeView === tab.id} type="button"
-                title={tab.id === 'trade' ? 'Handelsbildschirm: Kaufe und verkaufe Assets zum aktuellen Marktpreis' :
-                       tab.id === 'portfolio' ? 'Portfolio: Zeige deine Positionen, deinen Kontostand, P&L-Statistiken und Wertentwicklung' :
-                       tab.id === 'markets' ? 'Märkte: Übersicht aller handelbaren Aktien, ETFs, Kryptowährungen und Rohstoffe' :
-                       tab.id === 'esports' ? 'eSports: Vorhersagemärkte für anstehende Matches mit Polymarket-Quoten' : ''}
+                title={tab.id === 'trade' ? $t('nav.tradeTitle') :
+                       tab.id === 'portfolio' ? $t('nav.portfolioTitle') :
+                       tab.id === 'markets' ? $t('nav.marketsTitle') :
+                       tab.id === 'esports' ? $t('nav.esportsTitle') : ''}
                 on:click={() => setActiveView(tab.id)}>
           <svelte:component this={tab.icon} size={17} />
-          <span>{tab.label}</span>
+          <span>{$t(tab.labelKey)}</span>
         </button>
       {/each}
       <button class="rail-item rail-avatar" class:active={activeView === 'profile'} type="button"
-              title="Profil & Favoriten: Verwalte deine Einstellungen, Lieblingsteams und Kontodaten"
+              title={$t('nav.profileTitle')}
               on:click={() => setActiveView('profile')}>
         <UserCircle2 size={18} />
-        <span>Profil</span>
+        <span>{$t('nav.profile')}</span>
       </button>
     </nav>
 
@@ -1402,32 +1422,37 @@
         <img src="/icons/koalatrade.svg" alt="" width="34" height="34" />
         <div>
           <strong>KoalaTrade</strong>
-          <span>Live paper exchange</span>
+          <span>{$t('topbar.tagline')}</span>
         </div>
       </div>
 
       <div class="desk-actions">
-        <span class:online={config && !configError} class="status-pill" title="Status der Verbindung zum KoalaTrade-Backend-Server.">
-          <i class="dot"></i>{config && !configError ? 'API online' : 'Local mode'}
+        <span class:online={config && !configError} class="status-pill" title={$t('topbar.connTitle')}>
+          <i class="dot"></i>{config && !configError ? $t('topbar.apiOnline') : $t('topbar.localMode')}
         </span>
-        <button class="icon-button" class:active={activeView === 'admin'} type="button" aria-label="Admin" title="Admin-Bereich: Teammappings verwalten, Cache leeren und Registrierungsmodus umschalten" on:click={() => setActiveView('admin')}>
+        <div class="lang-switch" role="group" aria-label={$t('common.language')} title={$t('topbar.languageTitle')}>
+          {#each LOCALES as loc}
+            <button class="lang-option" class:active={$locale === loc} type="button" aria-pressed={$locale === loc} title={LOCALE_LABELS[loc]} on:click={() => setLocale(loc)}>{loc.toUpperCase()}</button>
+          {/each}
+        </div>
+        <button class="icon-button" class:active={activeView === 'admin'} type="button" aria-label={$t('topbar.adminLabel')} title={$t('topbar.adminTitle')} on:click={() => setActiveView('admin')}>
           <ShieldCheck size={18} />
         </button>
-        <button class="icon-button" type="button" aria-label="Shortcuts" title="Tastenkürzel anzeigen (?)" on:click={() => (showShortcuts = !showShortcuts)}>
+        <button class="icon-button" type="button" aria-label={$t('topbar.shortcutsLabel')} title={$t('topbar.shortcutsTitle')} on:click={() => (showShortcuts = !showShortcuts)}>
           <Keyboard size={18} />
         </button>
-        <button class="icon-button" type="button" aria-label="Portfolio synchronisieren" title="Portfolio synchronisieren: Sichere dein Portfolio auf dem Server, um es geräteübergreifend zu nutzen" disabled={isSyncing || !portfolio || !!configError} on:click={handleSyncPortfolio}>
+        <button class="icon-button" type="button" aria-label={$t('topbar.syncLabel')} title={$t('topbar.syncTitle')} disabled={isSyncing || !portfolio || !!configError} on:click={handleSyncPortfolio}>
           <CloudUpload size={18} />
         </button>
-        <button class="icon-button" type="button" aria-label="Portfolio zurücksetzen" title="Portfolio zurücksetzen: Löscht alle Positionen und setzt dein Guthaben auf den Startwert zurück" on:click={() => (showResetConfirm = true)}>
+        <button class="icon-button" type="button" aria-label={$t('topbar.resetLabel')} title={$t('topbar.resetTitle')} on:click={() => (showResetConfirm = true)}>
           <RotateCcw size={18} />
         </button>
       </div>
     </header>
 
-    <section class="market-tape" aria-label="Market tape">
+    <section class="market-tape" aria-label={$t('a11y.marketTape')}>
       {#each markets.slice(0, 6) as item, index}
-        <button class:active={selectedMarket && selectedMarket.assetId === item.assetId} type="button" title={`Wähle ${item.symbol} aus, um den Chart und das Order-Ticket anzuzeigen.`} on:click={() => selectMarket(item.assetId, true)}>
+        <button class:active={selectedMarket && selectedMarket.assetId === item.assetId} type="button" title={$t('tape.selectTitle', { symbol: item.symbol })} on:click={() => selectMarket(item.assetId, true)}>
           <span class="tape-key">{index + 1}</span>
           <strong>{item.symbol}</strong>
           <span class="tape-price">{formatPrice(item.priceCents)}</span>
@@ -1442,42 +1467,42 @@
           <div class="ob-text">
             <span class="ob-emoji" aria-hidden="true">👋</span>
             <div>
-              <strong>Neu hier? Du handelst mit {formatMoney(config?.startingCashCents ?? 1_000_000)} Spielgeld.</strong>
-              <p>Wähle links einen Markt, rechts einen Order-Typ – und platziere deinen ersten Trade.</p>
+              <strong>{$t('onboarding.new', { amount: formatMoney(config?.startingCashCents ?? 1_000_000) })}</strong>
+              <p>{$t('onboarding.pick')}</p>
             </div>
           </div>
           <div class="ob-actions">
-            <button type="button" class="ob-tour" title="Kurze Einführung in KoalaTrade ansehen" on:click={() => (showTour = true)}>Tour ansehen</button>
-            <button type="button" class="ob-dismiss" title="Diesen Hinweis dauerhaft ausblenden" on:click={dismissOnboarding}>Ausblenden</button>
+            <button type="button" class="ob-tour" title={$t('onboarding.tourTitle')} on:click={() => (showTour = true)}>{$t('onboarding.tour')}</button>
+            <button type="button" class="ob-dismiss" title={$t('onboarding.dismissTitle')} on:click={dismissOnboarding}>{$t('onboarding.dismiss')}</button>
           </div>
         </div>
       {/if}
-      <section class="trade-layout" aria-label="Trading workspace">
-        <aside class="watchlist panel" aria-label="Markets">
-          <label class="search compact" aria-label="Märkte durchsuchen">
+      <section class="trade-layout" aria-label={$t('a11y.tradingWorkspace')}>
+        <aside class="watchlist panel" aria-label={$t('nav.markets')}>
+          <label class="search compact" aria-label={$t('watchlist.searchLabel')}>
             <Search size={16} />
-            <input bind:value={marketQuery} type="search" placeholder="Märkte durchsuchen" />
+            <input bind:value={marketQuery} type="search" placeholder={$t('watchlist.searchPlaceholder')} />
           </label>
-          <div class="market-filters" aria-label="Markt-Filter">
+          <div class="market-filters" aria-label={$t('watchlist.filtersLabel')}>
             {#each marketFilters as filter}
-              <button class:active={marketFilter === filter.id} type="button" title={`Zeige nur Märkte vom Typ "${filter.label}"`} on:click={() => (marketFilter = filter.id)}>{filter.label}</button>
+              <button class:active={marketFilter === filter.id} type="button" title={$t('filter.onlyType', { label: $t(filter.labelKey) })} on:click={() => (marketFilter = filter.id)}>{$t(filter.labelKey)}</button>
             {/each}
           </div>
-          <div class="watchlist-head"><span>Asset</span><span>Preis</span><span>24h</span></div>
+          <div class="watchlist-head"><span>{$t('watchlist.headAsset')}</span><span>{$t('watchlist.headPrice')}</span><span>{$t('watchlist.head24h')}</span></div>
           <div class="market-list">
             {#if marketsLoading}
               {#each Array(6) as _}<div class="skeleton-row"></div>{/each}
             {:else if filteredMarkets.length === 0}
-              <p class="empty-state">Keine Märkte für diesen Filter.</p>
+              <p class="empty-state">{$t('watchlist.emptyFilter')}</p>
             {:else}
               {#each filteredMarkets as item}
-                <button class:selected={selectedMarket && selectedMarket.assetId === item.assetId} class="market-row" type="button" title={`Wähle ${item.symbol} (${item.name}) aus.`} on:click={() => selectMarket(item.assetId)}>
+                <button class:selected={selectedMarket && selectedMarket.assetId === item.assetId} class="market-row" type="button" title={$t('watchlist.selectTitle', { symbol: item.symbol, name: item.name })} on:click={() => selectMarket(item.assetId)}>
                   <span class="asset"><strong>{item.symbol}</strong><small>{item.kind}</small></span>
                   {#if item.priceCents > 0}
-                    <span class="price" class:stale={isStalePrice(item)} title={isStalePrice(item) ? `Kurs auffällig alt (${formatUpdatedAtFull(item.updatedAt)}) – Datenquelle vermutlich gerade nicht erreichbar.` : undefined}>{isStalePrice(item) ? '⚠ ' : ''}{formatMoney(item.priceCents)}</span>
+                    <span class="price" class:stale={isStalePrice(item)} title={isStalePrice(item) ? $t('watchlist.staleTitle', { time: formatUpdatedAtFull(item.updatedAt) }) : undefined}>{isStalePrice(item) ? '⚠ ' : ''}{formatMoney(item.priceCents)}</span>
                     <em class={marketTone(item.changeBps)}>{formatPercentFromBps(item.changeBps)}</em>
                   {:else}
-                    <span class="no-feed" title="Für dieses Asset liegt aktuell kein Live-Kurs vor (kein Feed/API-Key)."><i></i>no feed</span>
+                    <span class="no-feed" title={$t('watchlist.noFeedTitle')}><i></i>{$t('watchlist.noFeed')}</span>
                   {/if}
                 </button>
               {/each}
@@ -1486,7 +1511,7 @@
         </aside>
 
         <section class="market-stage">
-          <section class="instrument-strip panel" aria-label="Selected market">
+          <section class="instrument-strip panel" aria-label={$t('a11y.selectedMarket')}>
             {#if selectedMarket}
               <div class="instrument-id">
                 <p class="eyebrow">{selectedMarket.kind} · {selectedMarket.source}</p>
@@ -1496,26 +1521,26 @@
               <div class="instrument-price">
                 <strong>{formatPrice(selectedMarket.priceCents)}</strong>
                 <span class={selectedMarket.priceCents > 0 ? marketTone(selectedMarket.changeBps) : ''}>
-                  {selectedMarket.priceCents > 0 ? formatPercentFromBps(selectedMarket.changeBps) + ' heute' : '—'}
+                  {selectedMarket.priceCents > 0 ? formatPercentFromBps(selectedMarket.changeBps) + ' ' + $t('instrument.today') : '—'}
                 </span>
               </div>
             {:else}
               <div class="instrument-id">
                 <p class="eyebrow">—</p>
-                <h1>Kein Markt ausgewählt</h1>
+                <h1>{$t('instrument.noMarket')}</h1>
               </div>
             {/if}
             <div class="instrument-stats">
-              <span>Equity <strong>{formatMoney(summary.totalEquityCents)}</strong></span>
-              <span>Cash <strong>{formatMoney(summary.cashCents)}</strong></span>
-              <span>Return <strong class={changeColor(summary.totalReturnBps)}>{formatPercentFromBps(summary.totalReturnBps)}</strong></span>
+              <span>{$t('instrument.equity')} <strong>{formatMoney(summary.totalEquityCents)}</strong></span>
+              <span>{$t('instrument.cash')} <strong>{formatMoney(summary.cashCents)}</strong></span>
+              <span>{$t('instrument.return')} <strong class={changeColor(summary.totalReturnBps)}>{formatPercentFromBps(summary.totalReturnBps)}</strong></span>
             </div>
           </section>
 
-          <section class="chart-panel panel" aria-label="Price chart">
+          <section class="chart-panel panel" aria-label={$t('a11y.priceChart')}>
             <div class="chart-toolbar">
               <div>
-                <p class="eyebrow">Chart · {chartRange}</p>
+                <p class="eyebrow">{$t('chart.eyebrow')} · {chartRange}</p>
                 {#if selectedMarket && selectedMarket.priceCents > 0}
                   <h2>{formatMoney(selectedMarket.priceCents)} <em class={changeColor(rangeChangeBps)}>{formatSignedMoney(rangeChangeCents)} ({formatPercentFromBps(rangeChangeBps)})</em></h2>
                 {:else}
@@ -1523,12 +1548,12 @@
                 {/if}
               </div>
               <div class="chart-controls">
-                <button class="sma-toggle" class:active={showSma} type="button" title="Simple Moving Average (14): Blendet den gleitenden Durchschnitt der letzten 14 Kerzen ein/aus, um den Trend zu visualisieren." on:click={() => (showSma = !showSma)}>SMA 14</button>
-                <InfoTip placement="bottom" text="Simple Moving Average (14): der gleitende Durchschnitt der letzten 14 Kerzen. Glättet den Kurs und zeigt den Trend – liegt der Preis darüber, ist der kurzfristige Trend eher aufwärts." />
+                <button class="sma-toggle" class:active={showSma} type="button" title={$t('chart.smaTitle')} on:click={() => (showSma = !showSma)}>SMA 14</button>
+                <InfoTip placement="bottom" text={$t('chart.smaTip')} />
 
                 <div class="timeframes">
                   {#each chartRanges as range}
-                    <button class:active={chartRange === range} type="button" title={`Ändere den Chart-Zeitraum auf ${range}`} on:click={() => (chartRange = range)}>{range}</button>
+                    <button class:active={chartRange === range} type="button" title={$t('chart.rangeTitle', { range })} on:click={() => (chartRange = range)}>{range}</button>
                   {/each}
                 </div>
               </div>
@@ -1543,26 +1568,26 @@
               formatLabel={formatChartTime}
             />
             <div class="chart-stats">
-              <span>Open <strong>{formatMoney(chartOpen)}</strong></span>
-              <span>Hoch <strong>{formatMoney(chartHigh)}</strong></span>
-              <span>Tief <strong>{formatMoney(chartLow)}</strong></span>
-              <span>Spanne<InfoTip placement="bottom" text="Die prozentuale Differenz zwischen dem höchsten und tiefsten Kurs im gewählten Zeitraum – ein Maß für die Schwankung (Volatilität)." /> <strong>{formatPercentFromBps(chartLow > 0 ? Math.round(((chartHigh - chartLow) / chartLow) * 10_000) : 0)}</strong></span>
+              <span>{$t('chart.open')} <strong>{formatMoney(chartOpen)}</strong></span>
+              <span>{$t('chart.high')} <strong>{formatMoney(chartHigh)}</strong></span>
+              <span>{$t('chart.low')} <strong>{formatMoney(chartLow)}</strong></span>
+              <span>{$t('chart.range')}<InfoTip placement="bottom" text={$t('chart.rangeTip')} /> <strong>{formatPercentFromBps(chartLow > 0 ? Math.round(((chartHigh - chartLow) / chartLow) * 10_000) : 0)}</strong></span>
             </div>
           </section>
         </section>
 
-        <aside class="execution-column" aria-label="Execution">
-          <section class="panel market-detail" aria-label="Marktdetails">
-            <div class="panel-head"><div><p class="eyebrow">Live · {selectedMarket.source || '—'}</p><h2>Marktdetails</h2></div><Activity size={18} /></div>
+        <aside class="execution-column" aria-label={$t('a11y.execution')}>
+          <section class="panel market-detail" aria-label={$t('detail.title')}>
+            <div class="panel-head"><div><p class="eyebrow">Live · {selectedMarket.source || '—'}</p><h2>{$t('detail.title')}</h2></div><Activity size={18} /></div>
             <div class="detail-grid">
-              <div><span>Preis</span><strong>{formatPrice(selectedMarket.priceCents)}</strong></div>
-              <div><span>24h</span><strong class={selectedMarket.priceCents > 0 ? changeColor(selectedMarket.changeBps) : ''}>{selectedMarket.priceCents > 0 ? formatPercentFromBps(selectedMarket.changeBps) : '—'}</strong></div>
-              <div><span>Typ</span><strong>{selectedMarket.kind}</strong></div>
-              <div><span>Aktualisiert</span>
+              <div><span>{$t('detail.price')}</span><strong>{formatPrice(selectedMarket.priceCents)}</strong></div>
+              <div><span>{$t('detail.change24h')}</span><strong class={selectedMarket.priceCents > 0 ? changeColor(selectedMarket.changeBps) : ''}>{selectedMarket.priceCents > 0 ? formatPercentFromBps(selectedMarket.changeBps) : '—'}</strong></div>
+              <div><span>{$t('detail.type')}</span><strong>{selectedMarket.kind}</strong></div>
+              <div><span>{$t('detail.updated')}</span>
                 {#if selectedMarketFreshness === 'stale'}
-                  <strong class="stale" title="Dieser Kurs ist auffällig alt ({formatUpdatedAtFull(selectedMarket.updatedAt)}) – die Datenquelle ist vermutlich gerade nicht erreichbar.">⚠ {formatUpdatedAtFull(selectedMarket.updatedAt)}</strong>
+                  <strong class="stale" title={$t('detail.staleTitle', { time: formatUpdatedAtFull(selectedMarket.updatedAt) })}>⚠ {formatUpdatedAtFull(selectedMarket.updatedAt)}</strong>
                 {:else if selectedMarketFreshness === 'closed'}
-                  <strong class="closed" title="Markt geschlossen – letzter Kurs vom {formatUpdatedAtFull(selectedMarket.updatedAt)}. Aktualisiert wieder bei Börsenöffnung.">🌙 {formatUpdatedAtFull(selectedMarket.updatedAt)}</strong>
+                  <strong class="closed" title={$t('detail.closedTitle', { time: formatUpdatedAtFull(selectedMarket.updatedAt) })}>🌙 {formatUpdatedAtFull(selectedMarket.updatedAt)}</strong>
                 {:else}
                   <strong>{selectedMarket.updatedAt ? formatUpdatedAt(selectedMarket.updatedAt) : '—'}</strong>
                 {/if}
@@ -1570,59 +1595,59 @@
             </div>
             {#if selectedPositionRow}
               <div class="detail-position">
-                <p class="eyebrow">Deine Position</p>
+                <p class="eyebrow">{$t('detail.yourPosition')}</p>
                 <div class="detail-grid">
-                  <div><span>Menge</span><strong>{formatQuantity(selectedPositionRow.quantity)}</strong></div>
-                  <div><span>Ø-Einstand<InfoTip text="Dein durchschnittlicher Kaufpreis für diese Position über alle Käufe hinweg." /></span><strong>{formatMoney(selectedPositionRow.averageCostCents)}</strong></div>
-                  <div><span>Marktwert</span><strong>{formatMoney(selectedPositionRow.marketValueCents)}</strong></div>
-                  <div><span>P&amp;L<InfoTip text="Profit &amp; Loss: der aktuelle Gewinn oder Verlust dieser Position – Marktwert minus Einstandswert." /></span><strong class={changeColor(selectedPositionRow.pnlCents)}>{formatSignedMoney(selectedPositionRow.pnlCents)}</strong></div>
+                  <div><span>{$t('detail.quantity')}</span><strong>{formatQuantity(selectedPositionRow.quantity)}</strong></div>
+                  <div><span>{$t('detail.avgCost')}<InfoTip text={$t('detail.avgCostTip')} /></span><strong>{formatMoney(selectedPositionRow.averageCostCents)}</strong></div>
+                  <div><span>{$t('detail.marketValue')}</span><strong>{formatMoney(selectedPositionRow.marketValueCents)}</strong></div>
+                  <div><span>{$t('detail.pnl')}<InfoTip text={$t('detail.pnlTip')} /></span><strong class={changeColor(selectedPositionRow.pnlCents)}>{formatSignedMoney(selectedPositionRow.pnlCents)}</strong></div>
                 </div>
               </div>
             {:else}
-              <p class="panel-note">Noch keine Position in {selectedMarket.symbol}.</p>
+              <p class="panel-note">{$t('detail.noPosition', { symbol: selectedMarket.symbol })}</p>
             {/if}
           </section>
 
-          <section class="order-panel panel" aria-label="Order ticket">
+          <section class="order-panel panel" aria-label={$t('order.ticket')}>
             <div class="panel-head">
-              <div><p class="eyebrow">Order-Ticket · {orderType === 'market' ? 'Market' : orderType === 'limit' ? 'Limit' : 'Stop'}</p><h2>{orderSide === 'buy' ? 'Kaufen' : 'Verkaufen'} {selectedMarket.symbol}</h2></div>
+              <div><p class="eyebrow">{$t('order.ticket')} · {orderType === 'market' ? $t('orderType.market') : orderType === 'limit' ? $t('orderType.limit') : $t('orderType.stop')}</p><h2>{orderSide === 'buy' ? $t('side.buyVerb') : $t('side.sellVerb')} {selectedMarket.symbol}</h2></div>
               <Zap size={18} />
             </div>
             <form class="order-form" on:submit|preventDefault={handleSubmitOrder}>
-              <div class="segmented" aria-label="Order-Seite">
-                <button class:active={orderSide === 'buy'} type="button" title="Kauf-Order: Assets erwerben" on:click={() => setOrderSide('buy')}>Kaufen</button>
-                <button class:active={orderSide === 'sell'} class="sell" type="button" title="Verkaufs-Order: Assets aus deinem Bestand veräußern" on:click={() => setOrderSide('sell')}>Verkaufen</button>
+              <div class="segmented" aria-label={$t('order.sideLabel')}>
+                <button class:active={orderSide === 'buy'} type="button" title={$t('order.buyTitle')} on:click={() => setOrderSide('buy')}>{$t('side.buyVerb')}</button>
+                <button class:active={orderSide === 'sell'} class="sell" type="button" title={$t('order.sellTitle')} on:click={() => setOrderSide('sell')}>{$t('side.sellVerb')}</button>
               </div>
 
-              <div class="order-types" role="tablist" aria-label="Order-Typ">
-                <button class:active={orderType === 'market'} type="button" role="tab" aria-selected={orderType === 'market'} title="Market-Order: wird sofort zum aktuellen Marktpreis ausgeführt." on:click={() => setOrderType('market')}>Market</button>
-                <button class:active={orderType === 'limit'} type="button" role="tab" aria-selected={orderType === 'limit'} title="Limit-Order: wird erst ausgeführt, wenn der Kurs dein Limit erreicht – bleibt bis dahin als offene Order stehen." on:click={() => setOrderType('limit')}>Limit</button>
-                <button class:active={orderType === 'stop'} type="button" role="tab" aria-selected={orderType === 'stop'} title="Stop-Order: löst bei Erreichen deines Stop-Preises aus und wird dann zur Marktorder – bleibt bis dahin offen." on:click={() => setOrderType('stop')}>Stop</button>
+              <div class="order-types" role="tablist" aria-label={$t('order.typeLabel')}>
+                <button class:active={orderType === 'market'} type="button" role="tab" aria-selected={orderType === 'market'} title={$t('order.marketTitle')} on:click={() => setOrderType('market')}>{$t('orderType.market')}</button>
+                <button class:active={orderType === 'limit'} type="button" role="tab" aria-selected={orderType === 'limit'} title={$t('order.limitTitle')} on:click={() => setOrderType('limit')}>{$t('orderType.limit')}</button>
+                <button class:active={orderType === 'stop'} type="button" role="tab" aria-selected={orderType === 'stop'} title={$t('order.stopTitle')} on:click={() => setOrderType('stop')}>{$t('orderType.stop')}</button>
               </div>
 
               <p class="order-hint">{orderTypeHint}</p>
 
-              <label class="field" title="Menge: Gib die Stückzahl ein, die du handeln möchtest.">
-                <span>Menge</span>
-                <input bind:value={orderQuantity} min="0.0001" step="0.0001" type="number" title="Gewünschte Stückzahl für die Order" />
+              <label class="field" title={$t('order.quantityTitle')}>
+                <span>{$t('order.quantity')}</span>
+                <input bind:value={orderQuantity} min="0.0001" step="0.0001" type="number" title={$t('order.quantityInputTitle')} />
               </label>
 
               {#if orderType === 'limit'}
-                <label class="field trigger limit" title="Limit-Preis: Kauf füllt nur zu diesem Preis oder besser (tiefer), Verkauf nur zu diesem oder besser (höher).">
-                  <span>Limit-Preis <small>nur zu diesem Preis oder besser</small></span>
-                  <input bind:value={triggerPrice} min="0" step="0.01" type="number" placeholder={(effectivePriceCents / 100).toFixed(2)} title="Kurs, bei dem die Limit-Order füllt" />
+                <label class="field trigger limit" title={$t('order.limitPriceFieldTitle')}>
+                  <span>{$t('order.limitPrice')} <small>{$t('order.limitPriceHint')}</small></span>
+                  <input bind:value={triggerPrice} min="0" step="0.01" type="number" placeholder={(effectivePriceCents / 100).toFixed(2)} title={$t('order.limitPriceInputTitle')} />
                 </label>
               {:else if orderType === 'stop'}
-                <label class="field trigger stop" title="Stop-Preis: Sobald der Kurs diesen Wert erreicht, wird die Order als Marktorder ausgeführt.">
-                  <span>Stop-Preis <small>löst als Marktorder aus</small></span>
-                  <input bind:value={triggerPrice} min="0" step="0.01" type="number" placeholder={(effectivePriceCents / 100).toFixed(2)} title="Auslöse-Kurs der Stop-Order" />
+                <label class="field trigger stop" title={$t('order.stopPriceFieldTitle')}>
+                  <span>{$t('order.stopPrice')} <small>{$t('order.stopPriceHint')}</small></span>
+                  <input bind:value={triggerPrice} min="0" step="0.01" type="number" placeholder={(effectivePriceCents / 100).toFixed(2)} title={$t('order.stopPriceInputTitle')} />
                 </label>
               {/if}
 
               {#if orderType === 'market'}
-                <div class="presets" aria-label="Mengen-Presets">
+                <div class="presets" aria-label={$t('order.presetsLabel')}>
                   {#each quantityPresets as preset}
-                    <button type="button" disabled={orderLimitQuantity <= 0} title={`Setzt die Menge auf ${Math.round(preset * 100)}% deines verfügbaren Budgets bzw. Bestands`} on:click={() => applyPreset(preset)}>{Math.round(preset * 100)}%</button>
+                    <button type="button" disabled={orderLimitQuantity <= 0} title={$t('order.presetTitle', { pct: Math.round(preset * 100) })} on:click={() => applyPreset(preset)}>{Math.round(preset * 100)}%</button>
                   {/each}
                 </div>
               {/if}
@@ -1631,36 +1656,36 @@
 
               <div class="order-summary">
                 {#if isOpenOrderType}
-                  <div title="Kurs, bei dem diese Order auslöst."><span>{orderType === 'limit' ? 'Limit-Preis' : 'Stop-Preis'}</span><strong>{triggerPriceCents > 0 ? formatMoney(triggerPriceCents) : '—'}</strong></div>
-                  <div title="Ordervolumen zum Trigger-Preis (ohne Gebühr)."><span>Volumen</span><strong>{triggerPriceCents > 0 ? formatMoney(Math.round(normalizedOrderQuantity * triggerPriceCents)) : '—'}</strong></div>
+                  <div title={$t('order.triggerTitle')}><span>{orderType === 'limit' ? $t('order.limitPrice') : $t('order.stopPrice')}</span><strong>{triggerPriceCents > 0 ? formatMoney(triggerPriceCents) : '—'}</strong></div>
+                  <div title={$t('order.volumeTitle')}><span>{$t('order.volume')}</span><strong>{triggerPriceCents > 0 ? formatMoney(Math.round(normalizedOrderQuantity * triggerPriceCents)) : '—'}</strong></div>
                 {:else}
-                  <div title="Der aktuelle Preis pro Einheit des Assets."><span>Marktpreis</span><strong>{formatMoney(effectivePriceCents)}</strong></div>
-                  <div title="Reiner Preis der Einheiten ohne Gebühren."><span>Bruttowert</span><strong>{formatMoney(estimatedOrderValue)}</strong></div>
-                  <div title="Simulierte Transaktionsgebühr für diesen Trade."><span>Gebühr ({(ORDER_FEE_BPS / 100).toFixed(2)}%)<InfoTip text={`Simulierte Handelsgebühr von ${(ORDER_FEE_BPS / 100).toFixed(2)}% auf den Ordervolumen – wie bei einem echten Broker, damit die Simulation realistisch bleibt.`} /></span><strong>{formatMoney(estimatedOrderFee)}</strong></div>
-                  <div class="total" title="Gesamter Cash-Betrag, der nach Gebühren belastet oder gutgeschrieben wird."><span>{orderSide === 'buy' ? 'Cash-Belastung' : 'Cash-Gutschrift'}</span><strong>{formatMoney(estimatedOrderTotal)}</strong></div>
+                  <div title={$t('order.marketPriceTitle')}><span>{$t('order.marketPrice')}</span><strong>{formatMoney(effectivePriceCents)}</strong></div>
+                  <div title={$t('order.grossValueTitle')}><span>{$t('order.grossValue')}</span><strong>{formatMoney(estimatedOrderValue)}</strong></div>
+                  <div title={$t('order.feeTitle')}><span>{$t('order.fee', { pct: (ORDER_FEE_BPS / 100).toFixed(2) })}<InfoTip text={$t('order.feeTip', { pct: (ORDER_FEE_BPS / 100).toFixed(2) })} /></span><strong>{formatMoney(estimatedOrderFee)}</strong></div>
+                  <div class="total" title={$t('order.totalTitle')}><span>{orderSide === 'buy' ? $t('order.cashDebit') : $t('order.cashCredit')}</span><strong>{formatMoney(estimatedOrderTotal)}</strong></div>
                 {/if}
-                <div class="status-row" title="Ob die Order sofort füllt oder als offene Order auf ihren Trigger wartet."><span>{orderStatusLabel}</span><strong>{orderStatusValue}</strong></div>
+                <div class="status-row" title={$t('order.statusTitle')}><span>{orderStatusLabel}</span><strong>{orderStatusValue}</strong></div>
               </div>
 
               {#if orderError}<p class="form-error">{orderError}</p>{/if}
-              <button class="primary-button" class:danger={orderSide === 'sell'} type="submit" title={isOpenOrderType ? 'Order in die Warteschlange offener Orders legen' : orderSide === 'buy' ? `Simulierten Kauf von ${normalizedOrderQuantity}x ${selectedMarket.symbol} ausführen` : `Simulierten Verkauf von ${normalizedOrderQuantity}x ${selectedMarket.symbol} ausführen`} disabled={!canPlaceOrder}>
+              <button class="primary-button" class:danger={orderSide === 'sell'} type="submit" title={isOpenOrderType ? $t('order.queueTitle') : orderSide === 'buy' ? $t('order.submitBuyTitle', { qty: normalizedOrderQuantity, symbol: selectedMarket.symbol }) : $t('order.submitSellTitle', { qty: normalizedOrderQuantity, symbol: selectedMarket.symbol })} disabled={!canPlaceOrder}>
                 {submitLabel}
               </button>
             </form>
           </section>
 
           {#if openOrders.length > 0}
-            <section class="panel open-orders" aria-label="Offene Orders">
-              <div class="panel-head"><div><p class="eyebrow">Warteschlange</p><h2>Offene Orders ({openOrders.length})</h2></div><Activity size={18} /></div>
+            <section class="panel open-orders" aria-label={$t('openOrders.label')}>
+              <div class="panel-head"><div><p class="eyebrow">{$t('openOrders.queue')}</p><h2>{$t('openOrders.heading', { count: openOrders.length })}</h2></div><Activity size={18} /></div>
               <div class="open-orders-list">
                 {#each openOrders as order (order.id)}
                   <div class="open-order-row" class:this-asset={order.assetId === selectedMarket.assetId}>
                     <div class="oo-id">
-                      <strong>{order.orderType === 'limit' ? 'Limit' : 'Stop'} {order.side === 'buy' ? 'Kauf' : 'Verkauf'}</strong>
+                      <strong>{order.orderType === 'limit' ? $t('orderType.limit') : $t('orderType.stop')} {order.side === 'buy' ? $t('side.buyNoun') : $t('side.sellNoun')}</strong>
                       <small>{formatQuantity(order.quantity)} {order.symbol} @ {formatMoney(order.triggerPriceCents)}</small>
                     </div>
-                    <span class="oo-status">wartet</span>
-                    <button type="button" class="oo-cancel" title="Diese offene Order stornieren" on:click={() => cancelOpenOrder(order.id)}>Stornieren</button>
+                    <span class="oo-status">{$t('openOrders.waiting')}</span>
+                    <button type="button" class="oo-cancel" title={$t('openOrders.cancelTitle')} on:click={() => cancelOpenOrder(order.id)}>{$t('openOrders.cancel')}</button>
                   </div>
                 {/each}
               </div>
@@ -1669,21 +1694,21 @@
         </aside>
       </section>
     {:else if activeView === 'portfolio'}
-      <section class="view-scroll" aria-label="Portfolio">
+      <section class="view-scroll" aria-label={$t('nav.portfolio')}>
         <section class="portfolio-metrics">
           <div class="metric primary">
-            <span>Equity<InfoTip placement="bottom" text="Dein gesamter Portfoliowert: verfügbares Cash plus der aktuelle Marktwert aller offenen Positionen." /></span>
+            <span>{$t('portfolio.equity')}<InfoTip placement="bottom" text={$t('portfolio.equityTip')} /></span>
             <strong>{formatMoney(summary.totalEquityCents)}</strong>
             <em class={changeColor(summary.totalReturnBps)}>{formatSignedMoney(summary.totalReturnCents)} ({formatPercentFromBps(summary.totalReturnBps)})</em>
           </div>
-          <div class="metric"><span>Cash</span><strong>{formatMoney(summary.cashCents)}</strong><em>{summary.openPositions} Positionen</em></div>
-          <div class="metric"><span>Realisierter P&L<InfoTip placement="bottom" text="Der bereits festgestellte Gewinn/Verlust aus verkauften (geschlossenen) Positionen – Geld, das du tatsächlich realisiert hast." /></span><strong class={changeColor(performance.realizedPnlCents)}>{formatSignedMoney(performance.realizedPnlCents)}</strong><em>geschlossen</em></div>
-          <div class="metric"><span>Unrealisiert<InfoTip placement="bottom" text="Der Buchgewinn/-verlust deiner noch offenen Positionen zum aktuellen Kurs – noch nicht realisiert, ändert sich mit dem Preis." /></span><strong class={changeColor(performance.unrealizedPnlCents)}>{formatSignedMoney(performance.unrealizedPnlCents)}</strong><em>offen</em></div>
-          <div class="metric"><span>Max Drawdown<InfoTip placement="bottom" align="right" text="Der größte prozentuale Rückgang deiner Equity vom bisherigen Höchststand (Peak) bis zum Tief – ein Risikomaß dafür, wie tief es zwischenzeitlich runterging." /></span><strong class:down={performance.drawdownBps > 0}>{formatPercentFromBps(-performance.drawdownBps)}</strong><em>Peak {formatMoney(performance.peakEquityCents)}</em></div>
+          <div class="metric"><span>{$t('portfolio.cash')}</span><strong>{formatMoney(summary.cashCents)}</strong><em>{$t('portfolio.positionsCount', { count: summary.openPositions })}</em></div>
+          <div class="metric"><span>{$t('portfolio.realizedPnl')}<InfoTip placement="bottom" text={$t('portfolio.realizedTip')} /></span><strong class={changeColor(performance.realizedPnlCents)}>{formatSignedMoney(performance.realizedPnlCents)}</strong><em>{$t('portfolio.closed')}</em></div>
+          <div class="metric"><span>{$t('portfolio.unrealized')}<InfoTip placement="bottom" text={$t('portfolio.unrealizedTip')} /></span><strong class={changeColor(performance.unrealizedPnlCents)}>{formatSignedMoney(performance.unrealizedPnlCents)}</strong><em>{$t('portfolio.open')}</em></div>
+          <div class="metric"><span>{$t('portfolio.maxDrawdown')}<InfoTip placement="bottom" align="right" text={$t('portfolio.drawdownTip')} /></span><strong class:down={performance.drawdownBps > 0}>{formatPercentFromBps(-performance.drawdownBps)}</strong><em>{$t('portfolio.peak', { amount: formatMoney(performance.peakEquityCents) })}</em></div>
         </section>
 
-        <section class="panel" aria-label="Equity curve">
-          <div class="panel-head"><div><p class="eyebrow">Performance</p><h2>Equity-Kurve</h2></div><LineChart size={18} /></div>
+        <section class="panel" aria-label={$t('portfolio.equityCurve')}>
+          <div class="panel-head"><div><p class="eyebrow">{$t('portfolio.performance')}</p><h2>{$t('portfolio.equityCurve')}</h2></div><LineChart size={18} /></div>
           <AreaChart
             series={performance.curve.map((point) => point.equityCents)}
             labels={performance.curve.map((point) => point.t)}
@@ -1695,21 +1720,21 @@
         </section>
 
         <div class="portfolio-grid">
-          <section class="panel" aria-label="Positions">
+          <section class="panel" aria-label={$t('portfolio.positions')}>
             <div class="panel-head">
-              <div><p class="eyebrow">Holdings</p><h2>Positionen</h2></div>
+              <div><p class="eyebrow">{$t('portfolio.holdings')}</p><h2>{$t('portfolio.positions')}</h2></div>
               <div class="mini-toggle">
-                <button class:active={positionSort === 'value'} type="button" title="Sortiere deine offenen Positionen nach Marktwert" on:click={() => (positionSort = 'value')}>Wert</button>
-                <button class:active={positionSort === 'pnl'} type="button" title="Sortiere deine offenen Positionen nach Gewinn/Verlust" on:click={() => (positionSort = 'pnl')}>P&L</button>
+                <button class:active={positionSort === 'value'} type="button" title={$t('portfolio.sortValueTitle')} on:click={() => (positionSort = 'value')}>{$t('portfolio.sortValue')}</button>
+                <button class:active={positionSort === 'pnl'} type="button" title={$t('portfolio.sortPnlTitle')} on:click={() => (positionSort = 'pnl')}>{$t('portfolio.sortPnl')}</button>
               </div>
             </div>
             <div class="table">
-              <div class="table-head pos"><span>Asset</span><span>Menge</span><span>Wert</span><span>P&L</span></div>
+              <div class="table-head pos"><span>{$t('watchlist.headAsset')}</span><span>{$t('detail.quantity')}</span><span>{$t('portfolio.headValue')}</span><span>P&L</span></div>
               {#if sortedPositionRows.length === 0}
-                <p class="empty-state">Noch keine offenen Positionen.</p>
+                <p class="empty-state">{$t('portfolio.emptyPositions')}</p>
               {:else}
                 {#each sortedPositionRows as position}
-                  <button class="table-row pos" type="button" title={`Klicke hier, um den Trading-Desk für ${position.symbol} zu öffnen und die Position zu handeln.`} on:click={() => selectMarket(position.assetId, true)}>
+                  <button class="table-row pos" type="button" title={$t('portfolio.openPositionTitle', { symbol: position.symbol })} on:click={() => selectMarket(position.assetId, true)}>
                     <span class="asset"><strong>{position.symbol}</strong><small>Ø {formatMoney(position.averageCostCents)}</small></span>
                     <span>{formatQuantity(position.quantity)}</span>
                     <span>{formatMoney(position.marketValueCents)}</span>
@@ -1720,18 +1745,18 @@
             </div>
           </section>
 
-          <section class="panel" aria-label="Order history">
-            <div class="panel-head"><div><p class="eyebrow">History</p><h2>Orders</h2></div><Activity size={18} /></div>
+          <section class="panel" aria-label={$t('portfolio.history')}>
+            <div class="panel-head"><div><p class="eyebrow">{$t('portfolio.history')}</p><h2>{$t('portfolio.orders')}</h2></div><Activity size={18} /></div>
             <div class="table">
-              <div class="table-head ord"><span>Order</span><span>Ausführung</span><span>Status</span></div>
+              <div class="table-head ord"><span>{$t('portfolio.headOrder')}</span><span>{$t('portfolio.headFill')}</span><span>{$t('portfolio.headStatus')}</span></div>
               {#if (portfolio?.transactions.length ?? 0) === 0}
-                <p class="empty-state">Noch keine Trades.</p>
+                <p class="empty-state">{$t('portfolio.emptyTrades')}</p>
               {:else}
                 {#each portfolio?.transactions.slice(0, 18) ?? [] as tx}
                   <div class="table-row ord">
-                    <strong class={tx.side}>{tx.side === 'buy' ? 'KAUF' : 'VERKAUF'} {tx.symbol}<small>{formatUpdatedAt(tx.createdAt)}</small></strong>
-                    <span>{formatQuantity(tx.quantity)} @ {formatMoney(tx.priceCents)}<small>Gebühr {formatMoney(tx.feeCents)}</small></span>
-                    <em class={tx.status === 'synced' ? 'synced-tag' : 'local-tag'}>{tx.status === 'synced' ? 'synced' : 'local'}</em>
+                    <strong class={tx.side}>{tx.side === 'buy' ? $t('portfolio.txBuy') : $t('portfolio.txSell')} {tx.symbol}<small>{formatUpdatedAt(tx.createdAt)}</small></strong>
+                    <span>{formatQuantity(tx.quantity)} @ {formatMoney(tx.priceCents)}<small>{$t('portfolio.feeShort', { amount: formatMoney(tx.feeCents) })}</small></span>
+                    <em class={tx.status === 'synced' ? 'synced-tag' : 'local-tag'}>{tx.status === 'synced' ? $t('portfolio.synced') : $t('portfolio.local')}</em>
                   </div>
                 {/each}
               {/if}
@@ -1740,15 +1765,15 @@
         </div>
       </section>
     {:else if activeView === 'markets'}
-      <section class="view-scroll" aria-label="Markets">
+      <section class="view-scroll" aria-label={$t('nav.markets')}>
         <div class="markets-toolbar panel">
-          <label class="search compact" aria-label="Märkte durchsuchen">
+          <label class="search compact" aria-label={$t('watchlist.searchLabel')}>
             <Search size={16} />
-            <input bind:value={marketQuery} type="search" placeholder="Märkte durchsuchen" />
+            <input bind:value={marketQuery} type="search" placeholder={$t('watchlist.searchPlaceholder')} />
           </label>
           <div class="market-filters wide">
             {#each marketFilters as filter}
-              <button class:active={marketFilter === filter.id} type="button" title={`Zeige nur Märkte vom Typ "${filter.label}"`} on:click={() => (marketFilter = filter.id)}>{filter.label}</button>
+              <button class:active={marketFilter === filter.id} type="button" title={$t('filter.onlyType', { label: $t(filter.labelKey) })} on:click={() => (marketFilter = filter.id)}>{$t(filter.labelKey)}</button>
             {/each}
           </div>
         </div>
@@ -1757,10 +1782,10 @@
           {#if marketsLoading}
             {#each Array(6) as _}<div class="market-card skeleton"></div>{/each}
           {:else if filteredMarkets.length === 0}
-            <p class="empty-state">Keine Märkte für diesen Filter.</p>
+            <p class="empty-state">{$t('watchlist.emptyFilter')}</p>
           {:else}
             {#each filteredMarkets as item}
-              <button class="market-card" class:selected={selectedMarket.assetId === item.assetId} type="button" title={`Öffne den Trading-Desk für ${item.symbol} (${item.name}).`} on:click={() => selectMarket(item.assetId, true)}>
+              <button class="market-card" class:selected={selectedMarket.assetId === item.assetId} type="button" title={$t('markets.openDeskTitle', { symbol: item.symbol, name: item.name })} on:click={() => selectMarket(item.assetId, true)}>
                 <div class="card-top">
                   <div><strong>{item.symbol}</strong><small>{item.name}</small></div>
                   <span class="kind-tag">{item.kind}</span>
@@ -1775,7 +1800,7 @@
         </div>
       </section>
     {:else if activeView === 'esports'}
-      <section class="view-scroll" aria-label="eSports">
+      <section class="view-scroll" aria-label={$t('nav.esports')}>
         <EsportsView
           matches={esportsMatches}
           loading={esportsLoading}
@@ -1794,7 +1819,7 @@
         />
       </section>
     {:else if activeView === 'leaderboard'}
-      <section class="view-scroll" aria-label="Rangliste">
+      <section class="view-scroll" aria-label={$t('nav.leaderboard')}>
         <LeaderboardView
           entries={leaderboard}
           loading={leaderboardLoading}
@@ -1805,7 +1830,7 @@
         />
       </section>
     {:else if activeView === 'profile'}
-      <section class="view-scroll" aria-label="Profil">
+      <section class="view-scroll" aria-label={$t('nav.profile')}>
         <ProfileView
           favoriteTeams={preferences.favoriteTeams}
           esportsLeagues={preferences.esportsLeagues}
@@ -1831,7 +1856,7 @@
         />
       </section>
     {:else}
-      <section class="view-scroll" aria-label="Admin">
+      <section class="view-scroll" aria-label={$t('topbar.adminLabel')}>
         <AdminView
           token={adminToken}
           matches={esportsMatches}
@@ -1855,29 +1880,29 @@
 
   {#if showShortcuts}
     <div class="shortcuts-overlay">
-      <button class="shortcuts-backdrop" type="button" aria-label="Schließen" title="Hilfefenster schließen" on:click={() => (showShortcuts = false)}></button>
-      <div class="shortcuts-card" role="dialog" aria-label="Tastenkürzel" aria-modal="true">
-        <div class="panel-head"><div><p class="eyebrow">Hilfe</p><h2>Tastenkürzel</h2></div><Keyboard size={18} /></div>
+      <button class="shortcuts-backdrop" type="button" aria-label={$t('shortcuts.closeLabel')} title={$t('shortcuts.closeTitle')} on:click={() => (showShortcuts = false)}></button>
+      <div class="shortcuts-card" role="dialog" aria-label={$t('shortcuts.title')} aria-modal="true">
+        <div class="panel-head"><div><p class="eyebrow">{$t('shortcuts.help')}</p><h2>{$t('shortcuts.title')}</h2></div><Keyboard size={18} /></div>
         <ul>
-          <li><kbd>B</kbd><span>Buy-Seite</span></li>
-          <li><kbd>S</kbd><span>Sell-Seite</span></li>
-          <li><kbd>1</kbd>–<kbd>6</kbd><span>Markt wählen</span></li>
-          <li><kbd>?</kbd><span>Diese Hilfe</span></li>
+          <li><kbd>B</kbd><span>{$t('shortcuts.buySide')}</span></li>
+          <li><kbd>S</kbd><span>{$t('shortcuts.sellSide')}</span></li>
+          <li><kbd>1</kbd>–<kbd>6</kbd><span>{$t('shortcuts.pickMarket')}</span></li>
+          <li><kbd>?</kbd><span>{$t('shortcuts.thisHelp')}</span></li>
         </ul>
-        <button class="primary-button" type="button" title="Tastenkürzel-Fenster schließen" on:click={() => (showShortcuts = false)}>Schließen</button>
+        <button class="primary-button" type="button" title={$t('shortcuts.closeButtonTitle')} on:click={() => (showShortcuts = false)}>{$t('common.close')}</button>
       </div>
     </div>
   {/if}
 
   {#if showResetConfirm}
     <div class="shortcuts-overlay">
-      <button class="shortcuts-backdrop" type="button" aria-label="Schließen" title="Dialog schließen und abbrechen" on:click={() => (showResetConfirm = false)}></button>
-      <div class="shortcuts-card" role="dialog" aria-label="Portfolio zurücksetzen" aria-modal="true">
-        <div class="panel-head"><div><p class="eyebrow">Bestätigen</p><h2>Portfolio zurücksetzen?</h2></div><RotateCcw size={18} /></div>
-        <p class="confirm-text">Alle Positionen, Trades und dein Verlauf werden gelöscht und das Startkapital von {formatMoney(portfolio?.startingCashCents ?? config?.startingCashCents ?? 1_000_000)} wiederhergestellt. Das kann nicht rückgängig gemacht werden.</p>
+      <button class="shortcuts-backdrop" type="button" aria-label={$t('common.close')} title={$t('reset.closeTitle')} on:click={() => (showResetConfirm = false)}></button>
+      <div class="shortcuts-card" role="dialog" aria-label={$t('topbar.resetLabel')} aria-modal="true">
+        <div class="panel-head"><div><p class="eyebrow">{$t('reset.confirm')}</p><h2>{$t('reset.heading')}</h2></div><RotateCcw size={18} /></div>
+        <p class="confirm-text">{$t('reset.text', { amount: formatMoney(portfolio?.startingCashCents ?? config?.startingCashCents ?? 1_000_000) })}</p>
         <div class="confirm-actions">
-          <button class="ghost-button" type="button" title="Zurücksetzen abbrechen" on:click={() => (showResetConfirm = false)}>Abbrechen</button>
-          <button class="primary-button danger" type="button" title="Alle Trades löschen und Guthaben auf Startkapital zurücksetzen" on:click={handleResetPortfolio}>Zurücksetzen</button>
+          <button class="ghost-button" type="button" title={$t('reset.cancelTitle')} on:click={() => (showResetConfirm = false)}>{$t('common.cancel')}</button>
+          <button class="primary-button danger" type="button" title={$t('reset.confirmTitle')} on:click={handleResetPortfolio}>{$t('reset.confirmButton')}</button>
         </div>
       </div>
     </div>
@@ -1885,16 +1910,16 @@
 
   {#if showTour}
     <div class="shortcuts-overlay">
-      <button class="shortcuts-backdrop" type="button" aria-label="Schließen" title="Tour schließen" on:click={() => (showTour = false)}></button>
-      <div class="shortcuts-card onboarding-card" role="dialog" aria-label="Willkommen" aria-modal="true">
-        <div class="panel-head"><div><p class="eyebrow">Willkommen bei KoalaTrade</p><h2>Paper-Trading in 30 Sekunden</h2></div><Sparkles size={18} /></div>
+      <button class="shortcuts-backdrop" type="button" aria-label={$t('common.close')} title={$t('tour.closeTitle')} on:click={() => (showTour = false)}></button>
+      <div class="shortcuts-card onboarding-card" role="dialog" aria-label={$t('tour.welcome')} aria-modal="true">
+        <div class="panel-head"><div><p class="eyebrow">{$t('tour.welcome')}</p><h2>{$t('tour.heading')}</h2></div><Sparkles size={18} /></div>
         <ul class="onboarding-list">
-          <li><WalletCards size={16} /><span>Du startest mit <strong>{formatMoney(config?.startingCashCents ?? 1_000_000)}</strong> Spielgeld – <strong>kein echtes Risiko</strong>.</span></li>
-          <li><CandlestickChart size={16} /><span>Handle Aktien, ETFs, Krypto und Rohstoffe zum Live-Marktpreis über das Order-Ticket.</span></li>
-          <li><Trophy size={16} /><span>Wette im <strong>eSports</strong>-Bereich auf LoL-Matches – Yes zahlt {formatMoney(10_000)} bei Sieg.</span></li>
-          <li><UserCircle2 size={16} /><span>Optional: Account anlegen, um dein Portfolio geräteübergreifend zu synchronisieren.</span></li>
+          <li><WalletCards size={16} /><span>{$t('tour.point1Before')}<strong>{formatMoney(config?.startingCashCents ?? 1_000_000)}</strong>{$t('tour.point1After')}<strong>{$t('tour.point1Risk')}</strong>.</span></li>
+          <li><CandlestickChart size={16} /><span>{$t('tour.point2')}</span></li>
+          <li><Trophy size={16} /><span>{$t('tour.point3Before')}<strong>{$t('tour.point3Esports')}</strong>{$t('tour.point3After', { amount: formatMoney(10_000) })}</span></li>
+          <li><UserCircle2 size={16} /><span>{$t('tour.point4')}</span></li>
         </ul>
-        <button class="primary-button" type="button" title="Paper-Trading starten" on:click={dismissOnboarding}>Los geht's</button>
+        <button class="primary-button" type="button" title={$t('tour.startTitle')} on:click={dismissOnboarding}>{$t('tour.start')}</button>
       </div>
     </div>
   {/if}
