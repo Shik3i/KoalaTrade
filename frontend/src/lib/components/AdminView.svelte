@@ -16,6 +16,9 @@
     type EsportsMatch,
     type TeamMapping
   } from '../api';
+  import { get } from 'svelte/store';
+  import { t } from '../i18n';
+  const tr = (key: string, vars?: Record<string, string | number>) => get(t)(key, vars);
 
   export let token: string | null = null;
   export let matches: EsportsMatch[] = [];
@@ -137,7 +140,7 @@
       await onLogin(username.trim(), password);
       password = '';
     } catch (e) {
-      loginError = e instanceof Error ? e.message : 'Login fehlgeschlagen';
+      loginError = e instanceof Error ? e.message : tr('admin.errLoginFailed');
     } finally {
       loggingIn = false;
     }
@@ -158,7 +161,7 @@
       onLogout();
       return;
     }
-    error = e instanceof Error ? e.message : 'Fehler';
+    error = e instanceof Error ? e.message : tr('admin.errGeneric');
   }
 
   async function saveMapping() {
@@ -224,7 +227,7 @@
         liveTest
       });
     } catch (e) {
-      slugError = e instanceof Error ? e.message : 'Slug-Test fehlgeschlagen';
+      slugError = e instanceof Error ? e.message : tr('admin.errSlugTest');
     } finally {
       slugBusy = false;
     }
@@ -235,55 +238,55 @@
 <div class="admin">
   {#if !token}
     <section class="panel login-card">
-      <div class="panel-head"><div><p class="eyebrow">Admin</p><h2>Anmelden</h2></div><ShieldCheck size={18} /></div>
+      <div class="panel-head"><div><p class="eyebrow">{$t('admin.login')}</p><h2>{$t('admin.loginTitle')}</h2></div><ShieldCheck size={18} /></div>
       <form class="login-form" on:submit|preventDefault={handleLoginSubmit}>
-        <label class="field" title="Administrator-Benutzername"><span>Benutzername</span><input bind:value={username} type="text" autocomplete="username" title="Gib den Admin-Nutzernamen ein" /></label>
-        <label class="field" title="Administrator-Passwort"><span>Passwort</span><input bind:value={password} type="password" autocomplete="current-password" title="Gib das Admin-Passwort ein" /></label>
+        <label class="field" title={$t('admin.usernameTitle')}><span>{$t('admin.username')}</span><input bind:value={username} type="text" autocomplete="username" title={$t('admin.usernameInputTitle')} /></label>
+        <label class="field" title={$t('admin.passwordTitle')}><span>{$t('admin.password')}</span><input bind:value={password} type="password" autocomplete="current-password" title={$t('admin.passwordInputTitle')} /></label>
         {#if loginError}<p class="form-error">{loginError}</p>{/if}
-        <button class="primary-button" type="submit" title="Melde dich als Administrator an" disabled={loggingIn || !password}>{loggingIn ? 'Anmelden …' : 'Anmelden'}</button>
-        <p class="hint">Admin wird einmalig aus <code>ADMIN_USERNAME</code>/<code>ADMIN_PASSWORD</code> geseedet.</p>
+        <button class="primary-button" type="submit" title={$t('admin.loginSubmitTitle')} disabled={loggingIn || !password}>{loggingIn ? $t('admin.loginSubmitting') : $t('admin.login')}</button>
+        <p class="hint">{$t('admin.seedHint')}</p>
       </form>
     </section>
   {:else}
     <section class="panel">
       <div class="panel-head">
-        <div><p class="eyebrow">Admin</p><h2>Status & Cache</h2></div>
+        <div><p class="eyebrow">Admin</p><h2>{$t('admin.statusCache')}</h2></div>
         <div class="head-actions">
-          <button class="ghost-btn" type="button" title="Löscht den Cache des Spielplans und der Polymarket-Quoten und lädt alles live neu" disabled={refreshing} on:click={refresh}><RefreshCw size={15} /> {refreshing ? 'Aktualisiere …' : 'Force-Refresh'}</button>
-          <button class="ghost-btn" type="button" title="Melde dich als Administrator ab" on:click={onLogout}><LogOut size={15} /> Logout</button>
+          <button class="ghost-btn" type="button" title={$t('admin.refreshTitle')} disabled={refreshing} on:click={refresh}><RefreshCw size={15} /> {refreshing ? $t('admin.refreshing') : $t('admin.forceRefresh')}</button>
+          <button class="ghost-btn" type="button" title={$t('admin.logoutTitle')} on:click={onLogout}><LogOut size={15} /> {$t('admin.logout')}</button>
         </div>
       </div>
       {#if status}
         <div class="status-grid">
-          <div><span>Schedule</span><strong>{status.esports.scheduleCached ? `${status.esports.scheduleAgeSeconds}s alt` : 'leer'}</strong></div>
-          <div><span>Matches</span><strong>{status.esports.matchCount}</strong></div>
-          <div><span>Mit Quote</span><strong>{status.esports.matchesWithOdds}</strong></div>
-          <div><span>Ergebnisse</span><strong>{status.esports.resultsCount}</strong></div>
-          <div><span>Teams</span><strong>{status.esports.teamCount}</strong></div>
-          <div><span>Marktdaten</span><strong>{status.marketDataSource}</strong></div>
+          <div><span>{$t('admin.statusSchedule')}</span><strong>{status.esports.scheduleCached ? $t('admin.secondsOld', { age: status.esports.scheduleAgeSeconds }) : $t('admin.scheduleEmpty')}</strong></div>
+          <div><span>{$t('admin.statusMatches')}</span><strong>{status.esports.matchCount}</strong></div>
+          <div><span>{$t('admin.statusWithOdds')}</span><strong>{status.esports.matchesWithOdds}</strong></div>
+          <div><span>{$t('admin.statusResults')}</span><strong>{status.esports.resultsCount}</strong></div>
+          <div><span>{$t('admin.statusTeams')}</span><strong>{status.esports.teamCount}</strong></div>
+          <div><span>{$t('admin.statusMarketData')}</span><strong>{status.marketDataSource}</strong></div>
         </div>
       {/if}
       {#if settings}
         <div class="settings-row">
-          <span>Registrierung</span>
-          <button class:active={settings.registrationOpen} type="button" title="Schaltet die Registrierung für neue Konten ein oder aus" disabled={busy} on:click={toggleRegistration}>
-            {settings.registrationOpen ? 'Offen' : 'Geschlossen'}
+          <span>{$t('admin.registration')}</span>
+          <button class:active={settings.registrationOpen} type="button" title={$t('admin.registrationTitle')} disabled={busy} on:click={toggleRegistration}>
+            {settings.registrationOpen ? $t('admin.regOpen') : $t('admin.regClosed')}
           </button>
         </div>
       {/if}
     </section>
 
     <section class="panel">
-      <div class="panel-head"><div><p class="eyebrow">Polymarket</p><h2>Team-Mappings</h2></div><Link2 size={18} /></div>
-      <p class="hint">Polymarket nutzt teils andere Kürzel als lolesports. Hier lolesports-Code → Polymarket-Code zuordnen (z.B. EINS → ES1).</p>
+      <div class="panel-head"><div><p class="eyebrow">{$t('admin.polymarket')}</p><h2>{$t('admin.teamMappings')}</h2></div><Link2 size={18} /></div>
+      <p class="hint">{$t('admin.mappingHint')}</p>
 
       <form class="mapping-form" on:submit|preventDefault={saveMapping}>
-        <input bind:value={originalCode} type="text" placeholder="lolesports-Code (EINS)" title="Kürzel des Teams bei lolesports, z.B. EINS" />
+        <input bind:value={originalCode} type="text" placeholder={$t('admin.lolesportsPlaceholder')} title={$t('admin.lolesportsTitle')} />
         <span class="arrow">→</span>
-        <input bind:value={polymarketCode} type="text" placeholder="Polymarket-Code (ES1)" title="Kürzel des Teams auf Polymarket, z.B. ES1" />
-        <button class="primary-button" type="submit" title="Speichert die Team-Zuordnung im System ab" disabled={busy || !originalCode.trim() || !polymarketCode.trim()}>Speichern</button>
-        <button class="ghost-btn" type="button" title="Prüft die generierten Polymarket-Slugs und checkt live auf Polymarket, ob Kontrakte gefunden werden" disabled={slugBusy || !selectedMatch || !originalCode.trim()} on:click={() => testMapping(true)}>
-          <FlaskConical size={15} /> {slugBusy ? 'Teste …' : 'Slugs testen'}
+        <input bind:value={polymarketCode} type="text" placeholder={$t('admin.pmPlaceholder')} title={$t('admin.pmTitle')} />
+        <button class="primary-button" type="submit" title={$t('admin.saveMappingTitle')} disabled={busy || !originalCode.trim() || !polymarketCode.trim()}>{$t('admin.saveMappingBtn')}</button>
+        <button class="ghost-btn" type="button" title={$t('admin.testSlugsTitle')} disabled={slugBusy || !selectedMatch || !originalCode.trim()} on:click={() => testMapping(true)}>
+          <FlaskConical size={15} /> {slugBusy ? $t('admin.testing') : $t('admin.testSlugs')}
         </button>
       </form>
       {#if error}<p class="form-error">{error}</p>{/if}
@@ -291,18 +294,18 @@
         <div class="mapping-context">
           <span>{selectedMatch.league}</span>
           <strong>{selectedMatch.team1.code}</strong><em>{selectedMatch.team1.name}</em>
-          <span class="vs">vs</span>
+          <span class="vs">{$t('admin.vs')}</span>
           <strong>{selectedMatch.team2.code}</strong><em>{selectedMatch.team2.name}</em>
-          {#if mappingTeam}<span class="candidate">Mapping für {mappingTeam.name}</span>{/if}
+          {#if mappingTeam}<span class="candidate">{$t('admin.mappingFor', { name: mappingTeam.name })}</span>{/if}
         </div>
       {/if}
       {#if slugError}<p class="form-error">{slugError}</p>{/if}
       {#if slugDiagnostic}
         <div class="slug-diagnostic">
           <div class="slug-result" class:found={slugDiagnostic.found}>
-            <span>{slugDiagnostic.found ? 'Treffer' : 'Kein Treffer'}</span>
-            <strong>{slugDiagnostic.found ? slugDiagnostic.eventSlug : `${slugDiagnostic.slugs.length} Kandidaten`}</strong>
-            {#if slugDiagnostic.polymarketUrl}<a href={slugDiagnostic.polymarketUrl} target="_blank" rel="noreferrer">Polymarket öffnen</a>{/if}
+            <span>{slugDiagnostic.found ? $t('admin.slugHit') : $t('admin.slugNoHit')}</span>
+            <strong>{slugDiagnostic.found ? slugDiagnostic.eventSlug : $t('admin.slugCandidates', { count: slugDiagnostic.slugs.length })}</strong>
+            {#if slugDiagnostic.polymarketUrl}<a href={slugDiagnostic.polymarketUrl} target="_blank" rel="noreferrer">{$t('admin.openPolymarket')}</a>{/if}
           </div>
           <div class="slug-list">
             {#each slugDiagnostic.slugs.slice(0, 18) as slug}
@@ -314,12 +317,12 @@
 
       <div class="mapping-list">
         {#if mappings.length === 0}
-          <p class="empty-state">Noch keine Mappings.</p>
+          <p class="empty-state">{$t('admin.noMappings')}</p>
         {:else}
           {#each mappings as m (m.originalCode)}
             <div class="mapping-row">
               <strong>{m.originalCode}</strong><span class="arrow">→</span><strong>{m.polymarketCode}</strong>
-              <button class="del" type="button" aria-label="Löschen" title="Dieses Teammapping löschen" on:click={() => removeMapping(m.originalCode)}><Trash2 size={15} /></button>
+              <button class="del" type="button" aria-label={$t('admin.deleteMappingFor', { code: m.originalCode, mapped: m.polymarketCode })} title={$t('admin.deleteMappingTitle')} on:click={() => removeMapping(m.originalCode)}><Trash2 size={15} /></button>
             </div>
           {/each}
         {/if}
@@ -328,23 +331,23 @@
 
     <section class="panel">
       <div class="panel-head">
-        <div><p class="eyebrow">Diagnose</p><h2>Team-Slugs pro Match</h2></div>
+        <div><p class="eyebrow">{$t('admin.diagnosis')}</p><h2>{$t('admin.teamSlugsPerMatch')}</h2></div>
         <div class="slug-filter">
-          <button class:active={slugFilter === 'missing'} type="button" title="Nur Matches zeigen, bei denen mindestens einem Team der Polymarket-Slug fehlt" on:click={() => (slugFilter = 'missing')}>Unvollständig ({incompleteMatchCount})</button>
-          <button class:active={slugFilter === 'all'} type="button" title="Alle anstehenden Matches zeigen" on:click={() => (slugFilter = 'all')}>Alle ({playableMatches.length})</button>
+          <button class:active={slugFilter === 'missing'} type="button" title={$t('admin.filterMissingTitle')} on:click={() => (slugFilter = 'missing')}>{$t('admin.filterIncomplete', { count: incompleteMatchCount })}</button>
+          <button class:active={slugFilter === 'all'} type="button" title={$t('admin.filterAllTitle')} on:click={() => (slugFilter = 'all')}>{$t('admin.filterAll', { count: playableMatches.length })}</button>
         </div>
       </div>
-      <p class="hint">Pro Team siehst du, ob ein Polymarket-Code in der DB hinterlegt ist (<span class="ok-chip">✓</span>) oder fehlt (<span class="miss-chip">✗</span>). Trag ihn direkt in der Zeile ein und speichere — die Quote wird sofort neu geholt.</p>
+      <p class="hint">{$t('admin.slugHint')}</p>
 
       <div class="team-slugs">
         {#if teamSlugMatches.length === 0}
-          <p class="empty-state">{slugFilter === 'missing' ? 'Alle sichtbaren Teams haben einen Slug. 🎉' : 'Keine Matches geladen.'}</p>
+          <p class="empty-state">{slugFilter === 'missing' ? $t('admin.allSlugsPresent') : $t('admin.noMatchesLoaded')}</p>
         {:else}
           {#each teamSlugMatches.slice(0, 40) as m (m.id)}
             <div class="slug-match" class:complete={mappedCode(m.team1.code) && mappedCode(m.team2.code)}>
               <div class="sm-head">
                 <span class="lg">{m.league}{m.bestOf ? ` · BO${m.bestOf}` : ''}</span>
-                {#if m.hasOdds}<span class="odds-ok">● Quote aktiv</span>{:else}<span class="odds-miss">● keine Quote</span>{/if}
+                {#if m.hasOdds}<span class="odds-ok">{$t('admin.oddsActive')}</span>{:else}<span class="odds-miss">{$t('admin.oddsNone')}</span>{/if}
               </div>
               {#each [m.team1, m.team2] as team}
                 {@const mapped = mappedCode(team.code)}
@@ -360,18 +363,18 @@
                       value={draft}
                       on:input={(e) => setSlug(team.code, e.currentTarget.value)}
                       type="text"
-                      placeholder={mapped ? `aktuell: ${mapped}` : 'Polymarket-Code'}
-                      title={`Polymarket-Code für ${team.name} (${team.code}) eintragen`}
+                      placeholder={mapped ? $t('admin.currentPrefix') + mapped : $t('admin.pmPlaceholder')}
+                      title={$t('admin.pmCodeFor', { name: team.name, code: team.code })}
                     />
                     <button
                       class="save"
                       type="button"
-                      title={`Slug für ${team.code} speichern und Quote neu holen`}
+                      title={$t('admin.saveSlugTitle', { code: team.code })}
                       disabled={savingCode === key || !draft.trim() || draft.trim() === (mapped ?? '')}
                       on:click={() => saveTeamSlug(team.code)}
-                    >{savingCode === key ? '…' : mapped ? 'Update' : 'Anlegen'}</button>
-                    <button class="test" type="button" title={`Slugs für ${team.code} live gegen Polymarket testen`} disabled={slugBusy} on:click={() => testTeamSlug(m, team.code)}><FlaskConical size={14} /></button>
-                    {#if mapped}<button class="del" type="button" aria-label="Mapping löschen" title={`Mapping ${team.code} → ${mapped} löschen`} on:click={() => clearTeamSlug(team.code)}><Trash2 size={14} /></button>{/if}
+                    >{savingCode === key ? $t('admin.saving') : mapped ? $t('admin.actionUpdate') : $t('admin.actionCreate')}</button>
+                    <button class="test" type="button" title={$t('admin.testSlugFor', { code: team.code })} disabled={slugBusy} on:click={() => testTeamSlug(m, team.code)}><FlaskConical size={14} /></button>
+                    {#if mapped}<button class="del" type="button" aria-label={$t('admin.deleteMappingLabel')} title={$t('admin.deleteMappingFor', { code: team.code, mapped })} on:click={() => clearTeamSlug(team.code)}><Trash2 size={14} /></button>{/if}
                   </div>
                 </div>
               {/each}

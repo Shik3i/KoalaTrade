@@ -1,8 +1,10 @@
 <script lang="ts">
   import { Info } from '@lucide/svelte';
+  import { t } from '../i18n';
 
   export let text: string;
-  export let label = 'Erklärung';
+  export let label: string | undefined = undefined;
+  $: resolvedLabel = label ?? $t('common.explanation');
   // Preferred side; flips automatically near screen edges via CSS is not possible,
   // so callers can pass 'top' | 'bottom' when the default would clip.
   export let placement: 'top' | 'bottom' = 'top';
@@ -11,7 +13,7 @@
   export let align: 'center' | 'left' | 'right' = 'center';
 </script>
 
-<span class="infotip" class:bottom={placement === 'bottom'} class:align-left={align === 'left'} class:align-right={align === 'right'} tabindex="0" role="button" aria-label={label}>
+<span class="infotip" class:bottom={placement === 'bottom'} class:align-left={align === 'left'} class:align-right={align === 'right'} tabindex="0" role="button" aria-label={resolvedLabel}>
   <Info size={13} aria-hidden="true" />
   <span class="infotip-bubble" role="tooltip">{text}</span>
 </span>

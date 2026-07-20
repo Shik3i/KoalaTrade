@@ -281,6 +281,41 @@ h4 {
   animation: pulse-dot 2s infinite ease-in-out;
 }
 
+/* Language switch: compact segmented EN/DE toggle in the desk actions. */
+.lang-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+}
+
+.lang-option {
+  min-width: 2.1rem;
+  padding: 0.28rem 0.5rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: color 160ms ease, background 160ms ease;
+}
+
+.lang-option:hover {
+  color: var(--text);
+}
+
+.lang-option.active {
+  color: var(--text);
+  background: var(--panel);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
 @keyframes pulse-dot {
   0%, 100% {
     transform: scale(1);
