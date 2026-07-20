@@ -9,7 +9,8 @@ export const de = {
     retry: 'Erneut versuchen',
     refresh: 'Aktualisieren',
     language: 'Sprache',
-    dash: '—'
+    dash: '—',
+    skipToContent: 'Zum Hauptinhalt springen'
   },
   side: {
     buyVerb: 'Kaufen',

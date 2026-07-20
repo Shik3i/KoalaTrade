@@ -62,6 +62,7 @@
     type PublicConfig,
     type SessionUser
   } from './lib/api';
+  import { priceFreshness, isStalePrice, marketTone, changeColor, simpleMovingAverage } from './lib/market-utils';
   import { loadClientId, loadOpenOrders, loadPortfolio, loadPreferences, resetPortfolio, saveOpenOrders, savePortfolio, savePreferences } from './lib/portfolio-db';
   import { DEFAULT_LEAGUES, MAX_FAVORITE_TEAMS, defaultPreferences, type Preferences } from './lib/preferences';
   import { toast } from './lib/toast';
@@ -261,6 +262,21 @@
     await loadHistory();
     void settleResolvedBets();
     quoteTimer = setInterval(refreshQuotes, 30_000);
+
+    const onVisibility = () => {
+      if (document.hidden) {
+        clearInterval(quoteTimer);
+        quoteTimer = undefined;
+      } else if (!quoteTimer) {
+        void refreshQuotes();
+        quoteTimer = setInterval(refreshQuotes, 30_000);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    // Stash for cleanup in onDestroy (avoid window type pollution).
+    const CLEANUP_KEY = '__koala_vis_cleanup';
+    (window as any)[CLEANUP_KEY] = () => document.removeEventListener('visibilitychange', onVisibility);
   });
 
   function dismissOnboarding() {
@@ -275,6 +291,8 @@
 
   onDestroy(() => {
     if (quoteTimer) clearInterval(quoteTimer);
+    const cleanup = (window as any).__koala_vis_cleanup;
+    if (typeof cleanup === 'function') cleanup();
   });
 
   // Online = backend reachable → trades and open orders are server-authoritative
@@ -1186,16 +1204,6 @@
     }
   }
 
-  function simpleMovingAverage(values: number[], period: number) {
-    const result: number[] = [];
-    for (let i = 0; i < values.length; i++) {
-      const start = Math.max(0, i - period + 1);
-      const window = values.slice(start, i + 1);
-      result.push(window.reduce((sum, value) => sum + value, 0) / window.length);
-    }
-    return result;
-  }
-
   function formatUpdatedAt(value: string) {
     const loc = get(locale) === 'de' ? 'de-DE' : 'en-US';
     return new Intl.DateTimeFormat(loc, { hour: '2-digit', minute: '2-digit' }).format(new Date(value));
@@ -1256,43 +1264,12 @@
     if (jumpToTrade) setActiveView('trade');
   }
 
-  function marketTone(changeBps: number) {
-    if (changeBps > 0) return 'up';
-    if (changeBps < 0) return 'down';
-    return 'flat';
-  }
-
-  // Prices are served from the last stored quote, so a quote legitimately ages:
-  // the poller refreshes each asset only within a ~15 min window, and for
-  // scheduled markets (stocks/ETFs/commodities) `updatedAt` is the exchange's
-  // last trade time (Yahoo RegularMarketTime), which freezes whenever the market
-  // is closed — nights, weekends, holidays. Treating that as an error cried wolf
-  // constantly, so we classify a quote into three cases instead:
-  //   'fresh'  – recent enough to treat as live
-  //   'closed' – old, but plausibly just a closed scheduled market (no alarm)
-  //   'stale'  – old beyond any normal explanation → likely an upstream outage
-  const FRESH_PRICE_MS = 2 * 60 * 60 * 1000; // 2 h — clears the poll window + intraday lag
-  const MARKET_CLOSED_MAX_MS = 4 * 24 * 60 * 60 * 1000; // 4 d — covers a weekend plus a holiday
-  type PriceFreshness = 'fresh' | 'closed' | 'stale';
-  function priceFreshness(market: Market): PriceFreshness {
-    if (!market || market.priceCents <= 0 || !market.updatedAt) return 'fresh';
-    const t = new Date(market.updatedAt).getTime();
-    if (!Number.isFinite(t)) return 'fresh';
-    const age = Date.now() - t;
-    if (age <= FRESH_PRICE_MS) return 'fresh';
-    // Crypto trades 24/7, so an aging quote is always a data problem. Scheduled
-    // markets are usually just closed — only flag them once even a long weekend
-    // plus a holiday can no longer explain the gap.
-    if (market.kind === 'crypto') return 'stale';
-    return age > MARKET_CLOSED_MAX_MS ? 'stale' : 'closed';
-  }
-  function isStalePrice(market: Market): boolean {
-    return priceFreshness(market) === 'stale';
-  }
-
   function setActiveView(view: AppView) {
     activeView = view;
-    requestAnimationFrame(() => window.scrollTo(0, 0));
+    requestAnimationFrame(() => {
+      window.scrollTo(0, 0);
+      document.getElementById('main-content')?.focus({ preventScroll: true });
+    });
   }
 
   function handleKeydown(event: KeyboardEvent) {
@@ -1314,16 +1291,32 @@
     }
   }
 
-  function changeColor(bps: number) {
-    return bps > 0 ? 'up' : bps < 0 ? 'down' : 'flat';
+  function trapFocus(event: KeyboardEvent) {
+    if (event.key !== 'Tab') return;
+    const overlay = (event.currentTarget as HTMLElement).querySelector('[role="dialog"]');
+    if (!overlay) return;
+    const focusable = overlay.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   }
+
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
 <Toasts />
 
+<a href="#main-content" class="skip-link">{$t('common.skipToContent')}</a>
+
 {#if activeView === 'landing'}
-  <main class="landing-shell">
+  <main class="landing-shell" id="main-content" tabindex="-1">
     <header class="landing-nav">
       <div class="brand">
         <img src="/icons/koalatrade.svg" alt="" width="38" height="38" />
@@ -1420,7 +1413,7 @@
       </button>
     </nav>
 
-  <main class="trading-shell">
+  <main class="trading-shell" id="main-content" tabindex="-1">
     <header class="trading-topbar">
       <div class="brand">
         <img src="/icons/koalatrade.svg" alt="" width="34" height="34" />
@@ -1883,7 +1876,8 @@
   </div>
 
   {#if showShortcuts}
-    <div class="shortcuts-overlay">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="shortcuts-overlay" on:keydown={trapFocus}>
       <button class="shortcuts-backdrop" type="button" aria-label={$t('shortcuts.closeLabel')} title={$t('shortcuts.closeTitle')} on:click={() => (showShortcuts = false)}></button>
       <div class="shortcuts-card" role="dialog" aria-label={$t('shortcuts.title')} aria-modal="true">
         <div class="panel-head"><div><p class="eyebrow">{$t('shortcuts.help')}</p><h2>{$t('shortcuts.title')}</h2></div><Keyboard size={18} /></div>
@@ -1899,7 +1893,8 @@
   {/if}
 
   {#if showResetConfirm}
-    <div class="shortcuts-overlay">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="shortcuts-overlay" on:keydown={trapFocus}>
       <button class="shortcuts-backdrop" type="button" aria-label={$t('common.close')} title={$t('reset.closeTitle')} on:click={() => (showResetConfirm = false)}></button>
       <div class="shortcuts-card" role="dialog" aria-label={$t('topbar.resetLabel')} aria-modal="true">
         <div class="panel-head"><div><p class="eyebrow">{$t('reset.confirm')}</p><h2>{$t('reset.heading')}</h2></div><RotateCcw size={18} /></div>
@@ -1913,7 +1908,8 @@
   {/if}
 
   {#if showTour}
-    <div class="shortcuts-overlay">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="shortcuts-overlay" on:keydown={trapFocus}>
       <button class="shortcuts-backdrop" type="button" aria-label={$t('common.close')} title={$t('tour.closeTitle')} on:click={() => (showTour = false)}></button>
       <div class="shortcuts-card onboarding-card" role="dialog" aria-label={$t('tour.welcome')} aria-modal="true">
         <div class="panel-head"><div><p class="eyebrow">{$t('tour.welcome')}</p><h2>{$t('tour.heading')}</h2></div><Sparkles size={18} /></div>

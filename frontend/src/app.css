@@ -96,6 +96,24 @@ h4 {
   letter-spacing: -0.02em;
 }
 
+.skip-link {
+  position: fixed;
+  top: -100%;
+  left: 1rem;
+  z-index: 100;
+  padding: 0.5rem 1rem;
+  border-radius: 0 0 8px 8px;
+  color: #03140c;
+  font-weight: 600;
+  font-size: 0.85rem;
+  background: var(--green);
+  text-decoration: none;
+  transition: top 120ms ease;
+}
+.skip-link:focus {
+  top: 0;
+}
+
 .up { color: var(--green) !important; }
 .down { color: var(--red) !important; }
 .flat { color: var(--cyan) !important; }
@@ -2058,5 +2076,13 @@ kbd {
   }
   .market-filters {
     grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

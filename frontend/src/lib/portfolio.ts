@@ -1,3 +1,6 @@
+import { get } from 'svelte/store';
+import { locale } from './i18n';
+
 export const PORTFOLIO_ID = 'local-default';
 export const PORTFOLIO_SCHEMA_VERSION = 1;
 
@@ -407,7 +410,8 @@ export function computePerformance(
 }
 
 export function formatMoney(cents: number) {
-  return new Intl.NumberFormat('en-US', {
+  const loc = get(locale) === 'de' ? 'de-DE' : 'en-US';
+  return new Intl.NumberFormat(loc, {
     style: 'currency',
     currency: 'USD'
   }).format(cents / 100);

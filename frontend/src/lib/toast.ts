@@ -10,12 +10,17 @@ export type Toast = {
 };
 
 let counter = 0;
+const MAX_TOASTS = 5;
 
 export const toasts = writable<Toast[]>([]);
 
-export function pushToast(tone: ToastTone, title: string, detail?: string, ttl = 4200) {
+export function pushToast(tone: ToastTone, title: string, detail?: string, ttl?: number) {
+  if (ttl === undefined) ttl = tone === 'error' ? 7000 : 4200;
   const id = ++counter;
-  toasts.update((items) => [...items, { id, tone, title, detail }]);
+  toasts.update((items) => {
+    const next = [...items, { id, tone, title, detail }];
+    return next.length > MAX_TOASTS ? next.slice(next.length - MAX_TOASTS) : next;
+  });
   if (ttl > 0) {
     setTimeout(() => dismissToast(id), ttl);
   }

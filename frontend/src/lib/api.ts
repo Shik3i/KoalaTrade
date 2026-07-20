@@ -103,9 +103,9 @@ export async function login(username: string, password: string): Promise<LoginPa
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ username, password })
   });
-  if (response.status === 401) throw new Error('Falsche Zugangsdaten');
-  if (response.status === 429) throw new Error('Zu viele Versuche. Bitte später erneut probieren.');
-  if (!response.ok) throw new Error(`Login fehlgeschlagen (${response.status})`);
+  if (response.status === 401) throw new Error('Invalid credentials');
+  if (response.status === 429) throw new Error('Too many attempts. Please try again later.');
+  if (!response.ok) throw new Error(`Login failed (${response.status})`);
   return (await response.json()) as LoginPayload;
 }
 
@@ -115,18 +115,18 @@ export async function register(username: string, password: string): Promise<Logi
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ username, password })
   });
-  if (response.status === 403) throw new Error('Registrierung ist aktuell geschlossen');
-  if (response.status === 409) throw new Error('Benutzername ist bereits vergeben');
+  if (response.status === 403) throw new Error('Registration is currently closed');
+  if (response.status === 409) throw new Error('Username is already taken');
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(payload?.error ?? `Registrierung fehlgeschlagen (${response.status})`);
+    throw new Error(payload?.error ?? `Registration failed (${response.status})`);
   }
   return (await response.json()) as LoginPayload;
 }
 
 export async function logout(): Promise<void> {
   const response = await fetch('/api/auth/logout', { method: 'POST', headers: { Accept: 'application/json' } });
-  if (!response.ok) throw new Error(`Logout fehlgeschlagen (${response.status})`);
+  if (!response.ok) throw new Error(`Logout failed (${response.status})`);
 }
 
 export async function fetchMe(): Promise<SessionUser | null> {
@@ -137,10 +137,10 @@ export async function fetchMe(): Promise<SessionUser | null> {
 }
 
 async function accountJson<T>(response: Response): Promise<T> {
-  if (response.status === 401) throw new Error('Sitzung abgelaufen oder Passwort falsch');
+  if (response.status === 401) throw new Error('Session expired or wrong password');
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(payload?.error ?? `Request fehlgeschlagen (${response.status})`);
+    throw new Error(payload?.error ?? `Request failed (${response.status})`);
   }
   return (await response.json()) as T;
 }
@@ -199,8 +199,8 @@ function adminHeaders(token: string) {
 export class AdminAuthError extends Error {}
 
 async function adminJson<T>(response: Response): Promise<T> {
-  if (response.status === 401) throw new AdminAuthError('Sitzung abgelaufen');
-  if (!response.ok) throw new Error(`Request fehlgeschlagen (${response.status})`);
+  if (response.status === 401) throw new AdminAuthError('Session expired');
+  if (!response.ok) throw new Error(`Request failed (${response.status})`);
   return (await response.json()) as T;
 }
 
@@ -426,7 +426,7 @@ export type OrderResult = {
 };
 
 async function orderErrorMessage(response: Response): Promise<string> {
-  let message = `Order fehlgeschlagen (${response.status})`;
+  let message = `Order failed (${response.status})`;
   try {
     const body = (await response.json()) as { error?: string };
     if (body?.error) message = body.error;

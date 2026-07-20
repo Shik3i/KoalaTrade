@@ -192,7 +192,7 @@
         </div>
         <label class="field" title={$t('profile.usernameFieldTitle')}><span>{$t('profile.username')}</span><input bind:value={username} type="text" autocomplete="username" title={$t('profile.usernameInputTitle')} /></label>
         <label class="field" title={$t('profile.pwFieldTitle')}><span>{$t('profile.password')}</span><input bind:value={password} type="password" autocomplete={authMode === 'login' ? 'current-password' : 'new-password'} title={$t('profile.pwInputTitle')} /></label>
-        {#if authError}<p class="form-error">{authError}</p>{/if}
+        {#if authError}<p class="form-error" role="alert">{authError}</p>{/if}
         <button class="primary-button" type="submit" title={authMode === 'register' ? $t('profile.registerSubmitTitle') : $t('profile.loginSubmitTitle')} disabled={authBusy || username.trim().length < 3 || password.length < 10}>
           <LogIn size={15} /> {authMode === 'register' ? $t('profile.createAccount') : $t('profile.signIn')}
         </button>

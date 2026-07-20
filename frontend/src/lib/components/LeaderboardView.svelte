@@ -16,7 +16,10 @@
   }
 
   function medal(rank: number) {
-    return rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '';
+    if (rank === 1) return '<svg viewBox="0 0 20 20" width="16" height="16" fill="none"><circle cx="10" cy="10" r="9" fill="#fbbf24" stroke="#d97706" stroke-width="1.5"/><text x="10" y="14" text-anchor="middle" font-size="11" font-weight="700" fill="#92400e">1</text></svg>';
+    if (rank === 2) return '<svg viewBox="0 0 20 20" width="16" height="16" fill="none"><circle cx="10" cy="10" r="9" fill="#94a3b8" stroke="#64748b" stroke-width="1.5"/><text x="10" y="14" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">2</text></svg>';
+    if (rank === 3) return '<svg viewBox="0 0 20 20" width="16" height="16" fill="none"><circle cx="10" cy="10" r="9" fill="#d97706" stroke="#b45309" stroke-width="1.5"/><text x="10" y="14" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">3</text></svg>';
+    return '';
   }
 </script>
 
@@ -50,7 +53,7 @@
       <div class="rows">
         {#each entries as entry (entry.rank + entry.displayName)}
           <div class="row" class:you={entry.isYou}>
-            <span class="rank">{medal(entry.rank)}{entry.rank}</span>
+            <span class="rank">{@html medal(entry.rank)}{entry.rank}</span>
             <span class="name"><Award size={13} class={entry.rank <= 3 ? 'top' : 'dim'} />{entry.displayName}{#if entry.isYou}<em>{$t('leaderboard.you')}</em>{/if}</span>
             <strong class={tone(entry.totalReturnBps)}>{entry.totalReturnBps > 0 ? '+' : ''}{formatPercentFromBps(entry.totalReturnBps)}</strong>
             <span class="equity">{formatMoney(entry.totalEquityCents)}</span>

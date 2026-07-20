@@ -10,7 +10,8 @@ export const en = {
     retry: 'Retry',
     refresh: 'Refresh',
     language: 'Language',
-    dash: '—'
+    dash: '—',
+    skipToContent: 'Skip to main content'
   },
   side: {
     buyVerb: 'Buy',

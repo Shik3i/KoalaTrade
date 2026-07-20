@@ -125,7 +125,7 @@
   svg {
     display: block;
     overflow: visible;
-    touch-action: none;
+    touch-action: pan-y pinch-zoom;
   }
 
   .grid {
