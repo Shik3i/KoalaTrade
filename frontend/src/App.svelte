@@ -354,6 +354,8 @@
   $: chartOpen = candles.length ? candles[0].open : selectedMarket.priceCents;
   $: rangeChangeCents = candles.length ? selectedMarket.priceCents - candles[0].open : 0;
   $: rangeChangeBps = chartOpen > 0 ? Math.round((rangeChangeCents / chartOpen) * 10_000) : 0;
+  // Recomputes whenever the quote refresh reassigns selectedMarket (every 30 s).
+  $: selectedMarketFreshness = priceFreshness(selectedMarket);
 
   // React to chart input changes once data is loaded.
   $: if (activeView !== 'landing' && selectedAssetId && chartRange) {
@@ -1177,6 +1179,15 @@
     return new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' }).format(new Date(value));
   }
 
+  // Aging quotes (closed markets / outages) can be days old, so a bare time reads
+  // ambiguously — include the date once the quote is no longer from today.
+  function formatUpdatedAtFull(value: string) {
+    const date = new Date(value);
+    const sameDay = date.toDateString() === new Date().toDateString();
+    if (sameDay) return formatUpdatedAt(value);
+    return new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(date);
+  }
+
   function formatChartTime(value: string) {
     const date = new Date(value);
     if (chartRange === '1H' || chartRange === '1D') {
@@ -1226,14 +1237,32 @@
     return 'flat';
   }
 
-  // A priced asset whose last update is older than this is flagged "stale": the
-  // read path serves the last stored quote, so an outage/rate-limit upstream can
-  // leave a real but aging price — better to say so than to imply it's live.
-  const STALE_PRICE_MS = 5 * 60 * 1000;
-  function isStalePrice(market: Market): boolean {
-    if (!market || market.priceCents <= 0 || !market.updatedAt) return false;
+  // Prices are served from the last stored quote, so a quote legitimately ages:
+  // the poller refreshes each asset only within a ~15 min window, and for
+  // scheduled markets (stocks/ETFs/commodities) `updatedAt` is the exchange's
+  // last trade time (Yahoo RegularMarketTime), which freezes whenever the market
+  // is closed — nights, weekends, holidays. Treating that as an error cried wolf
+  // constantly, so we classify a quote into three cases instead:
+  //   'fresh'  – recent enough to treat as live
+  //   'closed' – old, but plausibly just a closed scheduled market (no alarm)
+  //   'stale'  – old beyond any normal explanation → likely an upstream outage
+  const FRESH_PRICE_MS = 2 * 60 * 60 * 1000; // 2 h — clears the poll window + intraday lag
+  const MARKET_CLOSED_MAX_MS = 4 * 24 * 60 * 60 * 1000; // 4 d — covers a weekend plus a holiday
+  type PriceFreshness = 'fresh' | 'closed' | 'stale';
+  function priceFreshness(market: Market): PriceFreshness {
+    if (!market || market.priceCents <= 0 || !market.updatedAt) return 'fresh';
     const t = new Date(market.updatedAt).getTime();
-    return Number.isFinite(t) && Date.now() - t > STALE_PRICE_MS;
+    if (!Number.isFinite(t)) return 'fresh';
+    const age = Date.now() - t;
+    if (age <= FRESH_PRICE_MS) return 'fresh';
+    // Crypto trades 24/7, so an aging quote is always a data problem. Scheduled
+    // markets are usually just closed — only flag them once even a long weekend
+    // plus a holiday can no longer explain the gap.
+    if (market.kind === 'crypto') return 'stale';
+    return age > MARKET_CLOSED_MAX_MS ? 'stale' : 'closed';
+  }
+  function isStalePrice(market: Market): boolean {
+    return priceFreshness(market) === 'stale';
   }
 
   function setActiveView(view: AppView) {
@@ -1445,7 +1474,7 @@
                 <button class:selected={selectedMarket && selectedMarket.assetId === item.assetId} class="market-row" type="button" title={`Wähle ${item.symbol} (${item.name}) aus.`} on:click={() => selectMarket(item.assetId)}>
                   <span class="asset"><strong>{item.symbol}</strong><small>{item.kind}</small></span>
                   {#if item.priceCents > 0}
-                    <span class="price" class:stale={isStalePrice(item)} title={isStalePrice(item) ? `Kurs veraltet (${formatUpdatedAt(item.updatedAt)}) – Datenquelle gerade nicht erreichbar.` : undefined}>{isStalePrice(item) ? '⚠ ' : ''}{formatMoney(item.priceCents)}</span>
+                    <span class="price" class:stale={isStalePrice(item)} title={isStalePrice(item) ? `Kurs auffällig alt (${formatUpdatedAtFull(item.updatedAt)}) – Datenquelle vermutlich gerade nicht erreichbar.` : undefined}>{isStalePrice(item) ? '⚠ ' : ''}{formatMoney(item.priceCents)}</span>
                     <em class={marketTone(item.changeBps)}>{formatPercentFromBps(item.changeBps)}</em>
                   {:else}
                     <span class="no-feed" title="Für dieses Asset liegt aktuell kein Live-Kurs vor (kein Feed/API-Key)."><i></i>no feed</span>
@@ -1530,8 +1559,10 @@
               <div><span>24h</span><strong class={selectedMarket.priceCents > 0 ? changeColor(selectedMarket.changeBps) : ''}>{selectedMarket.priceCents > 0 ? formatPercentFromBps(selectedMarket.changeBps) : '—'}</strong></div>
               <div><span>Typ</span><strong>{selectedMarket.kind}</strong></div>
               <div><span>Aktualisiert</span>
-                {#if isStalePrice(selectedMarket)}
-                  <strong class="stale" title="Dieser Kurs ist älter als 5 Minuten – möglicherweise nicht aktuell (Datenquelle gerade nicht erreichbar).">⚠ {formatUpdatedAt(selectedMarket.updatedAt)}</strong>
+                {#if selectedMarketFreshness === 'stale'}
+                  <strong class="stale" title="Dieser Kurs ist auffällig alt ({formatUpdatedAtFull(selectedMarket.updatedAt)}) – die Datenquelle ist vermutlich gerade nicht erreichbar.">⚠ {formatUpdatedAtFull(selectedMarket.updatedAt)}</strong>
+                {:else if selectedMarketFreshness === 'closed'}
+                  <strong class="closed" title="Markt geschlossen – letzter Kurs vom {formatUpdatedAtFull(selectedMarket.updatedAt)}. Aktualisiert wieder bei Börsenöffnung.">🌙 {formatUpdatedAtFull(selectedMarket.updatedAt)}</strong>
                 {:else}
                   <strong>{selectedMarket.updatedAt ? formatUpdatedAt(selectedMarket.updatedAt) : '—'}</strong>
                 {/if}

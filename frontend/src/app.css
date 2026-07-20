@@ -1347,6 +1347,13 @@ strong.stale {
   color: #fbbf73;
 }
 
+/* Closed market: quote is old but expected (exchange shut) — inform, don't alarm. */
+.detail-grid strong.closed,
+strong.closed {
+  color: var(--muted);
+  font-weight: 500;
+}
+
 .field {
   display: grid;
   gap: 0.35rem;
