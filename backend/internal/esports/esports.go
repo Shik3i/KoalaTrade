@@ -314,17 +314,19 @@ func (s *Service) recordResults(ctx context.Context, fresh []Result) {
 // short-lived in-memory cache. On upstream failure it falls back to the last
 // good snapshot rather than erroring out.
 func (s *Service) Matches(ctx context.Context) ([]Match, error) {
+	// Load the weekly catalogue before consulting the match cache. Older cached
+	// schedule rows may have been created before local logo bytes were ready.
+	// Re-applying the current local logo map below repairs those rows in memory.
+	_, _ = s.Teams(ctx)
+
 	s.mu.Lock()
 	if s.cache != nil && time.Since(s.cachedAt) < s.ttl {
+		s.attachTeamImagesLocked(s.cache)
 		cached := s.cache
 		s.mu.Unlock()
 		return cached, nil
 	}
 	s.mu.Unlock()
-
-	// Warm the weekly team snapshot before parsing the schedule so match cards
-	// can reference same-origin logo routes immediately after a cold start.
-	_, _ = s.Teams(ctx)
 
 	var matches []Match
 	var err error
@@ -358,10 +360,18 @@ func (s *Service) Matches(ctx context.Context) ([]Match, error) {
 	s.attachOdds(ctx, matches)
 
 	s.mu.Lock()
+	s.attachTeamImagesLocked(matches)
 	s.cache = matches
 	s.cachedAt = time.Now()
 	s.mu.Unlock()
 	return matches, nil
+}
+
+func (s *Service) attachTeamImagesLocked(matches []Match) {
+	for i := range matches {
+		matches[i].Team1.Image = teamImageURL(matches[i].Team1.Code, s.teamLogoCodes[strings.ToUpper(strings.TrimSpace(matches[i].Team1.Code))])
+		matches[i].Team2.Image = teamImageURL(matches[i].Team2.Code, s.teamLogoCodes[strings.ToUpper(strings.TrimSpace(matches[i].Team2.Code))])
+	}
 }
 
 // RefreshMatchOdds re-queries Polymarket for a single match, bypassing the

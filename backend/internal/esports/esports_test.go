@@ -126,6 +126,25 @@ func TestTeamsRepairStoredSnapshotWithoutLogos(t *testing.T) {
 	}
 }
 
+func TestMatchesRepairsCachedRowsWithLocalLogos(t *testing.T) {
+	service := NewService("test-key", "https://lolesports.test", "", time.Second, time.Minute, &teamTestStore{teams: []storage.EsportsTeam{{
+		Code: "G2", Name: "G2 Esports", League: "LEC", Logo: []byte("png-bytes"), LogoContentType: "image/png",
+		SyncedAt: time.Now().UTC().Format(time.RFC3339Nano),
+	}}})
+	service.scheduleCache = []Match{{
+		ID: "match-1", League: "LEC", Team1: Team{Name: "G2 Esports", Code: "G2"}, Team2: Team{Name: "FNC", Code: "FNC"},
+	}}
+	service.scheduleCachedAt = time.Now()
+
+	matches, err := service.Matches(context.Background())
+	if err != nil {
+		t.Fatalf("matches: %v", err)
+	}
+	if len(matches) != 1 || matches[0].Team1.Image != "/api/esports/teams/G2/logo" {
+		t.Fatalf("expected cached match logo to be repaired, got %+v", matches)
+	}
+}
+
 func TestTeamsFallsBackAfterEmptySnapshotFailure(t *testing.T) {
 	store := &teamTestStore{}
 	service := NewService("test-key", "https://lolesports.test", "", time.Second, time.Minute, store)

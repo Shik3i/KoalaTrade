@@ -473,12 +473,7 @@
         // Match loading remains useful when the catalogue endpoint is briefly
         // unavailable; use the last known team image map in that case.
       }
-      const imageByCode = new Map(esportsTeams.map((team) => [team.code.toUpperCase(), team.image]));
-      esportsMatches = nextMatches.map((match) => ({
-        ...match,
-        team1: { ...match.team1, image: match.team1.image || imageByCode.get(match.team1.code.toUpperCase()) || '' },
-        team2: { ...match.team2, image: match.team2.image || imageByCode.get(match.team2.code.toUpperCase()) || '' }
-      }));
+      esportsMatches = withLocalTeamImages(nextMatches);
       esportsLoaded = true;
       await reconcileEsportsPositions();
       await settleResolvedBets();
@@ -487,6 +482,30 @@
     } finally {
       esportsLoading = false;
     }
+  }
+
+  function localTeamImage(image: string) {
+    return image.startsWith('/api/esports/teams/') ? image : '';
+  }
+
+  function withLocalTeamImages(matches: EsportsMatch[]) {
+    const imageByCode = new Map<string, string>();
+    for (const team of esportsTeams) {
+      const image = localTeamImage(team.image);
+      if (image) imageByCode.set(team.code.toUpperCase(), image);
+    }
+    for (const match of esportsMatches) {
+      for (const team of [match.team1, match.team2]) {
+        const image = localTeamImage(team.image);
+        if (image && !imageByCode.has(team.code.toUpperCase())) imageByCode.set(team.code.toUpperCase(), image);
+      }
+    }
+
+    return matches.map((match) => ({
+      ...match,
+      team1: { ...match.team1, image: localTeamImage(match.team1.image) || imageByCode.get(match.team1.code.toUpperCase()) || '' },
+      team2: { ...match.team2, image: localTeamImage(match.team2.image) || imageByCode.get(match.team2.code.toUpperCase()) || '' }
+    }));
   }
 
   function parseEsportsAsset(assetId: string): { matchId: string; teamCode: string } | null {
@@ -667,6 +686,7 @@
     teamsLoading = true;
     try {
       esportsTeams = await fetchEsportsTeams();
+      if (esportsMatches.length > 0) esportsMatches = withLocalTeamImages(esportsMatches);
       teamsLoaded = true;
     } catch {
       // Non-fatal: the favorites picker just stays empty.
@@ -710,7 +730,7 @@
   async function handleRefreshOdds(matchId: string): Promise<boolean> {
     try {
       const fresh = await refreshMatchOdds(matchId);
-      esportsMatches = esportsMatches.map((match) => (match.id === matchId ? fresh : match));
+      esportsMatches = withLocalTeamImages(esportsMatches.map((match) => (match.id === matchId ? fresh : match)));
       await reconcileEsportsPositions();
       return true;
     } catch {
@@ -1208,7 +1228,7 @@
       const hasEsportsPositions = portfolio?.positions.some((p) => p.kind === 'event');
       if (hasEsportsPositions || esportsLoaded) {
         try {
-          esportsMatches = await fetchEsportsMatches();
+          esportsMatches = withLocalTeamImages(await fetchEsportsMatches());
         } catch (e) {
           console.warn('eSports matches update failed in background:', e);
         }
