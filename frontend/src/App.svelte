@@ -1319,7 +1319,7 @@
   <main class="landing-shell" id="main-content" tabindex="-1">
     <header class="landing-nav">
       <div class="brand">
-        <img src="/icons/koalatrade.svg" alt="" width="38" height="38" />
+        <img src="/icons/koalatrade-icon.png" alt="" width="38" height="38" />
         <div>
           <strong>KoalaTrade</strong>
           <span>Paper markets</span>
@@ -1416,7 +1416,7 @@
   <main class="trading-shell" id="main-content" tabindex="-1">
     <header class="trading-topbar">
       <div class="brand">
-        <img src="/icons/koalatrade.svg" alt="" width="34" height="34" />
+        <img src="/icons/koalatrade-icon.png" alt="" width="34" height="34" />
         <div>
           <strong>KoalaTrade</strong>
           <span>{$t('topbar.tagline')}</span>
