@@ -31,6 +31,7 @@ export const de = {
     leaderboard: 'Rangliste',
     profile: 'Profil',
     main: 'Hauptnavigation',
+    homeTitle: 'KoalaTrade-Startseite',
     tradeTitle: 'Handelsbildschirm: Kaufe und verkaufe Assets zum aktuellen Marktpreis',
     portfolioTitle: 'Portfolio: Zeige deine Positionen, deinen Kontostand, P&L-Statistiken und Wertentwicklung',
     marketsTitle: 'Märkte: Übersicht aller handelbaren Aktien, ETFs, Kryptowährungen und Rohstoffe',

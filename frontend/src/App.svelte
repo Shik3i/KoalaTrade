@@ -1458,7 +1458,9 @@
 {:else}
   <div class="app-shell">
     <nav class="icon-rail" aria-label={$t('nav.main')}>
-      <div class="rail-logo" aria-hidden="true"></div>
+      <button class="rail-logo" type="button" aria-label={$t('nav.homeTitle')} title={$t('nav.homeTitle')} on:click={() => setActiveView('landing')}>
+        <img src="/icons/koalatrade-icon.png" alt="" width="34" height="34" />
+      </button>
       {#each deskTabs as tab}
         <button class="rail-item" class:active={activeView === tab.id} type="button"
                 title={tab.id === 'trade' ? $t('nav.tradeTitle') :
@@ -1481,7 +1483,7 @@
   <main class="trading-shell" id="main-content" tabindex="-1">
     <header class="trading-topbar">
       <div class="brand">
-        <img src="/icons/koalatrade-icon.png" alt="" width="34" height="34" />
+        <img class="topbar-logo" src="/icons/koalatrade-icon.png" alt="" width="34" height="34" />
         <div>
           <strong>KoalaTrade</strong>
           <span>{$t('topbar.tagline')}</span>

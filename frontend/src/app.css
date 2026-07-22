@@ -645,11 +645,33 @@ h4 {
 }
 
 .rail-logo {
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  background: linear-gradient(135deg, var(--green), var(--cyan));
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 4px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  color: inherit;
+  background: var(--panel);
+  box-shadow: 0 8px 24px -14px rgba(0, 0, 0, 0.9);
   margin-bottom: 0.75rem;
+  transition: 150ms ease;
+}
+
+.rail-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.rail-logo:hover {
+  border-color: hsla(var(--green-hsl), 0.35);
+  background: var(--panel-2);
+}
+
+.trading-topbar .topbar-logo {
+  display: none;
 }
 
 .rail-item {
@@ -2023,6 +2045,9 @@ kbd {
   }
   .rail-logo {
     display: none;
+  }
+  .trading-topbar .topbar-logo {
+    display: block;
   }
   .rail-item {
     width: 0;

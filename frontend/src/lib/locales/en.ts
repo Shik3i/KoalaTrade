@@ -32,6 +32,7 @@ export const en = {
     leaderboard: 'Leaderboard',
     profile: 'Profile',
     main: 'Main navigation',
+    homeTitle: 'KoalaTrade home',
     tradeTitle: 'Trading screen: buy and sell assets at the current market price',
     portfolioTitle: 'Portfolio: your positions, cash balance, P&L stats and performance',
     marketsTitle: 'Markets: overview of all tradable stocks, ETFs, cryptocurrencies and commodities',

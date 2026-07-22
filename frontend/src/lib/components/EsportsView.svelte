@@ -631,7 +631,7 @@
     width: 58px;
     height: 58px;
     padding: 0;
-    border: 0;
+    border: 1px solid var(--line-2);
     border-radius: 50%;
     overflow: hidden;
     font-family: var(--font-display);
@@ -639,8 +639,8 @@
     font-size: 1.1rem;
     letter-spacing: 0.01em;
     color: #fff;
-    background: linear-gradient(135deg, hsl(var(--green-hsl)), hsl(210, 70%, 42%));
-    box-shadow: inset 0 1px 0 0 hsla(0, 0%, 100%, 0.15);
+    background: #080d18;
+    box-shadow: inset 0 1px 0 0 hsla(0, 0%, 100%, 0.06);
     transition: 140ms ease;
   }
 
@@ -656,7 +656,9 @@
   .roundel img {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    padding: 0.35rem;
+    object-fit: contain;
+    background: #080d18;
   }
 
   .vs.no-odds .roundel {
