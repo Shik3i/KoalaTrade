@@ -91,6 +91,41 @@ func TestTeamsPersistAndServeLocalLogos(t *testing.T) {
 	}
 }
 
+func TestTeamsRepairStoredSnapshotWithoutLogos(t *testing.T) {
+	store := &teamTestStore{teams: []storage.EsportsTeam{{
+		Code: "G2", Name: "G2 Esports", League: "LEC",
+		SyncedAt: time.Now().UTC().Format(time.RFC3339Nano),
+	}}}
+	service := NewService("test-key", "https://lolesports.test", "", time.Second, time.Minute, store)
+	requests := 0
+	service.http = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		requests++
+		switch r.URL.Path {
+		case "/persisted/gw/getTeams":
+			return jsonResponse(`{"data":{"teams":[{"name":"G2 Esports","code":"G2","image":"http://logo.test/g2.png","status":"active","homeLeague":{"name":"LEC"}}]}}`), nil
+		case "/g2.png":
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"image/png"}},
+				Body:       io.NopCloser(strings.NewReader("png-bytes")),
+			}, nil
+		default:
+			return nil, errors.New("unexpected request: " + r.URL.String())
+		}
+	})}
+
+	teams, err := service.Teams(context.Background())
+	if err != nil {
+		t.Fatalf("teams: %v", err)
+	}
+	if len(teams) != 1 || teams[0].Image != "/api/esports/teams/G2/logo" {
+		t.Fatalf("expected stale logo snapshot to be repaired, got %+v", teams)
+	}
+	if requests != 2 {
+		t.Fatalf("expected repair sync and logo download, got %d requests", requests)
+	}
+}
+
 func TestTeamsFallsBackAfterEmptySnapshotFailure(t *testing.T) {
 	store := &teamTestStore{}
 	service := NewService("test-key", "https://lolesports.test", "", time.Second, time.Minute, store)

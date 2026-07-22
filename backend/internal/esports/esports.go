@@ -784,11 +784,23 @@ func (s *Service) ensureTeamsLoaded(ctx context.Context) {
 		s.teamsCachedAt = time.Time{}
 	}
 	s.teamLogoCodes = make(map[string]bool, len(stored))
+	missingLogo := false
 	for _, team := range stored {
 		s.teamLogoCodes[team.Code] = len(team.Logo) > 0
-		if parsed, parseErr := time.Parse(time.RFC3339Nano, team.SyncedAt); parseErr == nil && parsed.After(s.teamsSyncAt) {
-			s.teamsSyncAt = parsed
+		if len(team.Logo) == 0 {
+			missingLogo = true
 		}
+		if !missingLogo {
+			if parsed, parseErr := time.Parse(time.RFC3339Nano, team.SyncedAt); parseErr == nil && parsed.After(s.teamsSyncAt) {
+				s.teamsSyncAt = parsed
+			}
+		}
+	}
+	if missingLogo {
+		// A previous release could persist a fresh metadata snapshot before its
+		// logo downloads completed. Treat that cache as due once so the next
+		// process start repairs the local logo bytes instead of serving codes.
+		s.teamsSyncAt = time.Time{}
 	}
 }
 

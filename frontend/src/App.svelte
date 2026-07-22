@@ -144,6 +144,16 @@
   let syncMessage = tr('sync.ready');
   type AppView = 'landing' | DeskView | 'profile' | 'admin';
   let activeView: AppView = 'landing';
+  const viewPaths: Record<AppView, string> = {
+    landing: '/',
+    trade: '/trade',
+    portfolio: '/portfolio',
+    markets: '/markets',
+    esports: '/esports',
+    leaderboard: '/leaderboard',
+    profile: '/profile',
+    admin: '/admin'
+  };
   const ADMIN_TOKEN_KEY = 'koala-admin-token';
   let adminToken: string | null = null;
   let user: SessionUser | null = null;
@@ -186,7 +196,19 @@
   // changing leagues in either place updates both immediately.
   let preferences: Preferences = defaultPreferences();
 
+  function viewFromPath(pathname: string): AppView {
+    const path = pathname.replace(/\/+$/, '') || '/';
+    const match = (Object.entries(viewPaths) as [AppView, string][]).find(([, route]) => route === path);
+    return match?.[0] ?? 'landing';
+  }
+
   onMount(async () => {
+    activeView = viewFromPath(window.location.pathname);
+    if (activeView === 'landing' && window.location.pathname !== '/') {
+      window.history.replaceState({}, '', '/');
+    }
+    window.addEventListener('popstate', handlePopState);
+
     // Non-blocking first-run welcome banner (dismissible, shown on the Trade
     // desk). Set early so it never waits on the slower market/portfolio loads.
     try {
@@ -293,6 +315,7 @@
     if (quoteTimer) clearInterval(quoteTimer);
     const cleanup = (window as any).__koala_vis_cleanup;
     if (typeof cleanup === 'function') cleanup();
+    window.removeEventListener('popstate', handlePopState);
   });
 
   // Online = backend reachable → trades and open orders are server-authoritative
@@ -442,7 +465,20 @@
     esportsLoading = true;
     esportsError = '';
     try {
-      esportsMatches = await fetchEsportsMatches();
+      const nextMatches = await fetchEsportsMatches();
+      try {
+        esportsTeams = await fetchEsportsTeams();
+        teamsLoaded = true;
+      } catch {
+        // Match loading remains useful when the catalogue endpoint is briefly
+        // unavailable; use the last known team image map in that case.
+      }
+      const imageByCode = new Map(esportsTeams.map((team) => [team.code.toUpperCase(), team.image]));
+      esportsMatches = nextMatches.map((match) => ({
+        ...match,
+        team1: { ...match.team1, image: match.team1.image || imageByCode.get(match.team1.code.toUpperCase()) || '' },
+        team2: { ...match.team2, image: match.team2.image || imageByCode.get(match.team2.code.toUpperCase()) || '' }
+      }));
       esportsLoaded = true;
       await reconcileEsportsPositions();
       await settleResolvedBets();
@@ -1266,7 +1302,14 @@
     if (jumpToTrade) setActiveView('trade');
   }
 
-  function setActiveView(view: AppView) {
+  function handlePopState() {
+    setActiveView(viewFromPath(window.location.pathname), false);
+  }
+
+  function setActiveView(view: AppView, updateHistory = true) {
+    if (updateHistory && window.location.pathname !== viewPaths[view]) {
+      window.history.pushState({}, '', viewPaths[view]);
+    }
     activeView = view;
     requestAnimationFrame(() => {
       window.scrollTo(0, 0);
