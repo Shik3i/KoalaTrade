@@ -8,6 +8,7 @@ services:
     volumes:
       - data:/data
     environment:
+      - APP_ENV=production
       - DB_PATH=/data/koalatrade.db
       - PORT=8080
     env_file:

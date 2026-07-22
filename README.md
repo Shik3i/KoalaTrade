@@ -20,7 +20,7 @@ Trade with virtual cash, learn the markets, and compete — no real money, no tr
 - **Portfolio analytics** — equity curve, realized vs. unrealized P&L, drawdown, positions, and order history.
 - **eSports prediction markets** — real League of Legends schedules from lolesports with live "match winner" odds from Polymarket, traded as Yes-contracts through the paper portfolio. Bets auto-resolve when a match completes; sell or top up anytime at the current price.
 - **Profile** — favorite teams and default leagues (stored locally), coupled with the eSports page filter.
-- **Admin area** — seeded admin login, Polymarket team-code mappings, cache status, and force-refresh.
+- **Admin area** — role-gated through the normal account session, with Polymarket team-code mappings, cache status, and force-refresh.
 - **Privacy-first** — no account required to trade, portfolio lives in your browser (IndexedDB), no CDN/fonts/analytics/trackers. The server owns all third-party API traffic so keys stay private.
 
 > Status: **MVP (v0.2.0)**. See the [Roadmap](ROADMAP.md) for what's next.
@@ -34,7 +34,7 @@ Trade with virtual cash, learn the markets, and compete — no real money, no tr
 | Backend | Go 1.26 + chi router |
 | Database | SQLite (pure-Go `modernc.org/sqlite`, WAL) |
 | Client storage | IndexedDB (portfolio, preferences, device id) |
-| Admin auth | PBKDF2 password hashing + HMAC bearer tokens (stdlib only) |
+| Account auth | PBKDF2 password hashing + HMAC-signed HttpOnly sessions (stdlib only) |
 | Market data | Mock by default; optional CoinGecko (crypto) + Finnhub (stocks/ETF/commodity) |
 | eSports data | lolesports schedule/teams + locally served team logos + Polymarket odds (server-side) |
 | Packaging | Docker + Docker Compose; images published to GHCR on tag |
@@ -76,9 +76,9 @@ All configuration is via environment variables — see [`.env.example`](.env.exa
 | `LOLESPORTS_API_KEY` | public key | LoL Esports schedule/teams |
 | `ESPORTS_CACHE_SECONDS` | `300` | eSports schedule/odds cache TTL |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / _empty_ | Seeds the admin user once; empty password disables admin |
-| `AUTH_SECRET` | random | Signs admin session tokens; set it to keep sessions across restarts |
+| `AUTH_SECRET` | persisted in SQLite | Overrides the local session-signing key; set one shared value for multiple replicas |
 
-> ⚠️ `.env` is git-ignored — never commit real keys. For a deployment, set `ADMIN_PASSWORD` and `AUTH_SECRET`, and ensure the backend can reach `esports-api.lolesports.com` and `gamma-api.polymarket.com` outbound.
+> ⚠️ `.env` is git-ignored — never commit real keys. Set `ADMIN_PASSWORD` for the initial admin account. A single instance persists its generated session key in SQLite; multiple replicas must share `AUTH_SECRET`. The backend also needs outbound access to `esports-api.lolesports.com` and `gamma-api.polymarket.com`.
 
 ## API Overview
 
@@ -97,7 +97,7 @@ All configuration is via environment variables — see [`.env.example`](.env.exa
 | GET | `/api/esports/results?ids=` | Settled results (bet resolution) |
 | GET/PUT | `/api/sync/portfolio` | Opt-in device-scoped portfolio sync |
 | POST | `/api/auth/register` | Create user account → HttpOnly session cookie |
-| POST | `/api/auth/login` | User login → HttpOnly session cookie; admins also receive a bearer token |
+| POST | `/api/auth/login` | User login → HttpOnly session cookie |
 | POST | `/api/auth/logout` | Clear session cookie |
 | GET | `/api/auth/me` | Current authenticated user |
 | PATCH | `/api/account/` | Update display name |

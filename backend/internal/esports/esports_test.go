@@ -261,6 +261,60 @@ func TestMatchesRepairsCachedRowsWithLocalLogos(t *testing.T) {
 	}
 }
 
+func TestMatchesLoadsPersistedSnapshotWithoutUpstreamRequests(t *testing.T) {
+	store := &teamTestStore{
+		meta: map[string]string{},
+		teams: []storage.EsportsTeam{{
+			Code: "AL", Name: "Anyone's Legend", League: "LPL", Logo: []byte("png"), LogoContentType: "image/png",
+			SyncedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		}},
+	}
+	seed := NewService("test-key", "https://lolesports.test", "https://polymarket.test", time.Second, time.Minute, store)
+	seed.persistMatches(context.Background(), []Match{{
+		ID: "match-persisted", League: "LPL", HasOdds: true,
+		Team1: Team{Code: "AL", Name: "Anyone's Legend", PriceCents: 54, ProbBps: 5400},
+		Team2: Team{Code: "JDG", Name: "Beijing JDG Esports", PriceCents: 46, ProbBps: 4600},
+	}}, time.Now().Add(-time.Hour).UTC())
+
+	service := NewService("test-key", "https://lolesports.test", "https://polymarket.test", time.Second, time.Minute, store)
+	requests := 0
+	service.http = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		requests++
+		return nil, errors.New("unexpected upstream request")
+	})}
+
+	matches, err := service.Matches(context.Background())
+	if err != nil {
+		t.Fatalf("matches: %v", err)
+	}
+	if len(matches) != 1 || matches[0].ID != "match-persisted" || matches[0].Team1.PriceCents != 54 || matches[0].Team2.PriceCents != 46 {
+		t.Fatalf("expected persisted 54/46 snapshot, got %+v", matches)
+	}
+	if matches[0].Team1.Image != "/api/esports/teams/AL/logo" {
+		t.Fatalf("expected persisted logo mapping, got %q", matches[0].Team1.Image)
+	}
+	if requests != 0 {
+		t.Fatalf("expected zero request-path upstream calls, got %d", requests)
+	}
+}
+
+func TestPersistedScheduleRefreshDoesNotReuseOldOddsAsFreshInput(t *testing.T) {
+	stored := []Match{{
+		ID: "match-1", HasOdds: true, PolymarketURL: "https://polymarket.test/event",
+		Team1: Team{Code: "AL", PriceCents: 54, ProbBps: 5400},
+		Team2: Team{Code: "JDG", PriceCents: 46, ProbBps: 4600},
+	}}
+
+	schedule := scheduleOnly(stored)
+	if schedule[0].HasOdds || schedule[0].PolymarketURL != "" || schedule[0].Team1.PriceCents != 0 || schedule[0].Team2.PriceCents != 0 {
+		t.Fatalf("expected persisted schedule input without stale market data, got %+v", schedule[0])
+	}
+	restoreMissingOdds(schedule, stored)
+	if !schedule[0].HasOdds || schedule[0].Team1.PriceCents != 54 || schedule[0].Team2.PriceCents != 46 {
+		t.Fatalf("expected last good odds restored after an incomplete refresh, got %+v", schedule[0])
+	}
+}
+
 func TestTeamsFallsBackAfterEmptySnapshotFailure(t *testing.T) {
 	store := &teamTestStore{}
 	service := NewService("test-key", "https://lolesports.test", "", time.Second, time.Minute, store)
@@ -408,13 +462,19 @@ func (s *slugTestStore) TeamMappingsMap(ctx context.Context) (map[string]string,
 
 type teamTestStore struct {
 	teams []storage.EsportsTeam
+	meta  map[string]string
 }
 
 func (s *teamTestStore) GetMeta(ctx context.Context, key string) (string, bool, error) {
-	return "", false, nil
+	value, found := s.meta[key]
+	return value, found, nil
 }
 
 func (s *teamTestStore) SetMeta(ctx context.Context, key, value string) error {
+	if s.meta == nil {
+		s.meta = map[string]string{}
+	}
+	s.meta[key] = value
 	return nil
 }
 

@@ -266,9 +266,9 @@
 
           {#if match.hasOdds && (match.team1.priceCents > 0 || match.team2.priceCents > 0)}
             <div class="prob-wrap" title={$t('esports.probWrapTitle')}>
-              <svg class="prob-bar" viewBox="0 0 100 14" role="img" aria-label={$t('esports.probAria', { a: `${displayProbability.team1}%`, b: `${displayProbability.team2}%` })}>
-                <rect class="seg a" x="0" y="0" width={displayProbability.team1} height="14" />
-                <rect class="seg b" x={displayProbability.team1} y="0" width={displayProbability.team2} height="14" />
+              <svg class="prob-bar" viewBox="0 0 100 16" preserveAspectRatio="none" role="img" aria-label={$t('esports.probAria', { a: `${displayProbability.team1}%`, b: `${displayProbability.team2}%` })}>
+                <rect class="seg a" x="0" y="0" width={displayProbability.team1} height="16" />
+                <rect class="seg b" x={displayProbability.team1} y="0" width={displayProbability.team2} height="16" />
               </svg>
               <div class="prob-legend">
                 <span class="a">{displayProbability.team1}% · {formatMoney(match.team1.priceCents)}</span>
@@ -746,7 +746,7 @@
   .prob-bar {
     display: block;
     width: 100%;
-    height: 14px;
+    height: 16px;
     border-radius: 999px;
     overflow: hidden;
     background: var(--bg-2);

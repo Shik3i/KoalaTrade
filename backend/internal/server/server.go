@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"net/http"
 	"sync"
 	"time"
@@ -14,6 +16,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
+
+const authSecretMetaKey = "auth_secret_v1"
 
 type Server struct {
 	cfg        config.Config
@@ -71,11 +75,7 @@ func New(cfg config.Config, db *storage.SQLite) *Server {
 		provider,
 	)
 
-	secret := []byte(cfg.AuthSecret)
-	if len(secret) == 0 {
-		secret = make([]byte, 32)
-		_, _ = rand.Read(secret)
-	}
+	secret := resolveAuthSecret(cfg.AuthSecret, db)
 
 	return &Server{
 		cfg:           cfg,
@@ -95,6 +95,26 @@ func New(cfg config.Config, db *storage.SQLite) *Server {
 			db,
 		),
 	}
+}
+
+func resolveAuthSecret(configured string, db *storage.SQLite) []byte {
+	if configured != "" {
+		return []byte(configured)
+	}
+	if encoded, found, err := db.GetMeta(context.Background(), authSecretMetaKey); err == nil && found {
+		if persisted, decodeErr := base64.RawURLEncoding.DecodeString(encoded); decodeErr == nil && len(persisted) >= 32 {
+			return persisted
+		}
+	}
+
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		panic("generate authentication secret: " + err.Error())
+	}
+	if err := db.SetMeta(context.Background(), authSecretMetaKey, base64.RawURLEncoding.EncodeToString(secret)); err != nil {
+		panic("persist authentication secret: " + err.Error())
+	}
+	return secret
 }
 
 func (s *Server) Routes() http.Handler {

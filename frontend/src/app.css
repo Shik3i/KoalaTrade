@@ -264,6 +264,38 @@ h4 {
   box-shadow: 0 0 12px -2px var(--green-glow);
 }
 
+.account-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.4rem;
+  max-width: 13rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--soft);
+  background: var(--panel-2);
+  transition: all 150ms ease;
+}
+
+.account-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-chip:hover,
+.account-chip.active {
+  color: var(--text);
+  border-color: var(--line-2);
+  background: var(--panel-3);
+}
+
+.account-chip.active {
+  color: var(--green);
+  border-color: var(--green-soft);
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;

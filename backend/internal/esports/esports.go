@@ -107,7 +107,15 @@ type MatchDetailsStore interface {
 	UpsertEsportsMatchDetails(ctx context.Context, detail storage.EsportsMatchDetail, games []storage.EsportsMatchGame, videos []storage.EsportsMatchVideo) error
 }
 
-const resultsMetaKey = "esports_results"
+const (
+	resultsMetaKey = "esports_results"
+	matchesMetaKey = "esports_matches_v1"
+)
+
+type persistedMatchesSnapshot struct {
+	Matches  []Match   `json:"matches"`
+	CachedAt time.Time `json:"cachedAt"`
+}
 
 const (
 	teamSnapshotTTL = 7 * 24 * time.Hour
@@ -136,7 +144,6 @@ type Service struct {
 	lolBase  string
 	polyBase string
 	http     *http.Client
-	ttl      time.Duration
 	store    Store
 
 	mu               sync.Mutex
@@ -151,17 +158,19 @@ type Service struct {
 	teamsAttemptAt   time.Time
 	teamLogoCodes    map[string]bool
 	teamSyncMu       sync.Mutex
+	matchLoadMu      sync.Mutex
+	matchRefreshMu   sync.Mutex
+	matchesLoaded    bool
 	results          map[string]Result
 	resultsLoaded    bool
 }
 
-func NewService(apiKey, lolBaseURL, polyBaseURL string, timeout, ttl time.Duration, store Store) *Service {
+func NewService(apiKey, lolBaseURL, polyBaseURL string, timeout, _ time.Duration, store Store) *Service {
 	return &Service{
 		apiKey:        apiKey,
 		lolBase:       strings.TrimRight(lolBaseURL, "/"),
 		polyBase:      strings.TrimRight(polyBaseURL, "/"),
 		http:          &http.Client{Timeout: timeout},
-		ttl:           ttl,
 		store:         store,
 		results:       make(map[string]Result),
 		teamLogoCodes: make(map[string]bool),
@@ -210,12 +219,10 @@ func (s *Service) Status(ctx context.Context) Status {
 	return status
 }
 
-// ForceRefresh invalidates the schedule cache and re-fetches schedule + odds now.
+// ForceRefresh re-fetches schedule and odds without invalidating the last good
+// snapshot first, so readers keep seeing data while the refresh is in flight.
 func (s *Service) ForceRefresh(ctx context.Context) ([]Match, error) {
-	s.mu.Lock()
-	s.cachedAt = time.Time{}
-	s.mu.Unlock()
-	return s.Matches(ctx)
+	return s.refreshMatches(ctx)
 }
 
 // Results returns the stored outcomes for the requested match ids (only those
@@ -318,24 +325,38 @@ func (s *Service) Matches(ctx context.Context) ([]Match, error) {
 	// Hydrate the logo map from SQLite before consulting the match cache. Never
 	// block this request on the weekly upstream catalogue/logo refresh.
 	s.ensureTeamsLoaded(ctx)
+	s.ensureMatchesLoaded(ctx)
 
 	s.mu.Lock()
-	if s.cache != nil && time.Since(s.cachedAt) < s.ttl {
+	if len(s.cache) > 0 {
 		s.attachTeamImagesLocked(s.cache)
-		cached := s.cache
+		cached := cloneMatches(s.cache)
 		s.mu.Unlock()
 		return cached, nil
 	}
 	s.mu.Unlock()
 
+	// A brand-new installation has no persisted snapshot yet. Only that first
+	// request may need the upstream feed; restarts serve SQLite immediately and
+	// the background poller refreshes independently.
+	return s.refreshMatches(ctx)
+}
+
+func (s *Service) refreshMatches(ctx context.Context) ([]Match, error) {
+	s.matchRefreshMu.Lock()
+	defer s.matchRefreshMu.Unlock()
+
+	s.ensureTeamsLoaded(ctx)
+	s.ensureMatchesLoaded(ctx)
+
 	var matches []Match
 	var err error
 
 	s.mu.Lock()
+	previous := cloneMatches(s.cache)
 	useCachedSchedule := s.scheduleCache != nil && time.Since(s.scheduleCachedAt) < 6*time.Hour
 	if useCachedSchedule {
-		matches = make([]Match, len(s.scheduleCache))
-		copy(matches, s.scheduleCache)
+		matches = cloneMatches(s.scheduleCache)
 	}
 	s.mu.Unlock()
 
@@ -344,27 +365,107 @@ func (s *Service) Matches(ctx context.Context) ([]Match, error) {
 		if err != nil {
 			s.mu.Lock()
 			defer s.mu.Unlock()
-			if s.cache != nil {
-				return s.cache, nil
+			if len(s.cache) > 0 {
+				return cloneMatches(s.cache), nil
 			}
 			return nil, err
 		}
 
 		s.mu.Lock()
-		s.scheduleCache = make([]Match, len(matches))
-		copy(s.scheduleCache, matches)
+		s.scheduleCache = cloneMatches(matches)
 		s.scheduleCachedAt = time.Now()
 		s.mu.Unlock()
 	}
 
-	s.attachOdds(ctx, matches)
+	if complete := s.attachOdds(ctx, matches); !complete {
+		restoreMissingOdds(matches, previous)
+	}
 
 	s.mu.Lock()
 	s.attachTeamImagesLocked(matches)
-	s.cache = matches
-	s.cachedAt = time.Now()
+	s.cache = cloneMatches(matches)
+	s.cachedAt = time.Now().UTC()
+	s.matchesLoaded = true
+	cachedAt := s.cachedAt
+	snapshot := cloneMatches(s.cache)
 	s.mu.Unlock()
-	return matches, nil
+	s.persistMatches(ctx, snapshot, cachedAt)
+	return cloneMatches(snapshot), nil
+}
+
+func cloneMatches(matches []Match) []Match {
+	return append([]Match(nil), matches...)
+}
+
+func scheduleOnly(matches []Match) []Match {
+	schedule := cloneMatches(matches)
+	for i := range schedule {
+		schedule[i].HasOdds = false
+		schedule[i].PolymarketURL = ""
+		schedule[i].Team1.PriceCents, schedule[i].Team1.ProbBps = 0, 0
+		schedule[i].Team2.PriceCents, schedule[i].Team2.ProbBps = 0, 0
+	}
+	return schedule
+}
+
+func restoreMissingOdds(matches, previous []Match) {
+	byID := make(map[string]Match, len(previous))
+	for _, match := range previous {
+		byID[match.ID] = match
+	}
+	for i := range matches {
+		old, found := byID[matches[i].ID]
+		if !found || matches[i].HasOdds || !old.HasOdds {
+			continue
+		}
+		matches[i].HasOdds = true
+		matches[i].PolymarketURL = old.PolymarketURL
+		matches[i].Team1.PriceCents, matches[i].Team1.ProbBps = old.Team1.PriceCents, old.Team1.ProbBps
+		matches[i].Team2.PriceCents, matches[i].Team2.ProbBps = old.Team2.PriceCents, old.Team2.ProbBps
+	}
+}
+
+func (s *Service) ensureMatchesLoaded(ctx context.Context) {
+	s.matchLoadMu.Lock()
+	defer s.matchLoadMu.Unlock()
+
+	s.mu.Lock()
+	if s.matchesLoaded {
+		s.mu.Unlock()
+		return
+	}
+	s.mu.Unlock()
+
+	var snapshot persistedMatchesSnapshot
+	if s.store != nil {
+		if raw, found, err := s.store.GetMeta(ctx, matchesMetaKey); err == nil && found {
+			if json.Unmarshal([]byte(raw), &snapshot) != nil {
+				snapshot = persistedMatchesSnapshot{}
+			}
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.matchesLoaded = true
+	if len(snapshot.Matches) == 0 {
+		return
+	}
+	s.cache = cloneMatches(snapshot.Matches)
+	s.scheduleCache = scheduleOnly(snapshot.Matches)
+	s.cachedAt = snapshot.CachedAt
+	s.scheduleCachedAt = snapshot.CachedAt
+}
+
+func (s *Service) persistMatches(ctx context.Context, matches []Match, cachedAt time.Time) {
+	if s.store == nil || len(matches) == 0 {
+		return
+	}
+	encoded, err := json.Marshal(persistedMatchesSnapshot{Matches: matches, CachedAt: cachedAt})
+	if err != nil {
+		return
+	}
+	_ = s.store.SetMeta(ctx, matchesMetaKey, string(encoded))
 }
 
 func (s *Service) attachTeamImagesLocked(matches []Match) {
@@ -421,7 +522,10 @@ func (s *Service) RefreshMatchOdds(ctx context.Context, matchID string) (Match, 
 			break
 		}
 	}
+	snapshot := cloneMatches(s.cache)
+	cachedAt := s.cachedAt
 	s.mu.Unlock()
+	s.persistMatches(ctx, snapshot, cachedAt)
 	return match, nil
 }
 
@@ -1281,7 +1385,7 @@ type polymarketEvent struct {
 
 // attachOdds queries Polymarket for each match by guessed slugs, then maps the
 // returned "match winner" market back onto the schedule.
-func (s *Service) attachOdds(ctx context.Context, matches []Match) {
+func (s *Service) attachOdds(ctx context.Context, matches []Match) bool {
 	dict := s.mappingDict(ctx)
 	slugToIndex := map[string]int{}
 	allSlugs := make([]string, 0, len(matches)*8)
@@ -1298,9 +1402,10 @@ func (s *Service) attachOdds(ctx context.Context, matches []Match) {
 		}
 	}
 	if len(allSlugs) == 0 {
-		return
+		return true
 	}
 
+	complete := true
 	for start := 0; start < len(allSlugs); start += 50 {
 		end := start + 50
 		if end > len(allSlugs) {
@@ -1308,6 +1413,7 @@ func (s *Service) attachOdds(ctx context.Context, matches []Match) {
 		}
 		events, err := s.fetchPolymarketEvents(ctx, allSlugs[start:end])
 		if err != nil {
+			complete = false
 			continue
 		}
 		for _, event := range events {
@@ -1318,6 +1424,7 @@ func (s *Service) attachOdds(ctx context.Context, matches []Match) {
 			applyOdds(&matches[idx], event)
 		}
 	}
+	return complete
 }
 
 func (s *Service) fetchPolymarketEvents(ctx context.Context, slugs []string) ([]polymarketEvent, error) {

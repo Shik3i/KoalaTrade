@@ -257,6 +257,30 @@ func TestRegisterLoginMeUsesSessionCookie(t *testing.T) {
 	}
 }
 
+func TestGeneratedAuthSecretPersistsAcrossServerRestarts(t *testing.T) {
+	db, err := storage.OpenSQLite(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	cfg := config.Config{
+		AppName: "KoalaTrade", Environment: "test", Port: 8080,
+		StartingCashCents: 1_000_000, MarketDataCacheSeconds: 60, MarketDataHTTPTimeout: 5,
+	}
+
+	first := New(cfg, db)
+	cookie := registerUser(t, first.Routes(), "persistent", "long-enough-password")
+	second := New(cfg, db)
+
+	me := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	me.AddCookie(cookie)
+	res := httptest.NewRecorder()
+	second.Routes().ServeHTTP(res, me)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected restart to preserve session, got %d body=%s", res.Code, res.Body.String())
+	}
+}
+
 func TestRegisterHonorsRegistrationToggle(t *testing.T) {
 	app := newTestServer(t)
 	if err := app.db.SetMeta(context.Background(), registrationOpenKey, "false"); err != nil {

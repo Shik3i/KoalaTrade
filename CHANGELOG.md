@@ -6,6 +6,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-07-22
+
+### Added
+
+- The last complete eSports match and odds snapshot is persisted in SQLite and restored before any upstream refresh, so container restarts can serve the page immediately.
+- When `AUTH_SECRET` is omitted, a generated 256-bit session-signing key is persisted in SQLite and reused across single-instance restarts.
+
+### Changed
+
+- The permanent header now contains only connection status, language, and one state-aware account button. Shortcuts, anonymous reset, and role-gated administration live in the profile instead.
+- Admin requests now use the existing HttpOnly account session. The duplicate admin login form and browser-stored admin bearer token were removed.
+- eSports schedule and odds refreshes run in the background while readers continue receiving the last good snapshot.
+
+### Fixed
+
+- Probability bars now stretch their SVG coordinate system across the full card width and render at a more legible height, eliminating the large empty side gutters.
+- Docker Compose now enables production cookie behavior with `APP_ENV=production`.
+
 ## [0.7.5] - 2026-07-22
 
 ### Fixed
@@ -139,7 +157,8 @@ First MVP release. Published as Docker images to GHCR.
 - Market history endpoint now URL-decodes the asset id (colon in `crypto:btc`).
 - Docker release workflow lowercases the image owner so GHCR pushes succeed.
 
-[Unreleased]: https://github.com/Shik3i/KoalaTrade/compare/v0.7.5...HEAD
+[Unreleased]: https://github.com/Shik3i/KoalaTrade/compare/v0.7.6...HEAD
+[0.7.6]: https://github.com/Shik3i/KoalaTrade/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/Shik3i/KoalaTrade/compare/v0.7.4...v0.7.5
 [0.1.2]: https://github.com/Shik3i/KoalaTrade/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Shik3i/KoalaTrade/compare/v0.1.0...v0.1.1

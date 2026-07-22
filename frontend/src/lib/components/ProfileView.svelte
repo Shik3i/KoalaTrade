@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Download, KeyRound, LogIn, LogOut, Search, Star, Trash2, Trophy, UserCircle2 } from '@lucide/svelte';
+  import { Download, Keyboard, KeyRound, LogIn, LogOut, RotateCcw, Search, ShieldCheck, Star, Trash2, Trophy, UserCircle2 } from '@lucide/svelte';
   import type { EsportsTeamInfo, SessionUser } from '../api';
   import { MAX_FAVORITE_TEAMS } from '../preferences';
   import { formatMoney } from '../portfolio';
@@ -26,6 +26,9 @@
   export let onExportAccount: () => Promise<void>;
   export let onDeletePortfolioData: (password: string) => Promise<void>;
   export let onDeleteAccount: (password: string) => Promise<void>;
+  export let onShowShortcuts: () => void;
+  export let onResetPortfolio: () => void;
+  export let onOpenAdmin: () => void;
 
   let teamQuery = '';
   let authMode: 'login' | 'register' = 'login';
@@ -198,6 +201,28 @@
         </button>
       </form>
     {/if}
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><div><p class="eyebrow">{$t('profile.preferences')}</p><h2>{$t('profile.tools')}</h2></div><Keyboard size={18} /></div>
+    <div class="utility-grid">
+      <button class="utility-card" type="button" on:click={onShowShortcuts}>
+        <Keyboard size={18} />
+        <span><strong>{$t('profile.shortcuts')}</strong><small>{$t('profile.shortcutsHint')}</small></span>
+      </button>
+      {#if user?.role === 'admin'}
+        <button class="utility-card" type="button" on:click={onOpenAdmin}>
+          <ShieldCheck size={18} />
+          <span><strong>{$t('profile.adminArea')}</strong><small>{$t('profile.adminAreaHint')}</small></span>
+        </button>
+      {/if}
+      {#if !user}
+        <button class="utility-card danger" type="button" on:click={onResetPortfolio}>
+          <RotateCcw size={18} />
+          <span><strong>{$t('profile.resetPractice')}</strong><small>{$t('profile.resetPracticeHint')}</small></span>
+        </button>
+      {/if}
+    </div>
   </section>
 
   <section class="panel">
@@ -389,6 +414,45 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.45rem;
+  }
+
+  .utility-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    gap: 0.55rem;
+  }
+
+  .utility-card {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    min-height: 4rem;
+    padding: 0.7rem 0.8rem;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    color: var(--text);
+    text-align: left;
+    background: var(--bg-2);
+  }
+
+  .utility-card:hover {
+    border-color: var(--line-2);
+    background: var(--panel-3);
+  }
+
+  .utility-card > span {
+    display: grid;
+    gap: 0.12rem;
+  }
+
+  .utility-card small {
+    color: var(--muted);
+    line-height: 1.3;
+  }
+
+  .utility-card.danger {
+    color: var(--red);
+    border-color: var(--red-soft);
   }
 
   .league-chips,

@@ -22,18 +22,11 @@ func main() {
 
 	cfg := config.Load()
 
-	// Warn loudly about insecure production defaults. An empty AUTH_SECRET means a
-	// fresh random signing key on every boot, invalidating all sessions on restart.
+	// Without an explicit secret, the server creates one in the persistent SQLite
+	// database. This keeps sessions valid across ordinary single-instance restarts;
+	// deployments with multiple replicas should still provide one shared secret.
 	if cfg.AuthSecret == "" {
-		if cfg.Environment == "production" {
-			logger.Error("AUTH_SECRET is not set in production: this is required to maintain user sessions across restarts. Server exiting.")
-			os.Exit(1)
-		}
-		logger.Warn("AUTH_SECRET is not set: a random key is generated per start, so all sessions are invalidated on restart. Set AUTH_SECRET in production.")
-	}
-	if cfg.Environment == "production" && cfg.AdminPassword == "" {
-		logger.Error("ADMIN_PASSWORD is not set in production: the admin account can't be seeded, leaving eSports slug mapping and moderation inaccessible. Server exiting.")
-		os.Exit(1)
+		logger.Warn("AUTH_SECRET is not set: using the signing key persisted in SQLite; set AUTH_SECRET for multi-replica deployments")
 	}
 
 	db, err := storage.OpenSQLite(cfg.DatabasePath)

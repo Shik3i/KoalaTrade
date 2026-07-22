@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { FlaskConical, Link2, LogOut, RefreshCw, ShieldCheck, Trash2 } from '@lucide/svelte';
+  import { FlaskConical, Link2, RefreshCw, ShieldCheck, Trash2 } from '@lucide/svelte';
   import {
     AdminAuthError,
     adminRefreshEsports,
@@ -20,16 +20,11 @@
   import { t } from '../i18n';
   const tr = (key: string, vars?: Record<string, string | number>) => get(t)(key, vars);
 
-  export let token: string | null = null;
+  export let authorized = false;
   export let matches: EsportsMatch[] = [];
-  export let onLogin: (username: string, password: string) => Promise<void>;
-  export let onLogout: () => void;
+  export let onGoToProfile: () => void;
+  export let onAuthLost: () => void;
   export let onRefreshMatches: () => Promise<void> = async () => {};
-
-  let username = 'admin';
-  let password = '';
-  let loginError = '';
-  let loggingIn = false;
 
   let mappings: TeamMapping[] = [];
   let status: AdminStatus | null = null;
@@ -43,13 +38,13 @@
   let error = '';
   let busy = false;
   let refreshing = false;
-  let loadedFor: string | null = null;
+  let loaded = false;
 
-  $: if (token && token !== loadedFor) {
-    loadedFor = token;
+  $: if (authorized && !loaded) {
+    loaded = true;
     void loadData();
   }
-  $: if (!token) loadedFor = null;
+  $: if (!authorized) loaded = false;
 
   // Matches that currently lack Polymarket odds → candidates for a mapping.
   $: noOddsMatches = matches.filter((m) => !m.hasOdds && m.team1.code !== 'TBD' && m.team2.code !== 'TBD');
@@ -92,20 +87,20 @@
   }
 
   async function saveTeamSlug(code: string) {
-    if (!token) return;
+    if (!authorized) return;
     const poly = slugValue(code).trim();
     const original = code.trim();
     if (!original || !poly) return;
     savingCode = original.toUpperCase();
     error = '';
     try {
-      mappings = await upsertTeamMapping(token, original, poly);
+      mappings = await upsertTeamMapping(original, poly);
       // Drop the local edit so the row reflects the saved mapping, then
       // re-fetch odds so a now-complete match lights up immediately.
       const { [original.toUpperCase()]: _drop, ...rest } = slugEdits;
       slugEdits = rest;
       await onRefreshMatches();
-      status = await fetchAdminStatus(token);
+      status = await fetchAdminStatus();
     } catch (e) {
       handleError(e);
     } finally {
@@ -114,9 +109,9 @@
   }
 
   async function clearTeamSlug(code: string) {
-    if (!token) return;
+    if (!authorized) return;
     try {
-      mappings = await deleteTeamMapping(token, code.trim());
+      mappings = await deleteTeamMapping(code.trim());
       const { [code.trim().toUpperCase()]: _drop, ...rest } = slugEdits;
       slugEdits = rest;
       await onRefreshMatches();
@@ -126,31 +121,18 @@
   }
 
   async function testTeamSlug(match: EsportsMatch, code: string) {
-    if (!token) return;
+    if (!authorized) return;
     selectedMatchId = match.id;
     originalCode = code;
     polymarketCode = slugValue(code).trim();
     await testMapping(true);
   }
 
-  async function handleLoginSubmit() {
-    loginError = '';
-    loggingIn = true;
-    try {
-      await onLogin(username.trim(), password);
-      password = '';
-    } catch (e) {
-      loginError = e instanceof Error ? e.message : tr('admin.errLoginFailed');
-    } finally {
-      loggingIn = false;
-    }
-  }
-
   async function loadData() {
-    if (!token) return;
+    if (!authorized) return;
     error = '';
     try {
-      [mappings, status, settings] = await Promise.all([fetchTeamMappings(token), fetchAdminStatus(token), fetchAdminSettings(token)]);
+      [mappings, status, settings] = await Promise.all([fetchTeamMappings(), fetchAdminStatus(), fetchAdminSettings()]);
     } catch (e) {
       handleError(e);
     }
@@ -158,18 +140,18 @@
 
   function handleError(e: unknown) {
     if (e instanceof AdminAuthError) {
-      onLogout();
+      onAuthLost();
       return;
     }
     error = e instanceof Error ? e.message : tr('admin.errGeneric');
   }
 
   async function saveMapping() {
-    if (!token || !originalCode.trim() || !polymarketCode.trim()) return;
+    if (!authorized || !originalCode.trim() || !polymarketCode.trim()) return;
     busy = true;
     error = '';
     try {
-      mappings = await upsertTeamMapping(token, originalCode.trim(), polymarketCode.trim());
+      mappings = await upsertTeamMapping(originalCode.trim(), polymarketCode.trim());
       originalCode = '';
       polymarketCode = '';
       slugDiagnostic = null;
@@ -181,20 +163,20 @@
   }
 
   async function removeMapping(code: string) {
-    if (!token) return;
+    if (!authorized) return;
     try {
-      mappings = await deleteTeamMapping(token, code);
+      mappings = await deleteTeamMapping(code);
     } catch (e) {
       handleError(e);
     }
   }
 
   async function refresh() {
-    if (!token) return;
+    if (!authorized) return;
     refreshing = true;
     try {
-      await adminRefreshEsports(token);
-      status = await fetchAdminStatus(token);
+      await adminRefreshEsports();
+      status = await fetchAdminStatus();
     } catch (e) {
       handleError(e);
     } finally {
@@ -203,11 +185,11 @@
   }
 
   async function toggleRegistration() {
-    if (!token || !settings) return;
+    if (!authorized || !settings) return;
     busy = true;
     error = '';
     try {
-      settings = await updateAdminSettings(token, { registrationOpen: !settings.registrationOpen });
+      settings = await updateAdminSettings({ registrationOpen: !settings.registrationOpen });
     } catch (e) {
       handleError(e);
     } finally {
@@ -216,11 +198,11 @@
   }
 
   async function testMapping(liveTest = true) {
-    if (!token || !selectedMatch || !originalCode.trim()) return;
+    if (!authorized || !selectedMatch || !originalCode.trim()) return;
     slugBusy = true;
     slugError = '';
     try {
-      slugDiagnostic = await previewTeamMapping(token, {
+      slugDiagnostic = await previewTeamMapping({
         matchId: selectedMatch.id,
         originalCode: originalCode.trim(),
         polymarketCode: polymarketCode.trim(),
@@ -236,16 +218,11 @@
 </script>
 
 <div class="admin">
-  {#if !token}
+  {#if !authorized}
     <section class="panel login-card">
-      <div class="panel-head"><div><p class="eyebrow">{$t('admin.login')}</p><h2>{$t('admin.loginTitle')}</h2></div><ShieldCheck size={18} /></div>
-      <form class="login-form" on:submit|preventDefault={handleLoginSubmit}>
-        <label class="field" title={$t('admin.usernameTitle')}><span>{$t('admin.username')}</span><input bind:value={username} type="text" autocomplete="username" title={$t('admin.usernameInputTitle')} /></label>
-        <label class="field" title={$t('admin.passwordTitle')}><span>{$t('admin.password')}</span><input bind:value={password} type="password" autocomplete="current-password" title={$t('admin.passwordInputTitle')} /></label>
-        {#if loginError}<p class="form-error">{loginError}</p>{/if}
-        <button class="primary-button" type="submit" title={$t('admin.loginSubmitTitle')} disabled={loggingIn || !password}>{loggingIn ? $t('admin.loginSubmitting') : $t('admin.login')}</button>
-        <p class="hint">{$t('admin.seedHint')}</p>
-      </form>
+      <div class="panel-head"><div><p class="eyebrow">{$t('admin.access')}</p><h2>{$t('admin.accessTitle')}</h2></div><ShieldCheck size={18} /></div>
+      <p class="hint">{$t('admin.accessHint')}</p>
+      <button class="primary-button" type="button" on:click={onGoToProfile}>{$t('admin.goToProfile')}</button>
     </section>
   {:else}
     <section class="panel">
@@ -253,7 +230,6 @@
         <div><p class="eyebrow">Admin</p><h2>{$t('admin.statusCache')}</h2></div>
         <div class="head-actions">
           <button class="ghost-btn" type="button" title={$t('admin.refreshTitle')} disabled={refreshing} on:click={refresh}><RefreshCw size={15} /> {refreshing ? $t('admin.refreshing') : $t('admin.forceRefresh')}</button>
-          <button class="ghost-btn" type="button" title={$t('admin.logoutTitle')} on:click={onLogout}><LogOut size={15} /> {$t('admin.logout')}</button>
         </div>
       </div>
       {#if status}
@@ -400,16 +376,6 @@
     max-width: 26rem;
     margin: 2rem auto;
     width: 100%;
-  }
-
-  .login-form,
-  .field {
-    display: grid;
-    gap: 0.5rem;
-  }
-
-  .login-form {
-    gap: 0.8rem;
   }
 
   .hint {

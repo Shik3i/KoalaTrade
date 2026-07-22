@@ -82,7 +82,9 @@ export const de = {
     syncTitle: 'Portfolio synchronisieren: Sichere dein Portfolio auf dem Server, um es geräteübergreifend zu nutzen',
     resetLabel: 'Portfolio zurücksetzen',
     resetTitle: 'Portfolio zurücksetzen: Löscht alle Positionen und setzt dein Guthaben auf den Startwert zurück',
-    languageTitle: 'Sprache wechseln'
+    languageTitle: 'Sprache wechseln',
+    signIn: 'Anmelden',
+    accountTitle: 'Profil und Kontoeinstellungen öffnen'
   },
   tape: {
     selectTitle: 'Wähle {symbol} aus, um den Chart und das Order-Ticket anzuzeigen.'
@@ -373,6 +375,14 @@ export const de = {
     loginSubmitTitle: 'Melde dich an, um dein Portfolio zu synchronisieren',
     createAccount: 'Account erstellen',
     signIn: 'Einloggen',
+    preferences: 'Einstellungen',
+    tools: 'Werkzeuge und Zugriff',
+    shortcuts: 'Tastenkürzel',
+    shortcutsHint: 'Optionale Tastenkürzel für den Handel anzeigen.',
+    adminArea: 'Administration',
+    adminAreaHint: 'eSports-Mappings, Registrierung und Cache-Status verwalten.',
+    resetPractice: 'Übungsportfolio zurücksetzen',
+    resetPracticeHint: 'Das anonyme lokale Portfolio löschen und neu beginnen.',
     esports: 'eSports',
     defaultLeagues: 'Standard-Ligen',
     leaguesHint: 'Diese Ligen werden auf der eSports-Seite standardmäßig angezeigt.',
@@ -512,6 +522,10 @@ export const de = {
     refreshFailed: 'Aktualisierung fehlgeschlagen'
   },
   admin: {
+    access: 'Administration',
+    accessTitle: 'Adminzugriff erforderlich',
+    accessHint: 'Melde dich im Profil mit einem Konto an, das die Adminrolle besitzt.',
+    goToProfile: 'Zum Profil',
     login: 'Anmelden',
     loginTitle: 'Anmelden',
     loginSubmitting: 'Anmelden …',
@@ -522,7 +536,6 @@ export const de = {
     passwordTitle: 'Administrator-Passwort',
     passwordInputTitle: 'Gib das Admin-Passwort ein',
     loginSubmitTitle: 'Melde dich als Administrator an',
-    seedHint: 'Admin wird einmalig aus ADMIN_USERNAME / ADMIN_PASSWORD geseedet.',
     statusCache: 'Status & Cache',
     refreshTitle: 'Löscht den Cache des Spielplans und der Polymarket-Quoten und lädt alles live neu',
     refreshing: 'Aktualisiere …',

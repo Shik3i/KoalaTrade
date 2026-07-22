@@ -95,7 +95,7 @@ export type AdminSettings = {
   registrationOpen: boolean;
 };
 
-type LoginPayload = { token?: string; expiresAt: string; user: SessionUser };
+type LoginPayload = { expiresAt: string; user: SessionUser };
 
 export async function login(username: string, password: string): Promise<LoginPayload> {
   const response = await fetch('/api/auth/login', {
@@ -186,79 +186,72 @@ export async function deleteAccount(password: string): Promise<void> {
   await accountJson<{ ok: boolean }>(response);
 }
 
-export async function adminLogin(username: string, password: string): Promise<{ token: string; expiresAt: string }> {
-  const payload = await login(username, password);
-  if (!payload.token) throw new Error('Admin-Rolle erforderlich');
-  return { token: payload.token, expiresAt: payload.expiresAt };
-}
-
-function adminHeaders(token: string) {
-  return { Authorization: `Bearer ${token}`, Accept: 'application/json' };
+function adminHeaders() {
+  return { Accept: 'application/json' };
 }
 
 export class AdminAuthError extends Error {}
 
 async function adminJson<T>(response: Response): Promise<T> {
-  if (response.status === 401) throw new AdminAuthError('Session expired');
+  if (response.status === 401 || response.status === 403) throw new AdminAuthError('Admin session unavailable');
   if (!response.ok) throw new Error(`Request failed (${response.status})`);
   return (await response.json()) as T;
 }
 
-export async function fetchTeamMappings(token: string): Promise<TeamMapping[]> {
-  const response = await fetch('/api/admin/mappings', { headers: adminHeaders(token) });
+export async function fetchTeamMappings(): Promise<TeamMapping[]> {
+  const response = await fetch('/api/admin/mappings', { headers: adminHeaders() });
   return (await adminJson<{ mappings: TeamMapping[] }>(response)).mappings ?? [];
 }
 
-export async function upsertTeamMapping(token: string, originalCode: string, polymarketCode: string): Promise<TeamMapping[]> {
+export async function upsertTeamMapping(originalCode: string, polymarketCode: string): Promise<TeamMapping[]> {
   const response = await fetch('/api/admin/mappings', {
     method: 'PUT',
-    headers: { ...adminHeaders(token), 'Content-Type': 'application/json' },
+    headers: { ...adminHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ originalCode, polymarketCode })
   });
   return (await adminJson<{ mappings: TeamMapping[] }>(response)).mappings ?? [];
 }
 
-export async function deleteTeamMapping(token: string, originalCode: string): Promise<TeamMapping[]> {
+export async function deleteTeamMapping(originalCode: string): Promise<TeamMapping[]> {
   const response = await fetch(`/api/admin/mappings/${encodeURIComponent(originalCode)}`, {
     method: 'DELETE',
-    headers: adminHeaders(token)
+    headers: adminHeaders()
   });
   return (await adminJson<{ mappings: TeamMapping[] }>(response)).mappings ?? [];
 }
 
 export async function previewTeamMapping(
-  token: string,
   input: { matchId: string; originalCode: string; polymarketCode: string; liveTest: boolean }
 ): Promise<SlugDiagnostic> {
   const response = await fetch('/api/admin/slug-preview', {
     method: 'POST',
-    headers: { ...adminHeaders(token), 'Content-Type': 'application/json' },
+    headers: { ...adminHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify(input)
   });
   return adminJson<SlugDiagnostic>(response);
 }
 
-export async function fetchAdminStatus(token: string): Promise<AdminStatus> {
-  const response = await fetch('/api/admin/status', { headers: adminHeaders(token) });
+export async function fetchAdminStatus(): Promise<AdminStatus> {
+  const response = await fetch('/api/admin/status', { headers: adminHeaders() });
   return adminJson<AdminStatus>(response);
 }
 
-export async function fetchAdminSettings(token: string): Promise<AdminSettings> {
-  const response = await fetch('/api/admin/settings', { headers: adminHeaders(token) });
+export async function fetchAdminSettings(): Promise<AdminSettings> {
+  const response = await fetch('/api/admin/settings', { headers: adminHeaders() });
   return adminJson<AdminSettings>(response);
 }
 
-export async function updateAdminSettings(token: string, settings: AdminSettings): Promise<AdminSettings> {
+export async function updateAdminSettings(settings: AdminSettings): Promise<AdminSettings> {
   const response = await fetch('/api/admin/settings', {
     method: 'PUT',
-    headers: { ...adminHeaders(token), 'Content-Type': 'application/json' },
+    headers: { ...adminHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify(settings)
   });
   return adminJson<AdminSettings>(response);
 }
 
-export async function adminRefreshEsports(token: string): Promise<number> {
-  const response = await fetch('/api/admin/refresh', { method: 'POST', headers: adminHeaders(token) });
+export async function adminRefreshEsports(): Promise<number> {
+  const response = await fetch('/api/admin/refresh', { method: 'POST', headers: adminHeaders() });
   return (await adminJson<{ refreshed: number }>(response)).refreshed ?? 0;
 }
 

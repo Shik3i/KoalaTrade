@@ -68,6 +68,13 @@ func (s *Server) StartEsportsPoller(ctx context.Context, logger *slog.Logger) {
 	}
 
 	go func() {
+		// ForceRefresh first hydrates the last complete SQLite snapshot, then does
+		// the network refresh in this background goroutine. HTTP requests can serve
+		// the persisted snapshot immediately while upstream calls are in flight.
+		if _, err := s.esports.ForceRefresh(ctx); err != nil {
+			logger.Warn("initial esports refresh failed", "error", err)
+		}
+
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -75,7 +82,7 @@ func (s *Server) StartEsportsPoller(ctx context.Context, logger *slog.Logger) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if _, err := s.esports.Matches(ctx); err != nil {
+				if _, err := s.esports.ForceRefresh(ctx); err != nil {
 					logger.Warn("esports poll failed", "error", err)
 				}
 			}

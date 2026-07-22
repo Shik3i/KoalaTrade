@@ -4,12 +4,10 @@
     ArrowLeft,
     Award,
     CandlestickChart,
-    CloudUpload,
     LineChart,
     Keyboard,
     RotateCcw,
     Search,
-    ShieldCheck,
     Sparkles,
     TrendingUp,
     Trophy,
@@ -27,7 +25,6 @@
   import ProfileView from './lib/components/ProfileView.svelte';
   import Toasts from './lib/components/Toasts.svelte';
   import {
-    adminLogin,
     changePassword,
     deleteAccount,
     deletePortfolioData,
@@ -144,7 +141,6 @@
   let triggerPrice: number | string = '';
   let orderError = '';
   let openOrders: OpenOrder[] = [];
-  let isSyncing = false;
   let syncMessage = tr('sync.ready');
   type AppView = 'landing' | DeskView | 'profile' | 'admin';
   let activeView: AppView = 'landing';
@@ -158,8 +154,6 @@
     profile: '/profile',
     admin: '/admin'
   };
-  const ADMIN_TOKEN_KEY = 'koala-admin-token';
-  let adminToken: string | null = null;
   let user: SessionUser | null = null;
   let authBusy = false;
   let clientId = '';
@@ -226,8 +220,6 @@
     } catch {
       preferences = defaultPreferences();
     }
-
-    adminToken = localStorage.getItem(ADMIN_TOKEN_KEY);
 
     try {
       user = await fetchMe();
@@ -429,7 +421,7 @@
   }
 
   // Load matches for the admin "no odds" diagnostic when the admin panel opens.
-  $: if (activeView === 'admin' && adminToken && !esportsLoaded && !esportsLoading) {
+  $: if (activeView === 'admin' && user?.role === 'admin' && !esportsLoaded && !esportsLoading) {
     void loadEsports();
   }
 
@@ -588,28 +580,11 @@
     await placeEsportsBet(match, team, contracts);
   }
 
-  async function handleAdminLogin(username: string, password: string) {
-    const { token } = await adminLogin(username, password);
-    adminToken = token;
-    user = await fetchMe();
-    localStorage.setItem(ADMIN_TOKEN_KEY, token);
-    toast.success(tr('toast.signedIn'), tr('toast.adminUnlocked'));
-  }
-
-  function handleAdminLogout() {
-    adminToken = null;
-    localStorage.removeItem(ADMIN_TOKEN_KEY);
-  }
-
   async function handleUserLogin(username: string, password: string) {
     authBusy = true;
     try {
       const payload = await login(username, password);
       user = payload.user;
-      if (payload.token) {
-        adminToken = payload.token;
-        localStorage.setItem(ADMIN_TOKEN_KEY, payload.token);
-      }
       const restored = await restoreSyncedPortfolio(true);
       if (restored !== 'restored') await handleSyncPortfolio();
       toast.success(tr('toast.loggedIn'), tr('toast.loggedInDetail'));
@@ -635,8 +610,6 @@
     try {
       await logout();
       user = null;
-      adminToken = null;
-      localStorage.removeItem(ADMIN_TOKEN_KEY);
       toast.info(tr('toast.loggedOut'), tr('toast.loggedOutDetail'));
     } finally {
       authBusy = false;
@@ -681,9 +654,13 @@
   async function handleDeleteAccount(password: string) {
     await deleteAccount(password);
     user = null;
-    adminToken = null;
-    localStorage.removeItem(ADMIN_TOKEN_KEY);
     toast.success(tr('toast.accountDeleted'), tr('toast.accountDeletedDetail'));
+  }
+
+  function handleAdminAuthLost() {
+    user = null;
+    setActiveView('profile');
+    toast.info(tr('toast.loggedOut'), tr('toast.loggedOutDetail'));
   }
 
   async function loadTeams() {
@@ -1101,18 +1078,14 @@
 
   async function handleSyncPortfolio() {
     if (!portfolio) return;
-    isSyncing = true;
     try {
       const synced = await syncPortfolio(clientId || (await loadClientId()), portfolio);
       await savePortfolio(synced, { touchUpdatedAt: false });
       portfolio = synced;
       syncMessage = tr('sync.syncedAt', { time: formatUpdatedAt(synced.updatedAt) });
-      toast.success(tr('toast.portfolioSynced'));
     } catch (error) {
       syncMessage = tr('sync.failed');
       toast.error(tr('sync.failed'), error instanceof Error ? error.message : undefined);
-    } finally {
-      isSyncing = false;
     }
   }
 
@@ -1503,17 +1476,9 @@
             <button class="lang-option" class:active={$locale === loc} type="button" aria-pressed={$locale === loc} title={LOCALE_LABELS[loc]} on:click={() => setLocale(loc)}>{loc.toUpperCase()}</button>
           {/each}
         </div>
-        <button class="icon-button" class:active={activeView === 'admin'} type="button" aria-label={$t('topbar.adminLabel')} title={$t('topbar.adminTitle')} on:click={() => setActiveView('admin')}>
-          <ShieldCheck size={18} />
-        </button>
-        <button class="icon-button" type="button" aria-label={$t('topbar.shortcutsLabel')} title={$t('topbar.shortcutsTitle')} on:click={() => (showShortcuts = !showShortcuts)}>
-          <Keyboard size={18} />
-        </button>
-        <button class="icon-button" type="button" aria-label={$t('topbar.syncLabel')} title={$t('topbar.syncTitle')} disabled={isSyncing || !portfolio || !!configError} on:click={handleSyncPortfolio}>
-          <CloudUpload size={18} />
-        </button>
-        <button class="icon-button" type="button" aria-label={$t('topbar.resetLabel')} title={$t('topbar.resetTitle')} on:click={() => (showResetConfirm = true)}>
-          <RotateCcw size={18} />
+        <button class="account-chip" class:active={activeView === 'profile'} type="button" title={$t('topbar.accountTitle')} on:click={() => setActiveView('profile')}>
+          <UserCircle2 size={18} />
+          <span>{user ? user.displayName || user.username : $t('topbar.signIn')}</span>
         </button>
       </div>
     </header>
@@ -1921,15 +1886,18 @@
           onExportAccount={handleExportAccount}
           onDeletePortfolioData={handleDeletePortfolioData}
           onDeleteAccount={handleDeleteAccount}
+          onShowShortcuts={() => (showShortcuts = true)}
+          onResetPortfolio={() => (showResetConfirm = true)}
+          onOpenAdmin={() => setActiveView('admin')}
         />
       </section>
     {:else}
       <section class="view-scroll" aria-label={$t('topbar.adminLabel')}>
         <AdminView
-          token={adminToken}
+          authorized={user?.role === 'admin'}
           matches={esportsMatches}
-          onLogin={handleAdminLogin}
-          onLogout={handleAdminLogout}
+          onGoToProfile={() => setActiveView('profile')}
+          onAuthLost={handleAdminAuthLost}
           onRefreshMatches={loadEsports}
         />
       </section>

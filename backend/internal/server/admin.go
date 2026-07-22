@@ -16,7 +16,6 @@ import (
 )
 
 const (
-	adminTokenTTL       = 12 * time.Hour
 	sessionTTL          = 7 * 24 * time.Hour
 	sessionCookieName   = "koala_session"
 	registrationOpenKey = "registration_open"
@@ -73,7 +72,6 @@ type loginRequest struct {
 }
 
 type loginResponse struct {
-	Token     string      `json:"token,omitempty"`
 	ExpiresAt time.Time   `json:"expiresAt"`
 	User      sessionUser `json:"user"`
 }
@@ -258,11 +256,7 @@ func (s *Server) writeLoginResponse(w http.ResponseWriter, user storage.UserProf
 	}
 	s.setSessionCookie(w, token, expiresAt)
 
-	adminToken := ""
-	if user.Role == storage.RoleAdmin {
-		adminToken, _, _ = auth.SignSessionToken(s.authSecret, user.ID, user.Username, user.Role, adminTokenTTL)
-	}
-	writeJSON(w, http.StatusOK, loginResponse{Token: adminToken, ExpiresAt: expiresAt, User: publicUser(user)})
+	writeJSON(w, http.StatusOK, loginResponse{ExpiresAt: expiresAt, User: publicUser(user)})
 }
 
 func bearerToken(r *http.Request) string {

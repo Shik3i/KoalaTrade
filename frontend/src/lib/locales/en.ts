@@ -83,7 +83,9 @@ export const en = {
     syncTitle: 'Sync portfolio: back up your portfolio on the server to use it across devices',
     resetLabel: 'Reset portfolio',
     resetTitle: 'Reset portfolio: clears all positions and resets your balance to the starting value',
-    languageTitle: 'Switch language'
+    languageTitle: 'Switch language',
+    signIn: 'Sign in',
+    accountTitle: 'Open profile and account settings'
   },
   tape: {
     selectTitle: 'Select {symbol} to show the chart and order ticket.'
@@ -374,6 +376,14 @@ export const en = {
     loginSubmitTitle: 'Sign in to sync your portfolio',
     createAccount: 'Create account',
     signIn: 'Sign in',
+    preferences: 'Preferences',
+    tools: 'Tools and access',
+    shortcuts: 'Keyboard shortcuts',
+    shortcutsHint: 'Show the optional trading shortcuts.',
+    adminArea: 'Administration',
+    adminAreaHint: 'Manage eSports mappings, registration and cache status.',
+    resetPractice: 'Reset practice portfolio',
+    resetPracticeHint: 'Clear the anonymous local portfolio and start again.',
     esports: 'eSports',
     defaultLeagues: 'Default leagues',
     leaguesHint: 'These leagues are shown by default on the eSports page.',
@@ -513,6 +523,10 @@ export const en = {
     refreshFailed: 'Refresh failed'
   },
   admin: {
+    access: 'Administration',
+    accessTitle: 'Admin access required',
+    accessHint: 'Sign in through your profile with an account that has the admin role.',
+    goToProfile: 'Go to profile',
     login: 'Login',
     loginTitle: 'Sign in',
     loginSubmitting: 'Signing in …',
@@ -523,7 +537,6 @@ export const en = {
     passwordTitle: 'Administrator password',
     passwordInputTitle: 'Enter the admin password',
     loginSubmitTitle: 'Sign in as an administrator',
-    seedHint: 'Admin is seeded once from ADMIN_USERNAME / ADMIN_PASSWORD.',
     statusCache: 'Status & cache',
     refreshTitle: 'Clears the schedule and Polymarket odds cache and reloads everything live',
     refreshing: 'Refreshing …',
