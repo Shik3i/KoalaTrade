@@ -6,22 +6,34 @@ every other asset (no separate betting system).
 
 ## Data flow
 
-1. **Schedule** — `GET /api/esports/matches` fetches the lolesports schedule
+1. **Team catalogue and logos** — once per week on Monday at 03:15 UTC, the
+   server fetches `getTeams` from lolesports, stores team names, codes, league,
+   logo bytes, and content types in the SQLite `esports_teams` table. The API
+   exposes logos only through same-origin `/api/esports/teams/{code}/logo`.
+2. **Schedule** — `GET /api/esports/matches` fetches the lolesports schedule
    (`esports-api.lolesports.com`, `LOLESPORTS_API_KEY`) and returns upcoming /
-   in-progress matches with team names, codes, and logos.
-2. **Odds** — for each match the server guesses Polymarket event slugs
+   in-progress matches with local team-logo URLs.
+3. **Match details** — the match card loads `getEventDetails` only when
+   expanded. Game IDs, game states, series scores, and external stream/VOD
+   links are cached in SQLite and rendered as normal external links.
+4. **Odds** — for each match the server guesses Polymarket event slugs
    (`lol-<team>-<team>-<YYYY-MM-DD>`, both orders, ±2 days for timezone skew) and
    reads the **moneyline / "Match Winner"** market from `gamma-api.polymarket.com`.
    The implied probability becomes the Yes price in cents (e.g. 0.865 → 87¢).
-3. **Trading** — buying creates a portfolio position with asset id
+5. **Trading** — buying creates a portfolio position with asset id
    `event:lol:<matchId>:<teamCode>` at the Yes price; payout is $1.00/contract on a win.
-4. **Resolution** — completed results (`result.outcome`) are captured from the
-   schedule, persisted, and served via `GET /api/esports/results`. The client
-   auto-settles open bets: winning Yes → 100¢, losing Yes → 0¢, credited automatically.
+6. **Resolution** — completed results are captured from the schedule using
+   `result.outcome` or the completed game-score fallback. If a position has no
+   stored result yet, the server lazily checks `getEventDetails` and derives the
+   winner from completed game scores before persisting it. Results are served via
+   `GET /api/esports/results`. The client auto-settles open bets: winning Yes →
+   100¢, losing Yes → 0¢, credited automatically.
 
-Cached for `ESPORTS_CACHE_SECONDS`; a background poller keeps the schedule and
-results fresh. Polymarket has no rate limit, so odds are force-refreshed on
-demand right before a bet (`GET /api/esports/matches/{id}/odds`).
+The schedule is cached for `ESPORTS_CACHE_SECONDS`; a background poller keeps
+the schedule and results fresh. Team metadata and logos use the persisted
+weekly snapshot, with a stale-snapshot refresh at startup. Polymarket has no
+rate limit, so odds are force-refreshed on demand right before a bet
+(`GET /api/esports/matches/{id}/odds`).
 
 ## Why team mappings are needed
 
@@ -56,5 +68,6 @@ Endpoints (all token-gated except login):
 ## Limitations (v0.1.0)
 
 - Only matches Polymarket actually lists get odds — smaller leagues often show "no odds".
-- Auto-resolution relies on results being captured while in the schedule window; results are persisted to mitigate this.
+- Auto-resolution still depends on at least one reachable LoL API endpoint; schedule
+  results and lazy match-details results are persisted to mitigate missed polls.
 - eSports positions re-price when the eSports tab is opened (not on the 30s quote poll). See the [Roadmap](../ROADMAP.md).

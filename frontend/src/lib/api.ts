@@ -315,6 +315,32 @@ export type EsportsTeamInfo = {
   image: string;
 };
 
+export type EsportsMatchGame = {
+  gameId: string;
+  gameNumber: number;
+  state: string;
+};
+
+export type EsportsMatchVideo = {
+  gameId?: string;
+  kind: 'vod' | 'stream';
+  url: string;
+  provider?: string;
+  locale?: string;
+};
+
+export type EsportsMatchDetails = {
+  matchId: string;
+  state: string;
+  team1Code: string;
+  team2Code: string;
+  team1Score: number;
+  team2Score: number;
+  games: EsportsMatchGame[];
+  videos: EsportsMatchVideo[];
+  fetchedAt: string;
+};
+
 export async function fetchEsportsMatches(): Promise<EsportsMatch[]> {
   const response = await fetch('/api/esports/matches', {
     headers: { Accept: 'application/json' }
@@ -339,6 +365,18 @@ export async function fetchEsportsTeams(): Promise<EsportsTeamInfo[]> {
 
   const payload = (await response.json()) as { teams: EsportsTeamInfo[] };
   return payload.teams ?? [];
+}
+
+export async function fetchEsportsMatchDetails(matchId: string): Promise<EsportsMatchDetails> {
+  const response = await fetch(`/api/esports/matches/${encodeURIComponent(matchId)}/details`, {
+    headers: { Accept: 'application/json' }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Match details request failed with ${response.status}`);
+  }
+
+  return (await response.json()) as EsportsMatchDetails;
 }
 
 export type EsportsResult = {

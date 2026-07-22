@@ -36,7 +36,7 @@ Trade with virtual cash, learn the markets, and compete — no real money, no tr
 | Client storage | IndexedDB (portfolio, preferences, device id) |
 | Admin auth | PBKDF2 password hashing + HMAC bearer tokens (stdlib only) |
 | Market data | Mock by default; optional CoinGecko (crypto) + Finnhub (stocks/ETF/commodity) |
-| eSports data | lolesports schedule/teams + Polymarket odds (server-side) |
+| eSports data | lolesports schedule/teams + locally served team logos + Polymarket odds (server-side) |
 | Packaging | Docker + Docker Compose; images published to GHCR on tag |
 
 ## Quick Start
@@ -90,8 +90,10 @@ All configuration is via environment variables — see [`.env.example`](.env.exa
 | GET | `/api/markets/{assetId}/history?range=1H..1Y` | Price history (OHLCV) |
 | GET | `/api/quotes?ids=` | Current quotes |
 | GET | `/api/esports/matches` | LoL matches with Polymarket odds |
+| GET | `/api/esports/matches/{id}/details` | On-demand match games, scores, streams, and VOD links |
 | GET | `/api/esports/matches/{id}/odds` | On-demand odds refresh for one match |
 | GET | `/api/esports/teams` | Team catalogue |
+| GET | `/api/esports/teams/{code}/logo` | Locally stored team logo |
 | GET | `/api/esports/results?ids=` | Settled results (bet resolution) |
 | GET/PUT | `/api/sync/portfolio` | Opt-in device-scoped portfolio sync |
 | POST | `/api/auth/register` | Create user account → HttpOnly session cookie |

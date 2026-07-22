@@ -28,6 +28,10 @@ func TestOpenSQLiteCreatesFoundationTables(t *testing.T) {
 		"portfolio_transactions",
 		"portfolio_snapshots",
 		"leaderboard_snapshots",
+		"esports_teams",
+		"esports_match_details",
+		"esports_match_games",
+		"esports_match_videos",
 	} {
 		exists, err := store.TableExists(ctx, table)
 		if err != nil {
@@ -36,6 +40,75 @@ func TestOpenSQLiteCreatesFoundationTables(t *testing.T) {
 		if !exists {
 			t.Fatalf("expected table %s to exist", table)
 		}
+	}
+}
+
+func TestSQLiteStoresEsportsTeamLogo(t *testing.T) {
+	store, err := OpenSQLite(t.TempDir() + "/koalatrade.db")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	if err := store.UpsertEsportsTeams(ctx, []EsportsTeam{{
+		Code: "G2", Name: "G2 Esports", League: "LEC",
+		Logo: []byte("fake-png"), LogoContentType: "image/png",
+		LogoSourceURL: "https://assets.example/g2.png", SyncedAt: "2026-07-20T03:15:00Z",
+	}}); err != nil {
+		t.Fatalf("upsert esports team: %v", err)
+	}
+	if err := store.UpsertEsportsTeams(ctx, []EsportsTeam{{
+		Code: "G2", Name: "G2 Esports Updated", League: "LEC",
+		LogoSourceURL: "https://assets.example/g2.png", SyncedAt: "",
+	}}); err != nil {
+		t.Fatalf("upsert incomplete esports team: %v", err)
+	}
+
+	teams, err := store.LoadEsportsTeams(ctx)
+	if err != nil {
+		t.Fatalf("load esports teams: %v", err)
+	}
+	if len(teams) != 1 || teams[0].Code != "G2" || teams[0].Name != "G2 Esports Updated" || string(teams[0].Logo) != "fake-png" || teams[0].SyncedAt != "2026-07-20T03:15:00Z" {
+		t.Fatalf("unexpected esports team snapshot: %+v", teams)
+	}
+
+	logo, contentType, ok, err := store.EsportsTeamLogo(ctx, "g2")
+	if err != nil {
+		t.Fatalf("load esports logo: %v", err)
+	}
+	if !ok || contentType != "image/png" || string(logo) != "fake-png" {
+		t.Fatalf("unexpected esports logo: ok=%v type=%q bytes=%q", ok, contentType, logo)
+	}
+}
+
+func TestSQLiteStoresEsportsMatchDetails(t *testing.T) {
+	store, err := OpenSQLite(t.TempDir() + "/koalatrade.db")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	detail := EsportsMatchDetail{
+		MatchID: "match-42", State: "completed", Team1Code: "G2", Team2Code: "FNC",
+		Team1Score: 2, Team2Score: 1, FetchedAt: "2026-07-22T12:00:00Z",
+	}
+	games := []EsportsMatchGame{
+		{MatchID: "match-42", GameID: "game-1", GameNumber: 1, State: "completed"},
+		{MatchID: "match-42", GameID: "game-2", GameNumber: 2, State: "completed"},
+	}
+	videos := []EsportsMatchVideo{{MatchID: "match-42", GameID: "game-1", Kind: "vod", URL: "https://youtube.com/watch?v=abc", Provider: "youtube", Locale: "en-US"}}
+	if err := store.UpsertEsportsMatchDetails(ctx, detail, games, videos); err != nil {
+		t.Fatalf("upsert match details: %v", err)
+	}
+
+	got, gotGames, gotVideos, found, err := store.LoadEsportsMatchDetails(ctx, "match-42")
+	if err != nil {
+		t.Fatalf("load match details: %v", err)
+	}
+	if !found || got.Team1Score != 2 || got.Team2Score != 1 || len(gotGames) != 2 || len(gotVideos) != 1 {
+		t.Fatalf("unexpected match details: found=%v detail=%+v games=%+v videos=%+v", found, got, gotGames, gotVideos)
 	}
 }
 

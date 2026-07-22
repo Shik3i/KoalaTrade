@@ -42,6 +42,36 @@ func (s *Server) handleEsportsTeams(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, teamsResponse{Teams: teams})
 }
 
+func (s *Server) handleEsportsTeamLogo(w http.ResponseWriter, r *http.Request) {
+	logo, contentType, ok, err := s.esports.TeamLogo(r.Context(), chi.URLParam(r, "code"))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "team logo unavailable"})
+		return
+	}
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=604800, stale-while-revalidate=86400")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(logo)
+}
+
+func (s *Server) handleEsportsMatchDetails(w http.ResponseWriter, r *http.Request) {
+	details, err := s.esports.MatchDetails(r.Context(), chi.URLParam(r, "matchId"))
+	if err != nil {
+		if errors.Is(err, esports.ErrMatchNotFound) {
+			writeJSON(w, http.StatusNotFound, errorResponse{Error: "match details not found"})
+			return
+		}
+		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "match details unavailable"})
+		return
+	}
+	writeJSON(w, http.StatusOK, details)
+}
+
 type resultsResponse struct {
 	Results []esports.Result `json:"results"`
 }

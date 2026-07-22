@@ -3,10 +3,12 @@
 package esports
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -15,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Shik3i/KoalaTrade/backend/internal/storage"
 )
 
 // ErrMatchNotFound is returned when a per-match odds refresh targets an unknown id.
@@ -48,6 +52,32 @@ type TeamInfo struct {
 	Image  string `json:"image"`
 }
 
+type MatchDetails struct {
+	MatchID    string       `json:"matchId"`
+	State      string       `json:"state"`
+	Team1Code  string       `json:"team1Code"`
+	Team2Code  string       `json:"team2Code"`
+	Team1Score int          `json:"team1Score"`
+	Team2Score int          `json:"team2Score"`
+	Games      []MatchGame  `json:"games"`
+	Videos     []MatchVideo `json:"videos"`
+	FetchedAt  time.Time    `json:"fetchedAt"`
+}
+
+type MatchGame struct {
+	GameID     string `json:"gameId"`
+	GameNumber int    `json:"gameNumber"`
+	State      string `json:"state"`
+}
+
+type MatchVideo struct {
+	GameID   string `json:"gameId,omitempty"`
+	Kind     string `json:"kind"`
+	URL      string `json:"url"`
+	Provider string `json:"provider,omitempty"`
+	Locale   string `json:"locale,omitempty"`
+}
+
 // Result is the settled outcome of a completed match, used to resolve bets.
 type Result struct {
 	MatchID     string    `json:"matchId"`
@@ -65,8 +95,26 @@ type Store interface {
 	TeamMappingsMap(ctx context.Context) (map[string]string, error)
 }
 
+type TeamStore interface {
+	LoadEsportsTeams(ctx context.Context) ([]storage.EsportsTeam, error)
+	UpsertEsportsTeams(ctx context.Context, teams []storage.EsportsTeam) error
+	EsportsTeamLogo(ctx context.Context, code string) ([]byte, string, bool, error)
+}
+
+type MatchDetailsStore interface {
+	LoadEsportsMatchDetails(ctx context.Context, matchID string) (storage.EsportsMatchDetail, []storage.EsportsMatchGame, []storage.EsportsMatchVideo, bool, error)
+	UpsertEsportsMatchDetails(ctx context.Context, detail storage.EsportsMatchDetail, games []storage.EsportsMatchGame, videos []storage.EsportsMatchVideo) error
+}
+
 const resultsMetaKey = "esports_results"
-const teamsMetaKey = "esports_teams"
+
+const (
+	teamSnapshotTTL = 7 * 24 * time.Hour
+	maxTeamLogoSize = 8 << 20
+	matchDetailsTTL = 5 * time.Minute
+	teamLogoWorkers = 32
+	teamLogoTimeout = 5 * time.Second
+)
 
 var fallbackTeams = []TeamInfo{
 	{Code: "G2", Name: "G2 Esports", League: "LEC", Image: ""},
@@ -79,6 +127,8 @@ var fallbackTeams = []TeamInfo{
 	{Code: "MOUZ", Name: "MOUZ", League: "Prime League", Image: ""},
 	{Code: "NNO", Name: "NNO Prime", League: "Prime League", Image: ""},
 }
+
+var teamCodePattern = regexp.MustCompile(`^[A-Z0-9_-]{1,32}$`)
 
 type Service struct {
 	apiKey   string
@@ -95,19 +145,25 @@ type Service struct {
 	scheduleCachedAt time.Time
 	teamsCache       []TeamInfo
 	teamsCachedAt    time.Time
+	teamsSyncAt      time.Time
+	teamsLoaded      bool
+	teamsAttemptAt   time.Time
+	teamLogoCodes    map[string]bool
+	teamSyncMu       sync.Mutex
 	results          map[string]Result
 	resultsLoaded    bool
 }
 
 func NewService(apiKey, lolBaseURL, polyBaseURL string, timeout, ttl time.Duration, store Store) *Service {
 	return &Service{
-		apiKey:   apiKey,
-		lolBase:  strings.TrimRight(lolBaseURL, "/"),
-		polyBase: strings.TrimRight(polyBaseURL, "/"),
-		http:     &http.Client{Timeout: timeout},
-		ttl:      ttl,
-		store:    store,
-		results:  make(map[string]Result),
+		apiKey:        apiKey,
+		lolBase:       strings.TrimRight(lolBaseURL, "/"),
+		polyBase:      strings.TrimRight(polyBaseURL, "/"),
+		http:          &http.Client{Timeout: timeout},
+		ttl:           ttl,
+		store:         store,
+		results:       make(map[string]Result),
+		teamLogoCodes: make(map[string]bool),
 	}
 }
 
@@ -167,13 +223,37 @@ func (s *Service) Results(ctx context.Context, matchIDs []string) []Result {
 	s.ensureResultsLoaded(ctx)
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	out := make([]Result, 0, len(matchIDs))
+	missing := make([]string, 0, len(matchIDs))
+	seen := make(map[string]struct{}, len(matchIDs))
 	for _, id := range matchIDs {
 		if result, ok := s.results[id]; ok {
 			out = append(out, result)
+		} else if id != "" {
+			if _, exists := seen[id]; !exists {
+				missing = append(missing, id)
+				seen[id] = struct{}{}
+			}
 		}
 	}
+	s.mu.Unlock()
+
+	if len(missing) == 0 {
+		return out
+	}
+
+	fresh := make([]Result, 0, len(missing))
+	for _, matchID := range missing {
+		details, err := s.MatchDetails(ctx, matchID)
+		if err != nil {
+			continue
+		}
+		if result, ok := resultFromMatchDetails(details); ok {
+			fresh = append(fresh, result)
+			out = append(out, result)
+		}
+	}
+	s.recordResults(ctx, fresh)
 	return out
 }
 
@@ -241,6 +321,10 @@ func (s *Service) Matches(ctx context.Context) ([]Match, error) {
 		return cached, nil
 	}
 	s.mu.Unlock()
+
+	// Warm the weekly team snapshot before parsing the schedule so match cards
+	// can reference same-origin logo routes immediately after a cold start.
+	_, _ = s.Teams(ctx)
 
 	var matches []Match
 	var err error
@@ -404,14 +488,263 @@ func (s *Service) matchByID(ctx context.Context, matchID string) (Match, error) 
 	return Match{}, ErrMatchNotFound
 }
 
+type eventDetailsResponse struct {
+	Data struct {
+		Event struct {
+			State   string `json:"state"`
+			Streams []struct {
+				Parameter string `json:"parameter"`
+				Locale    string `json:"locale"`
+				Provider  string `json:"provider"`
+			} `json:"streams"`
+			Match struct {
+				Teams []struct {
+					Code   string `json:"code"`
+					Result struct {
+						GameWins int    `json:"gameWins"`
+						Outcome  string `json:"outcome"`
+					} `json:"result"`
+				} `json:"teams"`
+				Games []struct {
+					ID     string `json:"id"`
+					State  string `json:"state"`
+					Number int    `json:"number"`
+					VODs   []struct {
+						Parameter string `json:"parameter"`
+						Locale    string `json:"locale"`
+						Provider  string `json:"provider"`
+					} `json:"vods"`
+				} `json:"games"`
+			} `json:"match"`
+		} `json:"event"`
+	} `json:"data"`
+}
+
+// MatchDetails loads detailed games and VODs on demand. Persisted details are
+// returned while fresh so expanding a card does not repeatedly hit lolesports.
+func (s *Service) MatchDetails(ctx context.Context, matchID string) (MatchDetails, error) {
+	matchID = strings.TrimSpace(matchID)
+	if matchID == "" {
+		return MatchDetails{}, ErrMatchNotFound
+	}
+	var stale MatchDetails
+	hasStale := false
+	if store, ok := s.store.(MatchDetailsStore); ok {
+		stored, games, videos, found, err := store.LoadEsportsMatchDetails(ctx, matchID)
+		if err != nil {
+			return MatchDetails{}, err
+		}
+		if found {
+			cached := fromStoredMatchDetails(stored, games, videos)
+			if detailsFresh(cached) {
+				return cached, nil
+			}
+			stale = cached
+			hasStale = true
+		}
+	}
+	fallback := func(err error) (MatchDetails, error) {
+		if hasStale {
+			return stale, nil
+		}
+		return MatchDetails{}, err
+	}
+
+	endpoint := s.lolBase + "/persisted/gw/getEventDetails?hl=en-GB&id=" + url.QueryEscape(matchID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return fallback(err)
+	}
+	req.Header.Set("x-api-key", s.apiKey)
+	resp, err := s.http.Do(req)
+	if err != nil {
+		return fallback(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return fallback(ErrMatchNotFound)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fallback(fmt.Errorf("lolesports event details status %d", resp.StatusCode))
+	}
+
+	var payload eventDetailsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return fallback(err)
+	}
+	details := parseMatchDetails(matchID, payload)
+	if len(details.Team1Code) == 0 && len(details.Team2Code) == 0 && len(details.Games) == 0 {
+		return fallback(errors.New("lolesports event details response was empty"))
+	}
+
+	if store, ok := s.store.(MatchDetailsStore); ok {
+		stored, games, videos := toStoredMatchDetails(details)
+		if err := store.UpsertEsportsMatchDetails(ctx, stored, games, videos); err != nil {
+			return MatchDetails{}, err
+		}
+	}
+	return details, nil
+}
+
+func detailsFresh(details MatchDetails) bool {
+	if details.FetchedAt.IsZero() {
+		return false
+	}
+	ttl := matchDetailsTTL
+	if details.State == "inProgress" {
+		ttl = 30 * time.Second
+	}
+	return time.Since(details.FetchedAt) < ttl
+}
+
+func parseMatchDetails(matchID string, payload eventDetailsResponse) MatchDetails {
+	event := payload.Data.Event
+	details := MatchDetails{
+		MatchID:   matchID,
+		State:     strings.TrimSpace(event.State),
+		Games:     make([]MatchGame, 0, len(event.Match.Games)),
+		Videos:    make([]MatchVideo, 0),
+		FetchedAt: time.Now().UTC(),
+	}
+	if len(event.Match.Teams) > 0 {
+		details.Team1Code = strings.ToUpper(strings.TrimSpace(event.Match.Teams[0].Code))
+		details.Team1Score = event.Match.Teams[0].Result.GameWins
+	}
+	if len(event.Match.Teams) > 1 {
+		details.Team2Code = strings.ToUpper(strings.TrimSpace(event.Match.Teams[1].Code))
+		details.Team2Score = event.Match.Teams[1].Result.GameWins
+	}
+	for index, game := range event.Match.Games {
+		number := game.Number
+		if number <= 0 {
+			number = index + 1
+		}
+		details.Games = append(details.Games, MatchGame{
+			GameID: game.ID, GameNumber: number, State: strings.TrimSpace(game.State),
+		})
+		for _, vod := range game.VODs {
+			if video, ok := makeMatchVideo("vod", game.ID, vod.Provider, vod.Locale, vod.Parameter); ok {
+				details.Videos = appendUniqueVideo(details.Videos, video)
+			}
+		}
+	}
+	for _, stream := range event.Streams {
+		if video, ok := makeMatchVideo("stream", "", stream.Provider, stream.Locale, stream.Parameter); ok {
+			details.Videos = appendUniqueVideo(details.Videos, video)
+		}
+	}
+	if len(details.Games) > 0 {
+		allTerminal := true
+		for _, game := range details.Games {
+			switch strings.ToLower(game.State) {
+			case "completed", "unneeded", "cancelled", "canceled":
+			default:
+				allTerminal = false
+			}
+		}
+		// getEventDetails occasionally omits event.state and reports a scheduled
+		// event even after every game has finished. The game states are the more
+		// reliable signal for the details view.
+		if allTerminal {
+			details.State = "completed"
+		}
+	}
+	if details.State == "" {
+		details.State = "scheduled"
+	}
+	return details
+}
+
+func makeMatchVideo(kind, gameID, provider, locale, parameter string) (MatchVideo, bool) {
+	parameter = strings.TrimSpace(parameter)
+	provider = strings.TrimSpace(provider)
+	if parameter == "" {
+		return MatchVideo{}, false
+	}
+	videoURL := parameter
+	if parsed, err := url.Parse(parameter); err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		switch strings.ToLower(provider) {
+		case "youtube", "youtube.com":
+			videoURL = "https://www.youtube.com/watch?v=" + url.QueryEscape(parameter)
+		case "twitch":
+			if kind == "vod" {
+				videoURL = "https://www.twitch.tv/videos/" + url.PathEscape(parameter)
+			} else {
+				videoURL = "https://www.twitch.tv/" + url.PathEscape(parameter)
+			}
+		default:
+			return MatchVideo{}, false
+		}
+	}
+	return MatchVideo{GameID: gameID, Kind: kind, URL: videoURL, Provider: provider, Locale: locale}, true
+}
+
+func appendUniqueVideo(videos []MatchVideo, candidate MatchVideo) []MatchVideo {
+	for _, video := range videos {
+		if video.Kind == candidate.Kind && video.GameID == candidate.GameID && video.URL == candidate.URL {
+			return videos
+		}
+	}
+	return append(videos, candidate)
+}
+
+func fromStoredMatchDetails(detail storage.EsportsMatchDetail, games []storage.EsportsMatchGame, videos []storage.EsportsMatchVideo) MatchDetails {
+	out := MatchDetails{
+		MatchID: detail.MatchID, State: detail.State, Team1Code: detail.Team1Code, Team2Code: detail.Team2Code,
+		Team1Score: detail.Team1Score, Team2Score: detail.Team2Score, Games: make([]MatchGame, 0, len(games)), Videos: make([]MatchVideo, 0, len(videos)),
+	}
+	out.FetchedAt, _ = time.Parse(time.RFC3339Nano, detail.FetchedAt)
+	for _, game := range games {
+		out.Games = append(out.Games, MatchGame{GameID: game.GameID, GameNumber: game.GameNumber, State: game.State})
+	}
+	for _, video := range videos {
+		out.Videos = append(out.Videos, MatchVideo{GameID: video.GameID, Kind: video.Kind, URL: video.URL, Provider: video.Provider, Locale: video.Locale})
+	}
+	return out
+}
+
+func resultFromMatchDetails(details MatchDetails) (Result, bool) {
+	if !strings.EqualFold(details.State, "completed") || details.Team1Code == "" || details.Team2Code == "" || details.Team1Score == details.Team2Score {
+		return Result{}, false
+	}
+	winner := details.Team1Code
+	if details.Team2Score > details.Team1Score {
+		winner = details.Team2Code
+	}
+	return Result{
+		MatchID:     details.MatchID,
+		WinnerCode:  strings.ToUpper(winner),
+		Team1Code:   strings.ToUpper(details.Team1Code),
+		Team2Code:   strings.ToUpper(details.Team2Code),
+		CompletedAt: details.FetchedAt,
+	}, true
+}
+
+func toStoredMatchDetails(details MatchDetails) (storage.EsportsMatchDetail, []storage.EsportsMatchGame, []storage.EsportsMatchVideo) {
+	stored := storage.EsportsMatchDetail{
+		MatchID: details.MatchID, State: details.State, Team1Code: details.Team1Code, Team2Code: details.Team2Code,
+		Team1Score: details.Team1Score, Team2Score: details.Team2Score, FetchedAt: details.FetchedAt.UTC().Format(time.RFC3339Nano),
+	}
+	games := make([]storage.EsportsMatchGame, 0, len(details.Games))
+	for _, game := range details.Games {
+		games = append(games, storage.EsportsMatchGame{MatchID: details.MatchID, GameID: game.GameID, GameNumber: game.GameNumber, State: game.State})
+	}
+	videos := make([]storage.EsportsMatchVideo, 0, len(details.Videos))
+	for _, video := range details.Videos {
+		videos = append(videos, storage.EsportsMatchVideo{MatchID: details.MatchID, GameID: video.GameID, Kind: video.Kind, URL: video.URL, Provider: video.Provider, Locale: video.Locale})
+	}
+	return stored, games, videos
+}
+
 type teamsResponse struct {
 	Data struct {
 		Teams []struct {
-			Name       string `json:"name"`
-			Code       string `json:"code"`
-			Image      string `json:"image"`
-			Status     string `json:"status"`
-			HomeLeague struct {
+			Name             string `json:"name"`
+			Code             string `json:"code"`
+			Image            string `json:"image"`
+			AlternativeImage string `json:"alternativeImage"`
+			Status           string `json:"status"`
+			HomeLeague       struct {
 				Name string `json:"name"`
 			} `json:"homeLeague"`
 		} `json:"teams"`
@@ -419,75 +752,157 @@ type teamsResponse struct {
 }
 
 func (s *Service) ensureTeamsLoaded(ctx context.Context) {
+	s.teamSyncMu.Lock()
+	defer s.teamSyncMu.Unlock()
+
 	s.mu.Lock()
-	if s.teamsCache != nil || s.store == nil {
+	if s.teamsLoaded {
 		s.mu.Unlock()
 		return
 	}
 	s.mu.Unlock()
 
-	raw, ok, err := s.store.GetMeta(ctx, teamsMetaKey)
-	if err == nil && ok {
-		var loaded []TeamInfo
+	teamStore, ok := s.store.(TeamStore)
+	if !ok {
 		s.mu.Lock()
-		if json.Unmarshal([]byte(raw), &loaded) == nil && loaded != nil {
-			s.teamsCache = loaded
-			s.teamsCachedAt = time.Now()
-		}
+		s.teamsLoaded = true
 		s.mu.Unlock()
+		return
+	}
+
+	stored, err := teamStore.LoadEsportsTeams(ctx)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.teamsLoaded = true
+	if err != nil {
+		return
+	}
+	s.teamsCache = storedTeamInfo(stored)
+	if len(s.teamsCache) > 0 {
+		s.teamsCachedAt = time.Now()
+	} else {
+		s.teamsCachedAt = time.Time{}
+	}
+	s.teamLogoCodes = make(map[string]bool, len(stored))
+	for _, team := range stored {
+		s.teamLogoCodes[team.Code] = len(team.Logo) > 0
+		if parsed, parseErr := time.Parse(time.RFC3339Nano, team.SyncedAt); parseErr == nil && parsed.After(s.teamsSyncAt) {
+			s.teamsSyncAt = parsed
+		}
 	}
 }
 
-func (s *Service) getFallbackTeams(ctx context.Context) []TeamInfo {
+func (s *Service) getFallbackTeams() []TeamInfo {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.teamsCache == nil {
-		s.teamsCache = fallbackTeams
+		s.teamsCache = append([]TeamInfo(nil), fallbackTeams...)
 		s.teamsCachedAt = time.Now()
-		if s.store != nil {
-			if encoded, err := json.Marshal(fallbackTeams); err == nil {
-				_ = s.store.SetMeta(ctx, teamsMetaKey, string(encoded))
-			}
-		}
 	}
 	return s.teamsCache
 }
 
 // Teams returns the catalogue of active eSports teams (for the favorites picker),
-// trimmed and deduplicated, served from a TTL cache.
+// trimmed and deduplicated, served from a weekly database snapshot.
 func (s *Service) Teams(ctx context.Context) ([]TeamInfo, error) {
 	s.ensureTeamsLoaded(ctx)
 
 	s.mu.Lock()
-	if s.teamsCache != nil && time.Since(s.teamsCachedAt) < 24*time.Hour {
+	fresh := !s.teamsSyncAt.IsZero() && time.Since(s.teamsSyncAt) < teamSnapshotTTL
+	attemptedRecently := !s.teamsAttemptAt.IsZero() && time.Since(s.teamsAttemptAt) < 15*time.Minute
+	if s.teamsCache != nil && (fresh || attemptedRecently) {
 		cached := s.teamsCache
 		s.mu.Unlock()
 		return cached, nil
 	}
+	if attemptedRecently {
+		s.mu.Unlock()
+		return s.getFallbackTeams(), nil
+	}
 	s.mu.Unlock()
+
+	teams, err := s.syncTeams(ctx)
+	if err == nil {
+		return teams, nil
+	}
+	if cached := s.cachedTeams(); cached != nil {
+		return cached, nil
+	}
+	return s.getFallbackTeams(), nil
+}
+
+// SyncTeamsIfDue is called by the weekly background scheduler. It returns the
+// upstream error so operators can see failed refreshes in the server log.
+func (s *Service) SyncTeamsIfDue(ctx context.Context) error {
+	s.ensureTeamsLoaded(ctx)
+	s.mu.Lock()
+	fresh := !s.teamsSyncAt.IsZero() && time.Since(s.teamsSyncAt) < teamSnapshotTTL
+	s.mu.Unlock()
+	if fresh {
+		return nil
+	}
+	_, err := s.syncTeams(ctx)
+	return err
+}
+
+func (s *Service) cachedTeams() []TeamInfo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.teamsCache) == 0 {
+		return nil
+	}
+	return s.teamsCache
+}
+
+func (s *Service) syncTeams(ctx context.Context) ([]TeamInfo, error) {
+	s.teamSyncMu.Lock()
+	defer s.teamSyncMu.Unlock()
+
+	s.mu.Lock()
+	if !s.teamsSyncAt.IsZero() && time.Since(s.teamsSyncAt) < teamSnapshotTTL {
+		cached := s.teamsCache
+		s.mu.Unlock()
+		return cached, nil
+	}
+	s.teamsAttemptAt = time.Now()
+	s.mu.Unlock()
+
+	teamStore, hasTeamStore := s.store.(TeamStore)
+	existing := map[string]storage.EsportsTeam{}
+	if hasTeamStore {
+		if stored, err := teamStore.LoadEsportsTeams(ctx); err == nil {
+			for _, team := range stored {
+				existing[team.Code] = team
+			}
+		}
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.lolBase+"/persisted/gw/getTeams?hl=en-GB", nil)
 	if err != nil {
-		return s.getFallbackTeams(ctx), nil
+		return nil, err
 	}
 	req.Header.Set("x-api-key", s.apiKey)
 
 	resp, err := s.http.Do(req)
 	if err != nil {
-		return s.getFallbackTeams(ctx), nil
+		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return s.getFallbackTeams(ctx), nil
+		return nil, fmt.Errorf("lolesports teams status %d", resp.StatusCode)
 	}
 
 	var payload teamsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return s.getFallbackTeams(ctx), nil
+		return nil, err
 	}
 
 	seen := map[string]struct{}{}
 	teams := make([]TeamInfo, 0, len(payload.Data.Teams))
+	storedTeams := make([]storage.EsportsTeam, 0, len(payload.Data.Teams))
+	logoJobs := make([]int, 0, len(payload.Data.Teams))
+	logoURLs := make([]string, 0, len(payload.Data.Teams))
+	syncedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	for _, t := range payload.Data.Teams {
 		code := strings.ToUpper(strings.TrimSpace(t.Code))
 		if code == "" || code == "TBD" || code == "TBDD" || t.Status == "archived" {
@@ -501,27 +916,210 @@ func (s *Service) Teams(ctx context.Context) ([]TeamInfo, error) {
 		if league == "" {
 			league = "Unknown"
 		}
-		teams = append(teams, TeamInfo{
-			Code:   code,
-			Name:   t.Name,
-			League: league,
-			Image:  strings.Replace(t.Image, "http://", "https://", 1),
-		})
+
+		imageURL := normalizeImageURL(t.Image)
+		if imageURL == "" {
+			imageURL = normalizeImageURL(t.AlternativeImage)
+		}
+		storedTeam := storage.EsportsTeam{
+			Code:          code,
+			Name:          strings.TrimSpace(t.Name),
+			League:        league,
+			LogoSourceURL: imageURL,
+			SyncedAt:      syncedAt,
+		}
+		needsLogo := imageURL != ""
+		if previous, ok := existing[code]; ok {
+			storedTeam.Logo = previous.Logo
+			storedTeam.LogoContentType = previous.LogoContentType
+			if imageURL != "" && imageURL == previous.LogoSourceURL && len(previous.Logo) > 0 {
+				needsLogo = false
+			} else if len(previous.Logo) > 0 {
+				// Keep the old source until the replacement has downloaded. This
+				// makes a failed CDN update retry on the next weekly sync.
+				storedTeam.LogoSourceURL = previous.LogoSourceURL
+			}
+		}
+		storedTeams = append(storedTeams, storedTeam)
+		logoURLs = append(logoURLs, imageURL)
+		if needsLogo {
+			logoJobs = append(logoJobs, len(storedTeams)-1)
+		}
+		teams = append(teams, TeamInfo{Code: code, Name: storedTeam.Name, League: league, Image: teamImageURL(code, len(storedTeam.Logo) > 0)})
+	}
+	if len(teams) == 0 {
+		return nil, errors.New("lolesports teams response was empty")
+	}
+	failedLogoJobs := s.downloadTeamLogos(ctx, storedTeams, logoJobs, logoURLs)
+	if len(failedLogoJobs) > 0 {
+		// Keep metadata and any successful logos available, but do not mark an
+		// incomplete snapshot as weekly-fresh. SQLite preserves the previous
+		// timestamp for rows with an empty SyncedAt so the sync can retry.
+		for i := range storedTeams {
+			storedTeams[i].SyncedAt = ""
+		}
 	}
 	sort.Slice(teams, func(i, j int) bool { return teams[i].Name < teams[j].Name })
+	logos := make(map[string]bool, len(storedTeams))
+	for _, team := range storedTeams {
+		logos[team.Code] = len(team.Logo) > 0
+	}
+	for i := range teams {
+		teams[i].Image = teamImageURL(teams[i].Code, logos[teams[i].Code])
+	}
 
+	if hasTeamStore {
+		if err := teamStore.UpsertEsportsTeams(ctx, storedTeams); err != nil {
+			return nil, err
+		}
+	}
 	s.mu.Lock()
 	s.teamsCache = teams
 	s.teamsCachedAt = time.Now()
+	if len(failedLogoJobs) == 0 {
+		s.teamsSyncAt = time.Now()
+	}
+	s.teamsLoaded = true
+	s.teamLogoCodes = logos
 	s.mu.Unlock()
 
-	if s.store != nil {
-		if encoded, err := json.Marshal(teams); err == nil {
-			_ = s.store.SetMeta(ctx, teamsMetaKey, string(encoded))
+	return teams, nil
+}
+
+func storedTeamInfo(stored []storage.EsportsTeam) []TeamInfo {
+	if len(stored) == 0 {
+		return nil
+	}
+	teams := make([]TeamInfo, 0, len(stored))
+	for _, team := range stored {
+		teams = append(teams, TeamInfo{
+			Code: team.Code, Name: team.Name, League: team.League,
+			Image: teamImageURL(team.Code, len(team.Logo) > 0),
+		})
+	}
+	return teams
+}
+
+func normalizeImageURL(raw string) string {
+	return strings.Replace(strings.TrimSpace(raw), "http://", "https://", 1)
+}
+
+func teamImageURL(code string, hasLogo bool) string {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if !hasLogo || code == "" || code == "TBD" || code == "TBDD" {
+		return ""
+	}
+	return "/api/esports/teams/" + url.PathEscape(code) + "/logo"
+}
+
+func (s *Service) fetchTeamLogo(ctx context.Context, imageURL string) ([]byte, string, error) {
+	parsed, err := url.Parse(imageURL)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") {
+		return nil, "", errors.New("invalid team logo URL")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("Accept", "image/avif,image/webp,image/png,image/jpeg,image/svg+xml;q=0.9,*/*;q=0.1")
+	resp, err := s.http.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("team logo status %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxTeamLogoSize+1))
+	if err != nil {
+		return nil, "", err
+	}
+	if len(data) == 0 || len(data) > maxTeamLogoSize {
+		return nil, "", errors.New("team logo exceeds size limit")
+	}
+	contentType := strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0])
+	if strings.HasSuffix(strings.ToLower(parsed.Path), ".svg") {
+		contentType = "image/svg+xml"
+	}
+	if !strings.HasPrefix(contentType, "image/") {
+		contentType = http.DetectContentType(data)
+	}
+	if !strings.HasPrefix(contentType, "image/") {
+		return nil, "", errors.New("team logo is not an image")
+	}
+	return bytes.Clone(data), contentType, nil
+}
+
+func (s *Service) downloadTeamLogos(ctx context.Context, teams []storage.EsportsTeam, jobs []int, logoURLs []string) []int {
+	if len(jobs) == 0 {
+		return nil
+	}
+	workerCount := len(jobs)
+	if workerCount > teamLogoWorkers {
+		workerCount = teamLogoWorkers
+	}
+	type result struct {
+		index       int
+		sourceURL   string
+		logo        []byte
+		contentType string
+		success     bool
+	}
+	pending := append([]int(nil), jobs...)
+	for attempt := 0; attempt < 2 && len(pending) > 0; attempt++ {
+		queue := make(chan int)
+		results := make(chan result, len(pending))
+		var workers sync.WaitGroup
+		for i := 0; i < workerCount; i++ {
+			workers.Add(1)
+			go func() {
+				defer workers.Done()
+				for index := range queue {
+					logoCtx, cancel := context.WithTimeout(ctx, teamLogoTimeout)
+					logo, contentType, err := s.fetchTeamLogo(logoCtx, logoURLs[index])
+					cancel()
+					results <- result{
+						index: index, sourceURL: logoURLs[index], logo: logo,
+						contentType: contentType, success: err == nil,
+					}
+				}
+			}()
+		}
+		for _, index := range pending {
+			queue <- index
+		}
+		close(queue)
+		workers.Wait()
+		close(results)
+		failed := make([]int, 0)
+		for result := range results {
+			if !result.success {
+				failed = append(failed, result.index)
+				continue
+			}
+			teams[result.index].LogoSourceURL = result.sourceURL
+			teams[result.index].Logo = result.logo
+			teams[result.index].LogoContentType = result.contentType
+		}
+		pending = failed
+		if ctx.Err() != nil {
+			break
 		}
 	}
+	return pending
+}
 
-	return teams, nil
+// TeamLogo returns the locally persisted logo for a team code.
+func (s *Service) TeamLogo(ctx context.Context, code string) ([]byte, string, bool, error) {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if !teamCodePattern.MatchString(code) {
+		return nil, "", false, nil
+	}
+	teamStore, ok := s.store.(TeamStore)
+	if !ok {
+		return nil, "", false, nil
+	}
+	return teamStore.EsportsTeamLogo(ctx, code)
 }
 
 type scheduleResponse struct {
@@ -604,8 +1202,8 @@ func (s *Service) fetchSchedule(ctx context.Context) ([]Match, error) {
 			League:    event.League.Name,
 			BlockName: event.BlockName,
 			BestOf:    event.Match.Strategy.Count,
-			Team1:     team(event.Match.Teams[0].Name, event.Match.Teams[0].Code, event.Match.Teams[0].Image),
-			Team2:     team(event.Match.Teams[1].Name, event.Match.Teams[1].Code, event.Match.Teams[1].Image),
+			Team1:     s.team(event.Match.Teams[0].Name, event.Match.Teams[0].Code),
+			Team2:     s.team(event.Match.Teams[1].Name, event.Match.Teams[1].Code),
 		})
 	}
 
@@ -630,6 +1228,13 @@ func resultFromEvent(matchID string, completedAt time.Time, t1, t2 scheduleTeam)
 	} else if t2.Result.Outcome == "win" {
 		winner = strings.ToUpper(t2.Code)
 	}
+	if winner == "" && t1.Result.GameWins != t2.Result.GameWins {
+		if t1.Result.GameWins > t2.Result.GameWins {
+			winner = strings.ToUpper(t1.Code)
+		} else {
+			winner = strings.ToUpper(t2.Code)
+		}
+	}
 	if winner == "" {
 		return Result{}, false
 	}
@@ -642,14 +1247,18 @@ func resultFromEvent(matchID string, completedAt time.Time, t1, t2 scheduleTeam)
 	}, true
 }
 
-func team(name, code, image string) Team {
+func (s *Service) team(name, code string) Team {
 	if name == "" {
 		name = "TBD"
 	}
 	if code == "" {
 		code = "TBD"
 	}
-	return Team{Name: name, Code: code, Image: strings.Replace(image, "http://", "https://", 1)}
+	code = strings.ToUpper(strings.TrimSpace(code))
+	s.mu.Lock()
+	hasLogo := s.teamLogoCodes[code]
+	s.mu.Unlock()
+	return Team{Name: name, Code: code, Image: teamImageURL(code, hasLogo)}
 }
 
 type polymarketMarket struct {

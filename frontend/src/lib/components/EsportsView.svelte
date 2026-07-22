@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { Radio, RefreshCw, Star, Ticket, Trophy } from '@lucide/svelte';
-  import type { EsportsMatch, EsportsTeam } from '../api';
+  import { ChevronDown, ExternalLink, Radio, RefreshCw, Star, Ticket, Trophy } from '@lucide/svelte';
+  import { fetchEsportsMatchDetails, type EsportsMatch, type EsportsMatchDetails, type EsportsMatchVideo, type EsportsTeam } from '../api';
   import { matchesLeague } from '../preferences';
   import { formatMoney, type Position } from '../portfolio';
   import InfoTip from './InfoTip.svelte';
@@ -20,7 +20,7 @@
   export let onBuyMore: (assetId: string, contracts: number) => void;
   export let onToggleFavorite: (code: string) => void;
   export let onToggleLeague: (id: string) => void;
-  export let onRefreshOdds: (matchId: string) => Promise<void>;
+  export let onRefreshOdds: (matchId: string) => Promise<boolean>;
 
   const ORDER_FEE_BPS = 8;
   let stakes: Record<string, number> = {};
@@ -34,6 +34,10 @@
   }
   let pending: { matchId: string; teamCode: string } | null = null;
   let refreshingId: string | null = null;
+  let expandedDetailsId: string | null = null;
+  let matchDetails: Record<string, EsportsMatchDetails> = {};
+  let detailsLoadingId: string | null = null;
+  let detailsErrors: Record<string, string> = {};
 
   function stakeFor(id: string) {
     return stakes[id] ?? 10;
@@ -45,7 +49,7 @@
   }
 
   function canAfford(priceCents: number, contracts: number) {
-    return contracts > 0 && priceCents > 0 && costCents(priceCents, contracts) <= cashCents;
+    return contracts > 0 && priceCents > 0 && priceCents < 100 && costCents(priceCents, contracts) <= cashCents;
   }
 
   $: openBets = positions.filter((position) => position.assetId.startsWith('event:lol:'));
@@ -78,7 +82,9 @@
     pending = { matchId: match.id, teamCode: team.code };
     refreshingId = match.id;
     try {
-      await onRefreshOdds(match.id);
+      if (!(await onRefreshOdds(match.id))) {
+        pending = null;
+      }
     } finally {
       refreshingId = null;
     }
@@ -104,20 +110,6 @@
     pending = null;
   }
 
-  // Deterministic team colour for the logo roundel (placeholder until real
-  // badge images are dropped in). Same code -> same hue every render.
-  function teamHue(code: string) {
-    let h = 0;
-    for (let i = 0; i < code.length; i++) h = (h * 31 + code.charCodeAt(i)) % 360;
-    return h;
-  }
-
-  function roundelStyle(team: EsportsTeam, hasOdds: boolean) {
-    if (!hasOdds) return 'background: var(--panel-3); color: #94a3b8;';
-    const h = teamHue(team.code);
-    return `background: linear-gradient(135deg, hsl(${h}, 70%, 55%), hsl(${(h + 40) % 360}, 68%, 44%)); color: #fff;`;
-  }
-
   // Left-segment width of the win-probability bar, normalised so the two
   // segments always sum to 100% even if the raw odds don't.
   function team1Pct(match: EsportsMatch) {
@@ -129,6 +121,33 @@
 
   function probLabel(bps: number) {
     return `${Math.round(bps / 100)}%`;
+  }
+
+  async function toggleDetails(matchId: string) {
+    if (expandedDetailsId === matchId) {
+      expandedDetailsId = null;
+      return;
+    }
+    expandedDetailsId = matchId;
+    if (matchDetails[matchId] || detailsLoadingId === matchId) return;
+
+    detailsLoadingId = matchId;
+    detailsErrors = { ...detailsErrors, [matchId]: '' };
+    try {
+      matchDetails = { ...matchDetails, [matchId]: await fetchEsportsMatchDetails(matchId) };
+    } catch (error) {
+      detailsErrors = {
+        ...detailsErrors,
+        [matchId]: error instanceof Error ? error.message : 'Match details unavailable'
+      };
+    } finally {
+      detailsLoadingId = null;
+    }
+  }
+
+  function videoLabel(video: EsportsMatchVideo) {
+    const tr = get(t);
+    return video.kind === 'vod' ? tr('esports.watchVod') : tr('esports.watchStream');
   }
 </script>
 
@@ -197,6 +216,7 @@
     <div class="match-grid">
       {#each filteredMatches as match (match.id)}
         {@const confirmTeam = pendingTeam(match)}
+        {@const bettingClosed = match.team1.priceCents >= 100 || match.team2.priceCents >= 100}
         <article class="match-card" class:live={match.state === 'inProgress'} class:pending={!!confirmTeam}>
           <header class="match-top">
             <span class="league">{match.league}{match.bestOf ? ` · BO${match.bestOf}` : ''}</span>
@@ -204,15 +224,26 @@
               {#if match.state === 'inProgress'}<Radio size={12} />{/if}
               {timeLabel(match.startTime, match.state, $locale)}
             </span>
+            <button
+              class="details-toggle"
+              class:active={expandedDetailsId === match.id}
+              type="button"
+              aria-expanded={expandedDetailsId === match.id}
+              aria-controls={`match-details-${match.id}`}
+              title={$t('esports.detailsTitle')}
+              on:click={() => toggleDetails(match.id)}
+            >
+              <ChevronDown size={14} /> {$t('esports.details')}
+            </button>
           </header>
 
           <div class="vs" class:no-odds={!match.hasOdds}>
             {#each [match.team1, match.team2] as team, i}
               <div class="team-side" class:right={i === 1}>
-                <button class="roundel" style={roundelStyle(team, match.hasOdds)}
+                <button class="roundel"
                         type="button"
-                        disabled={!match.hasOdds || team.priceCents <= 0 || refreshingId === match.id}
-                         title={match.hasOdds && team.priceCents > 0 ? $t('esports.betOnTitle', { code: team.code, pct: Math.round(team.probBps / 100) }) : $t('esports.noQuoteTitle')}
+                        disabled={!match.hasOdds || team.priceCents <= 0 || bettingClosed || refreshingId === match.id}
+                         title={bettingClosed ? $t('esports.marketClosedTitle') : match.hasOdds && team.priceCents > 0 ? $t('esports.betOnTitle', { code: team.code, pct: Math.round(team.probBps / 100) }) : $t('esports.noQuoteTitle')}
                         on:click={() => startBet(match, team)}>
                   {#if team.image}<img src={team.image} alt="" width="58" height="58" loading="lazy" />{:else}{team.code.slice(0, 3)}{/if}
                 </button>
@@ -230,10 +261,10 @@
 
           {#if match.hasOdds && (match.team1.priceCents > 0 || match.team2.priceCents > 0)}
             <div class="prob-wrap" title={$t('esports.probWrapTitle')}>
-              <div class="prob-bar" role="img" aria-label={$t('esports.probAria', { a: probLabel(match.team1.probBps), b: probLabel(match.team2.probBps) })}>
-                <span class="seg a" style={`width:${team1Pct(match)}%`}></span>
-                <span class="seg b" style={`width:${100 - team1Pct(match)}%`}></span>
-              </div>
+              <svg class="prob-bar" viewBox="0 0 100 14" role="img" aria-label={$t('esports.probAria', { a: probLabel(match.team1.probBps), b: probLabel(match.team2.probBps) })}>
+                <rect class="seg a" x="0" y="0" width={team1Pct(match)} height="14" />
+                <rect class="seg b" x={team1Pct(match)} y="0" width={100 - team1Pct(match)} height="14" />
+              </svg>
               <div class="prob-legend">
                 <span class="a">{probLabel(match.team1.probBps)} · {formatMoney(match.team1.priceCents)}</span>
                 <span class="src">{$t('esports.polymarketSrc')}</span>
@@ -244,10 +275,52 @@
             <div class="no-odds-box">{$t('esports.noOddsBox')}</div>
           {/if}
 
+          {#if expandedDetailsId === match.id}
+            <section class="match-details" id={`match-details-${match.id}`} aria-live="polite">
+              {#if detailsLoadingId === match.id}
+                <span class="refreshing">{$t('esports.loadingDetails')}</span>
+              {:else if detailsErrors[match.id]}
+                <span class="details-error">{detailsErrors[match.id]}</span>
+              {:else if matchDetails[match.id]}
+                {@const details = matchDetails[match.id]}
+                <div class="details-score">
+                  <span>{details.team1Code || match.team1.code}</span>
+                  <strong>{details.team1Score} : {details.team2Score}</strong>
+                  <span>{details.team2Code || match.team2.code}</span>
+                </div>
+                {#if details.games.length > 0}
+                  <div class="game-list">
+                    {#each details.games as game}
+                      <div class="game-row">
+                        <span>{$t('esports.gameNumber', { number: game.gameNumber })}</span>
+                        <span>{game.state || $t('esports.unknownState')}</span>
+                        <code>{game.gameId}</code>
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+                {#if details.videos.length > 0}
+                  <div class="video-links">
+                    {#each details.videos as video}
+                      <a href={video.url} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink size={13} /> {videoLabel(video)}
+                      </a>
+                    {/each}
+                  </div>
+                {:else}
+                  <span class="details-muted">{$t('esports.noVideos')}</span>
+                {/if}
+              {/if}
+            </section>
+          {/if}
+
           {#if confirmTeam}
             <footer class="confirm-bar">
               {#if refreshingId === match.id}
                 <span class="refreshing"><RefreshCw size={13} /> {$t('esports.fetchingQuote')}</span>
+              {:else if bettingClosed}
+                <span class="refreshing">{$t('esports.marketClosed')}</span>
+                <button class="ghost" type="button" title={$t('esports.closeWindowTitle')} on:click={cancelBet}>{$t('common.close')}</button>
               {:else if confirmTeam.priceCents > 0}
                 <div class="confirm-info">
                   <strong>{confirmTeam.code} @ {formatMoney(confirmTeam.priceCents)}</strong>
@@ -262,13 +335,17 @@
                 <button class="ghost" type="button" title={$t('esports.closeWindowTitle')} on:click={cancelBet}>{$t('common.close')}</button>
               {/if}
             </footer>
-          {:else if match.hasOdds}
+          {:else if match.hasOdds && !bettingClosed}
             <footer class="match-foot">
               <label title={$t('esports.contractsFieldTitle')}>
                 <span>{$t('esports.contracts')}</span>
                 <input type="number" min="1" step="1" value={stakeFor(match.id)} title={$t('esports.contractsFieldTitle')} on:input={(e) => (stakes[match.id] = Math.max(1, Math.floor(Number(e.currentTarget.value)) || 1))} />
               </label>
               <span class="hint">{$t('esports.stakeFrom', { amount: formatMoney(costCents(match.team1.priceCents, stakeFor(match.id))) })}</span>
+            </footer>
+          {:else if bettingClosed}
+            <footer class="match-foot">
+              <span class="hint">{$t('esports.marketClosed')}</span>
             </footer>
           {/if}
         </article>
@@ -491,6 +568,32 @@
     font-size: 0.76rem;
   }
 
+  .details-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    min-height: 1.8rem;
+    padding: 0 0.45rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--muted);
+    background: var(--bg-2);
+    white-space: nowrap;
+  }
+
+  .details-toggle :global(svg) {
+    transition: transform 120ms ease;
+  }
+
+  .details-toggle.active {
+    color: var(--green);
+    border-color: var(--green-soft);
+  }
+
+  .details-toggle.active :global(svg) {
+    transform: rotate(180deg);
+  }
+
   .league {
     font-weight: 600;
     letter-spacing: 0.02em;
@@ -535,6 +638,8 @@
     font-weight: 800;
     font-size: 1.1rem;
     letter-spacing: 0.01em;
+    color: #fff;
+    background: linear-gradient(135deg, hsl(var(--green-hsl)), hsl(210, 70%, 42%));
     box-shadow: inset 0 1px 0 0 hsla(0, 0%, 100%, 0.15);
     transition: 140ms ease;
   }
@@ -622,7 +727,8 @@
   }
 
   .prob-bar {
-    display: flex;
+    display: block;
+    width: 100%;
     height: 14px;
     border-radius: 999px;
     overflow: hidden;
@@ -630,7 +736,7 @@
   }
 
   .prob-bar .seg {
-    height: 100%;
+    stroke: none;
   }
 
   .prob-bar .seg.a {
@@ -671,6 +777,85 @@
     color: var(--muted);
     font-size: 0.76rem;
     text-align: center;
+  }
+
+  .match-details {
+    display: grid;
+    gap: 0.55rem;
+    padding: 0.65rem 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--bg-2);
+  }
+
+  .details-score {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--muted);
+    font-size: 0.78rem;
+  }
+
+  .details-score span:last-child {
+    text-align: right;
+  }
+
+  .details-score strong {
+    color: var(--text);
+    font-size: 1rem;
+  }
+
+  .game-list {
+    display: grid;
+    gap: 0.25rem;
+  }
+
+  .game-row {
+    display: grid;
+    grid-template-columns: 4rem 1fr auto;
+    gap: 0.45rem;
+    align-items: center;
+    color: var(--muted);
+    font-size: 0.72rem;
+  }
+
+  .game-row code {
+    max-width: 8rem;
+    overflow: hidden;
+    color: var(--tertiary, #64748b);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .video-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .video-links a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    min-height: 1.8rem;
+    padding: 0 0.5rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--green);
+    font-size: 0.72rem;
+    text-decoration: none;
+  }
+
+  .video-links a:hover {
+    border-color: var(--green-soft);
+    background: var(--green-soft);
+  }
+
+  .details-error,
+  .details-muted {
+    color: var(--muted);
+    font-size: 0.74rem;
   }
 
   .match-foot {

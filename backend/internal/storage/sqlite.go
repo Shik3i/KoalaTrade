@@ -17,6 +17,46 @@ type SQLite struct {
 	db *sqlx.DB
 }
 
+// EsportsTeam is the persisted, server-owned representation of a LoL team.
+// Logo bytes are deliberately kept in SQLite so the browser never has to
+// fetch an image from lolesports.com.
+type EsportsTeam struct {
+	Code            string `db:"code"`
+	Name            string `db:"name"`
+	League          string `db:"league"`
+	Logo            []byte `db:"logo"`
+	LogoContentType string `db:"logo_content_type"`
+	LogoSourceURL   string `db:"logo_source_url"`
+	SyncedAt        string `db:"synced_at"`
+	UpdatedAt       string `db:"updated_at"`
+}
+
+type EsportsMatchDetail struct {
+	MatchID    string `db:"match_id"`
+	State      string `db:"state"`
+	Team1Code  string `db:"team1_code"`
+	Team2Code  string `db:"team2_code"`
+	Team1Score int    `db:"team1_score"`
+	Team2Score int    `db:"team2_score"`
+	FetchedAt  string `db:"fetched_at"`
+}
+
+type EsportsMatchGame struct {
+	MatchID    string `db:"match_id"`
+	GameID     string `db:"game_id"`
+	GameNumber int    `db:"game_number"`
+	State      string `db:"state"`
+}
+
+type EsportsMatchVideo struct {
+	MatchID  string `db:"match_id"`
+	GameID   string `db:"game_id"`
+	Kind     string `db:"kind"`
+	URL      string `db:"url"`
+	Provider string `db:"provider"`
+	Locale   string `db:"locale"`
+}
+
 func OpenSQLite(path string) (*SQLite, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, fmt.Errorf("create database directory: %w", err)
@@ -220,6 +260,48 @@ func (s *SQLite) configure() error {
 			polymarket_code TEXT NOT NULL,
 			updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 		);`,
+		`CREATE TABLE IF NOT EXISTS esports_teams (
+			code TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			league TEXT NOT NULL,
+			logo BLOB,
+			logo_content_type TEXT NOT NULL DEFAULT '',
+			logo_source_url TEXT NOT NULL DEFAULT '',
+			synced_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_esports_teams_synced_at
+			ON esports_teams(synced_at);`,
+		`CREATE TABLE IF NOT EXISTS esports_match_details (
+			match_id TEXT PRIMARY KEY,
+			state TEXT NOT NULL,
+			team1_code TEXT NOT NULL,
+			team2_code TEXT NOT NULL,
+			team1_score INTEGER NOT NULL DEFAULT 0 CHECK (team1_score >= 0),
+			team2_score INTEGER NOT NULL DEFAULT 0 CHECK (team2_score >= 0),
+			fetched_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+		);`,
+		`CREATE TABLE IF NOT EXISTS esports_match_games (
+			match_id TEXT NOT NULL REFERENCES esports_match_details(match_id) ON DELETE CASCADE,
+			game_id TEXT NOT NULL,
+			game_number INTEGER NOT NULL CHECK (game_number > 0),
+			state TEXT NOT NULL,
+			PRIMARY KEY (match_id, game_id)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_esports_match_games_match
+			ON esports_match_games(match_id, game_number);`,
+		`CREATE TABLE IF NOT EXISTS esports_match_videos (
+			match_id TEXT NOT NULL REFERENCES esports_match_details(match_id) ON DELETE CASCADE,
+			game_id TEXT NOT NULL DEFAULT '',
+			kind TEXT NOT NULL CHECK (kind IN ('vod', 'stream')),
+			url TEXT NOT NULL,
+			provider TEXT NOT NULL DEFAULT '',
+			locale TEXT NOT NULL DEFAULT '',
+			PRIMARY KEY (match_id, game_id, kind, url)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_esports_match_videos_match
+			ON esports_match_videos(match_id, kind);`,
 		`CREATE TABLE IF NOT EXISTS open_orders (
 			id TEXT PRIMARY KEY,
 			portfolio_id TEXT NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
@@ -272,6 +354,159 @@ func (s *SQLite) configure() error {
 		}
 	}
 
+	return nil
+}
+
+// LoadEsportsTeams returns the last complete team snapshot. The sync timestamp
+// is stored per row so a restart can decide whether the weekly snapshot is
+// still fresh without another metadata blob.
+func (s *SQLite) LoadEsportsTeams(ctx context.Context) ([]EsportsTeam, error) {
+	var teams []EsportsTeam
+	if err := s.db.SelectContext(ctx, &teams, `
+		SELECT code, name, league, logo, logo_content_type, logo_source_url, synced_at, updated_at
+		FROM esports_teams
+		ORDER BY name COLLATE NOCASE, code
+	`); err != nil {
+		return nil, fmt.Errorf("load esports teams: %w", err)
+	}
+	return teams, nil
+}
+
+// UpsertEsportsTeams stores one complete upstream snapshot. A missing logo in
+// a transient upstream response does not erase the last known good logo.
+func (s *SQLite) UpsertEsportsTeams(ctx context.Context, teams []EsportsTeam) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin esports teams upsert: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	const query = `
+		INSERT INTO esports_teams
+			(code, name, league, logo, logo_content_type, logo_source_url, synced_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+		ON CONFLICT(code) DO UPDATE SET
+			name = excluded.name,
+			league = excluded.league,
+			logo = CASE WHEN excluded.logo IS NOT NULL AND length(excluded.logo) > 0
+				THEN excluded.logo ELSE esports_teams.logo END,
+			logo_content_type = CASE WHEN excluded.logo IS NOT NULL AND length(excluded.logo) > 0
+				THEN excluded.logo_content_type ELSE esports_teams.logo_content_type END,
+			logo_source_url = CASE WHEN excluded.logo_source_url <> ''
+				THEN excluded.logo_source_url ELSE esports_teams.logo_source_url END,
+			synced_at = CASE WHEN excluded.synced_at <> ''
+				THEN excluded.synced_at ELSE esports_teams.synced_at END,
+			updated_at = excluded.updated_at
+	`
+	for _, team := range teams {
+		if _, err := tx.ExecContext(ctx, query, team.Code, team.Name, team.League,
+			team.Logo, team.LogoContentType, team.LogoSourceURL, team.SyncedAt); err != nil {
+			return fmt.Errorf("upsert esports team %s: %w", team.Code, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit esports teams upsert: %w", err)
+	}
+	return nil
+}
+
+// EsportsTeamLogo returns a single stored logo for the same-origin image route.
+func (s *SQLite) EsportsTeamLogo(ctx context.Context, code string) ([]byte, string, bool, error) {
+	var team EsportsTeam
+	err := s.db.GetContext(ctx, &team, `
+		SELECT logo, logo_content_type
+		FROM esports_teams
+		WHERE code = ?
+	`, strings.ToUpper(strings.TrimSpace(code)))
+	if err == sql.ErrNoRows {
+		return nil, "", false, nil
+	}
+	if err != nil {
+		return nil, "", false, fmt.Errorf("load esports team logo: %w", err)
+	}
+	if len(team.Logo) == 0 || team.LogoContentType == "" {
+		return nil, "", false, nil
+	}
+	return team.Logo, team.LogoContentType, true, nil
+}
+
+func (s *SQLite) LoadEsportsMatchDetails(ctx context.Context, matchID string) (EsportsMatchDetail, []EsportsMatchGame, []EsportsMatchVideo, bool, error) {
+	var detail EsportsMatchDetail
+	if err := s.db.GetContext(ctx, &detail, `
+		SELECT match_id, state, team1_code, team2_code, team1_score, team2_score, fetched_at
+		FROM esports_match_details WHERE match_id = ?
+	`, matchID); err != nil {
+		if err == sql.ErrNoRows {
+			return EsportsMatchDetail{}, nil, nil, false, nil
+		}
+		return EsportsMatchDetail{}, nil, nil, false, fmt.Errorf("load esports match details: %w", err)
+	}
+
+	var games []EsportsMatchGame
+	if err := s.db.SelectContext(ctx, &games, `
+		SELECT match_id, game_id, game_number, state
+		FROM esports_match_games WHERE match_id = ? ORDER BY game_number, game_id
+	`, matchID); err != nil {
+		return EsportsMatchDetail{}, nil, nil, false, fmt.Errorf("load esports match games: %w", err)
+	}
+	var videos []EsportsMatchVideo
+	if err := s.db.SelectContext(ctx, &videos, `
+		SELECT match_id, game_id, kind, url, provider, locale
+		FROM esports_match_videos WHERE match_id = ? ORDER BY kind, game_id, url
+	`, matchID); err != nil {
+		return EsportsMatchDetail{}, nil, nil, false, fmt.Errorf("load esports match videos: %w", err)
+	}
+	return detail, games, videos, true, nil
+}
+
+func (s *SQLite) UpsertEsportsMatchDetails(ctx context.Context, detail EsportsMatchDetail, games []EsportsMatchGame, videos []EsportsMatchVideo) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin esports match details upsert: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO esports_match_details
+			(match_id, state, team1_code, team2_code, team1_score, team2_score, fetched_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+		ON CONFLICT(match_id) DO UPDATE SET
+			state = excluded.state,
+			team1_code = excluded.team1_code,
+			team2_code = excluded.team2_code,
+			team1_score = excluded.team1_score,
+			team2_score = excluded.team2_score,
+			fetched_at = excluded.fetched_at,
+			updated_at = excluded.updated_at
+	`, detail.MatchID, detail.State, detail.Team1Code, detail.Team2Code,
+		detail.Team1Score, detail.Team2Score, detail.FetchedAt); err != nil {
+		return fmt.Errorf("upsert esports match detail: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM esports_match_games WHERE match_id = ?`, detail.MatchID); err != nil {
+		return fmt.Errorf("replace esports match games: %w", err)
+	}
+	for _, game := range games {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO esports_match_games (match_id, game_id, game_number, state)
+			VALUES (?, ?, ?, ?)
+		`, detail.MatchID, game.GameID, game.GameNumber, game.State); err != nil {
+			return fmt.Errorf("insert esports match game: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM esports_match_videos WHERE match_id = ?`, detail.MatchID); err != nil {
+		return fmt.Errorf("replace esports match videos: %w", err)
+	}
+	for _, video := range videos {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO esports_match_videos (match_id, game_id, kind, url, provider, locale)
+			VALUES (?, ?, ?, ?, ?, ?)
+		`, detail.MatchID, video.GameID, video.Kind, video.URL, video.Provider, video.Locale); err != nil {
+			return fmt.Errorf("insert esports match video: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit esports match details upsert: %w", err)
+	}
 	return nil
 }
 

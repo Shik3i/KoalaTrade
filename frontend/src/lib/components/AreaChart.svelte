@@ -66,10 +66,11 @@
 
   $: hoverX = hoverIndex !== null ? plotX(hoverIndex, series.length) : 0;
   $: hoverY = hoverIndex !== null ? plotY(series[hoverIndex]) : 0;
-  $: tooltipLeft = `${Math.min(Math.max((hoverX / width) * 100, 12), 88)}%`;
+  $: tooltipPosition = Math.round(Math.min(Math.max((hoverX / width) * 100, 12), 88) / 4) * 4;
+  $: chartHeightClass = `height-${height}`;
 </script>
 
-<div class="chart" style={`height:${height}px`} bind:clientWidth={width}>
+<div class={`chart ${chartHeightClass}`} bind:clientWidth={width}>
   {#if loading}
     <div class="chart-skeleton" aria-hidden="true"></div>
   {:else if series.length < 2}
@@ -108,7 +109,7 @@
     </svg>
 
     {#if hoverIndex !== null}
-      <div class="tooltip" style={`left:${tooltipLeft}`}>
+      <div class={`tooltip pos-${tooltipPosition}`}>
         <strong>{formatValue(series[hoverIndex])}</strong>
         {#if labels[hoverIndex]}<span>{formatLabel(labels[hoverIndex])}</span>{/if}
       </div>
@@ -120,7 +121,13 @@
   .chart {
     position: relative;
     width: 100%;
+    height: 280px;
   }
+
+  .chart.height-210 { height: 210px; }
+  .chart.height-260 { height: 260px; }
+  .chart.height-280 { height: 280px; }
+  .chart.height-300 { height: 300px; }
 
   svg {
     display: block;
@@ -176,6 +183,27 @@
     white-space: nowrap;
     transition: left 120ms cubic-bezier(0.25, 1, 0.5, 1);
   }
+
+  .tooltip.pos-12 { left: 12%; }
+  .tooltip.pos-16 { left: 16%; }
+  .tooltip.pos-20 { left: 20%; }
+  .tooltip.pos-24 { left: 24%; }
+  .tooltip.pos-28 { left: 28%; }
+  .tooltip.pos-32 { left: 32%; }
+  .tooltip.pos-36 { left: 36%; }
+  .tooltip.pos-40 { left: 40%; }
+  .tooltip.pos-44 { left: 44%; }
+  .tooltip.pos-48 { left: 48%; }
+  .tooltip.pos-52 { left: 52%; }
+  .tooltip.pos-56 { left: 56%; }
+  .tooltip.pos-60 { left: 60%; }
+  .tooltip.pos-64 { left: 64%; }
+  .tooltip.pos-68 { left: 68%; }
+  .tooltip.pos-72 { left: 72%; }
+  .tooltip.pos-76 { left: 76%; }
+  .tooltip.pos-80 { left: 80%; }
+  .tooltip.pos-84 { left: 84%; }
+  .tooltip.pos-88 { left: 88%; }
 
   .tooltip strong {
     font-size: 0.92rem;

@@ -106,36 +106,50 @@ func (s *Server) refreshOne(ctx context.Context, logger *slog.Logger, assetID st
 	}
 }
 
-// StartEsportsTeamsPoller runs a background poller that updates the team list in the database once a day (24 hours).
+// StartEsportsTeamsPoller refreshes the complete LoL team/logo snapshot once a
+// week on Monday morning UTC. A stale snapshot is also refreshed once at
+// startup so a newly deployed instance does not wait for the next Monday.
 func (s *Server) StartEsportsTeamsPoller(ctx context.Context, logger *slog.Logger) {
 	go func() {
-		// Stagger the first poll by 15 seconds to avoid slowing down startup warmup
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(15 * time.Second):
 			logger.Info("esports teams initial poll started")
-			if _, err := s.esports.Teams(ctx); err != nil {
+			if err := s.esports.SyncTeamsIfDue(ctx); err != nil {
 				logger.Warn("initial esports teams poll failed", "error", err)
 			} else {
 				logger.Info("esports teams initial poll completed")
 			}
 		}
 
-		ticker := time.NewTicker(24 * time.Hour)
-		defer ticker.Stop()
 		for {
+			wait := time.Until(nextEsportsTeamsSync(time.Now().UTC()))
+			timer := time.NewTimer(wait)
 			select {
 			case <-ctx.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
 				return
-			case <-ticker.C:
-				logger.Info("running esports teams daily poll")
-				if _, err := s.esports.Teams(ctx); err != nil {
-					logger.Warn("daily esports teams poll failed", "error", err)
+			case <-timer.C:
+				logger.Info("running esports teams weekly poll")
+				if err := s.esports.SyncTeamsIfDue(ctx); err != nil {
+					logger.Warn("weekly esports teams poll failed", "error", err)
 				} else {
-					logger.Info("daily esports teams poll completed")
+					logger.Info("weekly esports teams poll completed")
 				}
 			}
 		}
 	}()
+}
+
+func nextEsportsTeamsSync(now time.Time) time.Time {
+	next := time.Date(now.Year(), now.Month(), now.Day(), 3, 15, 0, 0, time.UTC)
+	daysUntilMonday := (int(time.Monday) - int(now.Weekday()) + 7) % 7
+	next = next.AddDate(0, 0, daysUntilMonday)
+	if !next.After(now) {
+		next = next.AddDate(0, 0, 7)
+	}
+	return next
 }

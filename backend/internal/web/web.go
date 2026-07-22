@@ -15,8 +15,9 @@ import (
 // own scripts, styles and data-URI images, but still same-origin only. This
 // mirrors the policy the previous standalone nginx frontend served.
 const frontendCSP = "default-src 'self'; base-uri 'self'; connect-src 'self'; " +
-	"form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; " +
-	"manifest-src 'self'; script-src 'self'; style-src 'self'; worker-src 'self'"
+	"font-src 'self'; form-action 'self'; frame-ancestors 'none'; frame-src 'none'; " +
+	"img-src 'self' data:; manifest-src 'self'; object-src 'none'; " +
+	"script-src 'self'; style-src 'self'; worker-src 'self'"
 
 // Handler serves the embedded SPA: real assets when the path exists, otherwise
 // the index.html shell so client-side routes resolve. Mount it as the router's

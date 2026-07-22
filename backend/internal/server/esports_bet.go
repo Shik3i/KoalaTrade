@@ -80,6 +80,10 @@ func (s *Server) handleEsportsBet(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "team is not part of this match"})
 		return
 	}
+	if esportsBettingClosed(req.Side, team, other) {
+		writeJSON(w, http.StatusConflict, errorResponse{Error: "betting closed: Polymarket is already at 100% for this match"})
+		return
+	}
 	if team.PriceCents <= 0 {
 		writeJSON(w, http.StatusConflict, errorResponse{Error: "no live odds for this team right now"})
 		return
@@ -124,6 +128,10 @@ func (s *Server) handleEsportsBet(w http.ResponseWriter, r *http.Request) {
 
 func esportsAssetID(matchID, teamCode string) string {
 	return "event:lol:" + matchID + ":" + teamCode
+}
+
+func esportsBettingClosed(side string, team, other esports.Team) bool {
+	return side == "buy" && (team.PriceCents >= 100 || other.PriceCents >= 100)
 }
 
 // parseEventAsset extracts the match id and team code from an event asset id of

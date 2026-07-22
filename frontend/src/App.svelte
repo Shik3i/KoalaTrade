@@ -671,13 +671,15 @@
 
 
   // Force-refresh one match's odds from Polymarket (no rate limit) before betting.
-  async function handleRefreshOdds(matchId: string) {
+  async function handleRefreshOdds(matchId: string): Promise<boolean> {
     try {
       const fresh = await refreshMatchOdds(matchId);
       esportsMatches = esportsMatches.map((match) => (match.id === matchId ? fresh : match));
       await reconcileEsportsPositions();
+      return true;
     } catch {
-      // Keep the previously shown odds if the refresh fails.
+      // Do not leave a stale confirmation bar active after a failed refresh.
+      return false;
     }
   }
 

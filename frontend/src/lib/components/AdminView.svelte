@@ -418,7 +418,6 @@
     font-size: 0.82rem;
   }
 
-  .hint code,
   code {
     padding: 0.05rem 0.3rem;
     border-radius: 4px;
@@ -655,14 +654,6 @@
     color: var(--text);
     border-color: var(--green-soft);
     background: var(--green-soft);
-  }
-
-  .ok-chip {
-    color: var(--green);
-  }
-
-  .miss-chip {
-    color: var(--amber);
   }
 
   .team-slugs {

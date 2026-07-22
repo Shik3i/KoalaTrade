@@ -68,3 +68,15 @@ func TestParseEventAsset(t *testing.T) {
 		t.Fatal("expected non-event asset to be rejected")
 	}
 }
+
+func TestEsportsBettingClosedAtFullPolymarketPrice(t *testing.T) {
+	if !esportsBettingClosed("buy", esports.Team{PriceCents: 100}, esports.Team{PriceCents: 0}) {
+		t.Fatal("expected a buy to be blocked when the selected outcome is at 100 cents")
+	}
+	if !esportsBettingClosed("buy", esports.Team{PriceCents: 99}, esports.Team{PriceCents: 100}) {
+		t.Fatal("expected all buys for the match to be blocked when either outcome is at 100 cents")
+	}
+	if esportsBettingClosed("sell", esports.Team{PriceCents: 100}, esports.Team{PriceCents: 0}) {
+		t.Fatal("expected sells to remain available at 100 cents")
+	}
+}
