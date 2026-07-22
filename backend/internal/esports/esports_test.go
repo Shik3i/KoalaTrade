@@ -91,10 +91,10 @@ func TestTeamsPersistAndServeLocalLogos(t *testing.T) {
 	}
 }
 
-func TestTeamsRepairStoredSnapshotWithoutLogos(t *testing.T) {
+func TestTeamsServeStoredSnapshotWithoutBlockingForLogoRepair(t *testing.T) {
 	store := &teamTestStore{teams: []storage.EsportsTeam{{
 		Code: "G2", Name: "G2 Esports", League: "LEC",
-		SyncedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		SyncedAt: time.Now().Add(-2 * teamSnapshotTTL).UTC().Format(time.RFC3339Nano),
 	}}}
 	service := NewService("test-key", "https://lolesports.test", "", time.Second, time.Minute, store)
 	requests := 0
@@ -118,21 +118,29 @@ func TestTeamsRepairStoredSnapshotWithoutLogos(t *testing.T) {
 	if err != nil {
 		t.Fatalf("teams: %v", err)
 	}
-	if len(teams) != 1 || teams[0].Image != "/api/esports/teams/G2/logo" {
-		t.Fatalf("expected stale logo snapshot to be repaired, got %+v", teams)
+	if len(teams) != 1 || teams[0].Image != "" {
+		t.Fatalf("expected stored metadata to be served immediately, got %+v", teams)
 	}
-	if requests != 2 {
-		t.Fatalf("expected repair sync and logo download, got %d requests", requests)
+	if requests != 0 {
+		t.Fatalf("expected no request-path upstream calls, got %d", requests)
 	}
 }
 
 func TestMatchesRepairsCachedRowsWithLocalLogos(t *testing.T) {
 	service := NewService("test-key", "https://lolesports.test", "", time.Second, time.Minute, &teamTestStore{teams: []storage.EsportsTeam{{
 		Code: "G2", Name: "G2 Esports", League: "LEC", Logo: []byte("png-bytes"), LogoContentType: "image/png",
-		SyncedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		SyncedAt: time.Now().Add(-2 * teamSnapshotTTL).UTC().Format(time.RFC3339Nano),
+	}, {
+		Code: "FNC", Name: "Fnatic", League: "LEC",
+		SyncedAt: time.Now().Add(-2 * teamSnapshotTTL).UTC().Format(time.RFC3339Nano),
 	}}})
+	requests := 0
+	service.http = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		requests++
+		return nil, errors.New("unexpected upstream request")
+	})}
 	service.scheduleCache = []Match{{
-		ID: "match-1", League: "LEC", Team1: Team{Name: "G2 Esports", Code: "G2"}, Team2: Team{Name: "FNC", Code: "FNC"},
+		ID: "match-1", League: "LEC", Team1: Team{Name: "G2 Esports", Code: "G2"}, Team2: Team{Name: "TBD", Code: "TBD"},
 	}}
 	service.scheduleCachedAt = time.Now()
 
@@ -142,6 +150,9 @@ func TestMatchesRepairsCachedRowsWithLocalLogos(t *testing.T) {
 	}
 	if len(matches) != 1 || matches[0].Team1.Image != "/api/esports/teams/G2/logo" {
 		t.Fatalf("expected cached match logo to be repaired, got %+v", matches)
+	}
+	if requests != 0 {
+		t.Fatalf("expected SQLite logos without upstream sync, got %d requests", requests)
 	}
 }
 
@@ -166,7 +177,7 @@ func TestTeamsFallsBackAfterEmptySnapshotFailure(t *testing.T) {
 	}
 }
 
-func TestTeamsDoNotMarkIncompleteLogoSnapshotFresh(t *testing.T) {
+func TestTeamsMarkMetadataSnapshotFreshWithPartialLogos(t *testing.T) {
 	store := &teamTestStore{}
 	service := NewService("test-key", "https://lolesports.test", "", time.Second, time.Minute, store)
 	service.http = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -184,8 +195,8 @@ func TestTeamsDoNotMarkIncompleteLogoSnapshotFresh(t *testing.T) {
 	if err != nil || len(teams) != 2 {
 		t.Fatalf("expected metadata with partial logos, got teams=%+v err=%v", teams, err)
 	}
-	if !service.teamsSyncAt.IsZero() {
-		t.Fatal("expected incomplete logo snapshot to remain due for retry")
+	if service.teamsSyncAt.IsZero() {
+		t.Fatal("expected metadata snapshot to remain fresh despite one failed logo")
 	}
 }
 

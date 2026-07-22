@@ -314,10 +314,9 @@ func (s *Service) recordResults(ctx context.Context, fresh []Result) {
 // short-lived in-memory cache. On upstream failure it falls back to the last
 // good snapshot rather than erroring out.
 func (s *Service) Matches(ctx context.Context) ([]Match, error) {
-	// Load the weekly catalogue before consulting the match cache. Older cached
-	// schedule rows may have been created before local logo bytes were ready.
-	// Re-applying the current local logo map below repairs those rows in memory.
-	_, _ = s.Teams(ctx)
+	// Hydrate the logo map from SQLite before consulting the match cache. Never
+	// block this request on the weekly upstream catalogue/logo refresh.
+	s.ensureTeamsLoaded(ctx)
 
 	s.mu.Lock()
 	if s.cache != nil && time.Since(s.cachedAt) < s.ttl {
@@ -794,23 +793,11 @@ func (s *Service) ensureTeamsLoaded(ctx context.Context) {
 		s.teamsCachedAt = time.Time{}
 	}
 	s.teamLogoCodes = make(map[string]bool, len(stored))
-	missingLogo := false
 	for _, team := range stored {
 		s.teamLogoCodes[team.Code] = len(team.Logo) > 0
-		if len(team.Logo) == 0 {
-			missingLogo = true
+		if parsed, parseErr := time.Parse(time.RFC3339Nano, team.SyncedAt); parseErr == nil && parsed.After(s.teamsSyncAt) {
+			s.teamsSyncAt = parsed
 		}
-		if !missingLogo {
-			if parsed, parseErr := time.Parse(time.RFC3339Nano, team.SyncedAt); parseErr == nil && parsed.After(s.teamsSyncAt) {
-				s.teamsSyncAt = parsed
-			}
-		}
-	}
-	if missingLogo {
-		// A previous release could persist a fresh metadata snapshot before its
-		// logo downloads completed. Treat that cache as due once so the next
-		// process start repairs the local logo bytes instead of serving codes.
-		s.teamsSyncAt = time.Time{}
 	}
 }
 
@@ -830,9 +817,10 @@ func (s *Service) Teams(ctx context.Context) ([]TeamInfo, error) {
 	s.ensureTeamsLoaded(ctx)
 
 	s.mu.Lock()
-	fresh := !s.teamsSyncAt.IsZero() && time.Since(s.teamsSyncAt) < teamSnapshotTTL
 	attemptedRecently := !s.teamsAttemptAt.IsZero() && time.Since(s.teamsAttemptAt) < 15*time.Minute
-	if s.teamsCache != nil && (fresh || attemptedRecently) {
+	if len(s.teamsCache) > 0 {
+		// Persisted rows are the request-path source of truth. The background
+		// scheduler refreshes stale metadata and missing logos without delaying UI.
 		cached := s.teamsCache
 		s.mu.Unlock()
 		return cached, nil
@@ -972,15 +960,7 @@ func (s *Service) syncTeams(ctx context.Context) ([]TeamInfo, error) {
 	if len(teams) == 0 {
 		return nil, errors.New("lolesports teams response was empty")
 	}
-	failedLogoJobs := s.downloadTeamLogos(ctx, storedTeams, logoJobs, logoURLs)
-	if len(failedLogoJobs) > 0 {
-		// Keep metadata and any successful logos available, but do not mark an
-		// incomplete snapshot as weekly-fresh. SQLite preserves the previous
-		// timestamp for rows with an empty SyncedAt so the sync can retry.
-		for i := range storedTeams {
-			storedTeams[i].SyncedAt = ""
-		}
-	}
+	s.downloadTeamLogos(ctx, storedTeams, logoJobs, logoURLs)
 	sort.Slice(teams, func(i, j int) bool { return teams[i].Name < teams[j].Name })
 	logos := make(map[string]bool, len(storedTeams))
 	for _, team := range storedTeams {
@@ -998,9 +978,9 @@ func (s *Service) syncTeams(ctx context.Context) ([]TeamInfo, error) {
 	s.mu.Lock()
 	s.teamsCache = teams
 	s.teamsCachedAt = time.Now()
-	if len(failedLogoJobs) == 0 {
-		s.teamsSyncAt = time.Now()
-	}
+	// Metadata is a complete weekly snapshot even when individual upstream logo
+	// downloads fail. Those teams keep their previous bytes and retry next week.
+	s.teamsSyncAt = time.Now()
 	s.teamsLoaded = true
 	s.teamLogoCodes = logos
 	s.mu.Unlock()
