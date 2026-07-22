@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -1366,24 +1367,56 @@ func applyOdds(match *Match, event polymarketEvent) {
 		return
 	}
 
-	for i, name := range names {
-		price, _ := strconv.ParseFloat(prices[i], 64)
-		probBps := int64(price*10000 + 0.5)
-		priceCents := int64(price*100 + 0.5)
-		switch {
-		case teamMatches(match.Team1, name):
-			match.Team1.ProbBps = probBps
-			match.Team1.PriceCents = priceCents
-		case teamMatches(match.Team2, name):
-			match.Team2.ProbBps = probBps
-			match.Team2.PriceCents = priceCents
+	parsedPrices := make([]float64, 2)
+	for i, raw := range prices {
+		price, err := strconv.ParseFloat(raw, 64)
+		if err != nil || math.IsNaN(price) || math.IsInf(price, 0) || price < 0 || price > 1 {
+			return
 		}
+		parsedPrices[i] = price
+	}
+	if math.Abs((parsedPrices[0]+parsedPrices[1])-1) > 0.05 {
+		return
 	}
 
-	if match.Team1.PriceCents > 0 || match.Team2.PriceCents > 0 {
-		match.HasOdds = true
-		match.PolymarketURL = "https://polymarket.com/event/" + event.Slug
+	// A two-outcome moneyline is only usable when both prices can be assigned
+	// atomically. Polymarket and lolesports occasionally use different names;
+	// one unique match is sufficient because the other outcome must be the
+	// opposing team. Ties stay unavailable instead of exposing a fake 0% side.
+	directScore := boolScore(teamMatches(match.Team1, names[0])) + boolScore(teamMatches(match.Team2, names[1]))
+	reverseScore := boolScore(teamMatches(match.Team2, names[0])) + boolScore(teamMatches(match.Team1, names[1]))
+	if directScore == reverseScore || (directScore == 0 && reverseScore == 0) {
+		return
 	}
+	team1Index, team2Index := 0, 1
+	if reverseScore > directScore {
+		team1Index, team2Index = 1, 0
+	}
+
+	// KoalaTrade is a paper exchange with integer-cent fills. Normalise the
+	// paired Polymarket values together, then round them as one complementary
+	// pair so displayed chances and executable prices both total exactly 100.
+	total := parsedPrices[team1Index] + parsedPrices[team2Index]
+	team1ProbBps := int64((parsedPrices[team1Index]/total)*10000 + 0.5)
+	if team1ProbBps < 0 {
+		team1ProbBps = 0
+	} else if team1ProbBps > 10000 {
+		team1ProbBps = 10000
+	}
+	team1PriceCents := int64(float64(team1ProbBps)/100 + 0.5)
+	match.Team1.ProbBps = team1ProbBps
+	match.Team1.PriceCents = team1PriceCents
+	match.Team2.ProbBps = 10000 - team1ProbBps
+	match.Team2.PriceCents = 100 - team1PriceCents
+	match.HasOdds = true
+	match.PolymarketURL = "https://polymarket.com/event/" + event.Slug
+}
+
+func boolScore(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func pickMoneylineMarket(event polymarketEvent) *polymarketMarket {

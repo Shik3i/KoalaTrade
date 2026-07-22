@@ -40,12 +40,19 @@
   let detailsErrors: Record<string, string> = {};
 
   function stakeFor(id: string) {
-    return stakes[id] ?? 10;
+    return stakes[id] ?? 1;
+  }
+
+  function grossCents(priceCents: number, contracts: number) {
+    return Math.round(contracts * priceCents);
+  }
+
+  function feeCents(priceCents: number, contracts: number) {
+    return Math.floor((grossCents(priceCents, contracts) * ORDER_FEE_BPS) / 10_000);
   }
 
   function costCents(priceCents: number, contracts: number) {
-    const gross = Math.round(contracts * priceCents);
-    return gross + Math.round((gross * ORDER_FEE_BPS) / 10_000);
+    return grossCents(priceCents, contracts) + feeCents(priceCents, contracts);
   }
 
   function canAfford(priceCents: number, contracts: number) {
@@ -110,17 +117,14 @@
     pending = null;
   }
 
-  // Left-segment width of the win-probability bar, normalised so the two
-  // segments always sum to 100% even if the raw odds don't.
-  function team1Pct(match: EsportsMatch) {
+  // Normalise and round as one pair so the two displayed chances always add
+  // up to exactly 100%, including half-cent Polymarket prices.
+  function displayProbabilities(match: EsportsMatch) {
     const a = match.team1.probBps;
     const b = match.team2.probBps;
     const total = a + b;
-    return total > 0 ? Math.round((a / total) * 100) : 50;
-  }
-
-  function probLabel(bps: number) {
-    return `${Math.round(bps / 100)}%`;
+    const team1 = total > 0 ? Math.round((a / total) * 100) : 50;
+    return { team1, team2: 100 - team1 };
   }
 
   async function toggleDetails(matchId: string) {
@@ -217,6 +221,7 @@
       {#each filteredMatches as match (match.id)}
         {@const confirmTeam = pendingTeam(match)}
         {@const bettingClosed = match.team1.priceCents >= 100 || match.team2.priceCents >= 100}
+        {@const displayProbability = displayProbabilities(match)}
         <article class="match-card" class:live={match.state === 'inProgress'} class:pending={!!confirmTeam}>
           <header class="match-top">
             <span class="league">{match.league}{match.bestOf ? ` · BO${match.bestOf}` : ''}</span>
@@ -243,7 +248,7 @@
                 <button class="roundel"
                         type="button"
                         disabled={!match.hasOdds || team.priceCents <= 0 || bettingClosed || refreshingId === match.id}
-                         title={bettingClosed ? $t('esports.marketClosedTitle') : match.hasOdds && team.priceCents > 0 ? $t('esports.betOnTitle', { code: team.code, pct: Math.round(team.probBps / 100) }) : $t('esports.noQuoteTitle')}
+                         title={bettingClosed ? $t('esports.marketClosedTitle') : match.hasOdds && team.priceCents > 0 ? $t('esports.betOnTitle', { code: team.code, pct: i === 0 ? displayProbability.team1 : displayProbability.team2 }) : $t('esports.noQuoteTitle')}
                         on:click={() => startBet(match, team)}>
                   {#if team.image}<img src={team.image} alt="" width="58" height="58" loading="lazy" />{:else}{team.code.slice(0, 3)}{/if}
                 </button>
@@ -261,14 +266,14 @@
 
           {#if match.hasOdds && (match.team1.priceCents > 0 || match.team2.priceCents > 0)}
             <div class="prob-wrap" title={$t('esports.probWrapTitle')}>
-              <svg class="prob-bar" viewBox="0 0 100 14" role="img" aria-label={$t('esports.probAria', { a: probLabel(match.team1.probBps), b: probLabel(match.team2.probBps) })}>
-                <rect class="seg a" x="0" y="0" width={team1Pct(match)} height="14" />
-                <rect class="seg b" x={team1Pct(match)} y="0" width={100 - team1Pct(match)} height="14" />
+              <svg class="prob-bar" viewBox="0 0 100 14" role="img" aria-label={$t('esports.probAria', { a: `${displayProbability.team1}%`, b: `${displayProbability.team2}%` })}>
+                <rect class="seg a" x="0" y="0" width={displayProbability.team1} height="14" />
+                <rect class="seg b" x={displayProbability.team1} y="0" width={displayProbability.team2} height="14" />
               </svg>
               <div class="prob-legend">
-                <span class="a">{probLabel(match.team1.probBps)} · {formatMoney(match.team1.priceCents)}</span>
+                <span class="a">{displayProbability.team1}% · {formatMoney(match.team1.priceCents)}</span>
                 <span class="src">{$t('esports.polymarketSrc')}</span>
-                <span class="b">{probLabel(match.team2.probBps)} · {formatMoney(match.team2.priceCents)}</span>
+                <span class="b">{displayProbability.team2}% · {formatMoney(match.team2.priceCents)}</span>
               </div>
             </div>
           {:else}
@@ -323,8 +328,22 @@
                 <button class="ghost" type="button" title={$t('esports.closeWindowTitle')} on:click={cancelBet}>{$t('common.close')}</button>
               {:else if confirmTeam.priceCents > 0}
                 <div class="confirm-info">
-                  <strong>{confirmTeam.code} @ {formatMoney(confirmTeam.priceCents)}</strong>
-                  <small>{$t('esports.contractsCost', { stake: stakeFor(match.id), amount: formatMoney(costCents(confirmTeam.priceCents, stakeFor(match.id))) })}</small>
+                  <div class="confirm-heading">
+                    <strong>{confirmTeam.code} · {confirmTeam.code === match.team1.code ? displayProbability.team1 : displayProbability.team2}%</strong>
+                    <small>{$t('esports.simulatedPrice')}</small>
+                  </div>
+                  <label class="contract-control" title={$t('esports.contractsFieldTitle')}>
+                    <span>{$t('esports.contracts')}</span>
+                    <input type="number" min="1" step="1" value={stakeFor(match.id)} title={$t('esports.contractsFieldTitle')} on:input={(e) => (stakes[match.id] = Math.max(1, Math.floor(Number(e.currentTarget.value)) || 1))} />
+                  </label>
+                  <dl class="order-breakdown">
+                    <div><dt>{$t('esports.pricePerContract')}</dt><dd>{formatMoney(confirmTeam.priceCents)}</dd></div>
+                    <div><dt>{$t('esports.subtotal')}</dt><dd>{stakeFor(match.id)} × {formatMoney(confirmTeam.priceCents)} = {formatMoney(grossCents(confirmTeam.priceCents, stakeFor(match.id)))}</dd></div>
+                    <div><dt>{$t('esports.fee')}</dt><dd>{formatMoney(feeCents(confirmTeam.priceCents, stakeFor(match.id)))}</dd></div>
+                    <div class="total"><dt>{$t('esports.total')}</dt><dd>{formatMoney(costCents(confirmTeam.priceCents, stakeFor(match.id)))}</dd></div>
+                    <div><dt>{$t('esports.maxPayout')}</dt><dd>{formatMoney(stakeFor(match.id) * 100)}</dd></div>
+                    <div><dt>{$t('esports.possibleProfit')}</dt><dd>{formatMoney((stakeFor(match.id) * 100) - costCents(confirmTeam.priceCents, stakeFor(match.id)))}</dd></div>
+                  </dl>
                 </div>
                 <div class="confirm-actions">
                   <button class="ghost" type="button" title={$t('esports.cancelBetTitle')} on:click={cancelBet}>{$t('common.cancel')}</button>
@@ -337,11 +356,7 @@
             </footer>
           {:else if match.hasOdds && !bettingClosed}
             <footer class="match-foot">
-              <label title={$t('esports.contractsFieldTitle')}>
-                <span>{$t('esports.contracts')}</span>
-                <input type="number" min="1" step="1" value={stakeFor(match.id)} title={$t('esports.contractsFieldTitle')} on:input={(e) => (stakes[match.id] = Math.max(1, Math.floor(Number(e.currentTarget.value)) || 1))} />
-              </label>
-              <span class="hint">{$t('esports.stakeFrom', { amount: formatMoney(costCents(match.team1.priceCents, stakeFor(match.id))) })}</span>
+              <span class="hint">{$t('esports.selectTeamHint')}</span>
             </footer>
           {:else if bettingClosed}
             <footer class="match-foot">
@@ -742,11 +757,11 @@
   }
 
   .prob-bar .seg.a {
-    background: linear-gradient(90deg, hsl(var(--green-hsl)), hsla(var(--green-hsl), 0.75));
+    fill: #39db8f;
   }
 
   .prob-bar .seg.b {
-    background: linear-gradient(90deg, hsla(var(--red-hsl), 0.75), hsl(var(--red-hsl)));
+    fill: #fb567f;
   }
 
   .prob-legend {
@@ -869,36 +884,14 @@
     border-top: 1px solid var(--line);
   }
 
-  .match-foot label {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: var(--muted);
-    font-size: 0.78rem;
-  }
-
-  .match-foot input {
-    width: 4.5rem;
-    min-height: 2.1rem;
-    padding: 0 0.5rem;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    color: var(--text);
-    background: var(--bg-2);
-    outline: none;
-  }
-
   .match-foot .hint {
     color: var(--muted);
     font-size: 0.74rem;
   }
 
   .confirm-bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+    display: grid;
     gap: 0.75rem;
-    flex-wrap: wrap;
     padding: 0.6rem 0.7rem;
     border: 1px solid var(--green-soft);
     border-radius: var(--r-sm);
@@ -915,16 +908,76 @@
 
   .confirm-info {
     display: grid;
-    gap: 0.05rem;
+    gap: 0.6rem;
   }
 
-  .confirm-info small {
+  .confirm-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.6rem;
+  }
+
+  .confirm-heading small {
     color: var(--muted);
     font-size: 0.72rem;
   }
 
+  .contract-control {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    color: var(--muted);
+    font-size: 0.76rem;
+  }
+
+  .contract-control input {
+    width: 5rem;
+    min-height: 2.1rem;
+    padding: 0 0.5rem;
+    border: 1px solid var(--line-2);
+    border-radius: 6px;
+    color: var(--text);
+    background: var(--bg-2);
+    outline: none;
+  }
+
+  .order-breakdown {
+    display: grid;
+    gap: 0.25rem;
+    margin: 0;
+  }
+
+  .order-breakdown div {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    color: var(--muted);
+    font-size: 0.72rem;
+  }
+
+  .order-breakdown dt,
+  .order-breakdown dd {
+    margin: 0;
+  }
+
+  .order-breakdown dd {
+    color: var(--text);
+    text-align: right;
+  }
+
+  .order-breakdown .total {
+    margin-top: 0.15rem;
+    padding-top: 0.35rem;
+    border-top: 1px solid var(--line-2);
+    font-weight: 700;
+  }
+
   .confirm-actions {
     display: flex;
+    justify-content: flex-end;
     gap: 0.4rem;
   }
 

@@ -49,6 +49,111 @@ func TestSlugDiagnosticUsesTemporaryMapping(t *testing.T) {
 	}
 }
 
+func TestApplyOddsAssignsBothMoneylineOutcomes(t *testing.T) {
+	match := Match{
+		Team1: Team{Name: "Anyone's Legend", Code: "AL"},
+		Team2: Team{Name: "Beijing JDG Esports", Code: "JDG"},
+	}
+	event := polymarketEvent{Slug: "lol-al-jdg", Markets: []polymarketMarket{{
+		GroupItemTitle: "Match Winner",
+		Outcomes:       `["Anyone's Legend","JD Gaming"]`,
+		OutcomePrices:  `["0.54","0.46"]`,
+	}}}
+
+	applyOdds(&match, event)
+
+	if !match.HasOdds || match.Team1.PriceCents != 54 || match.Team2.PriceCents != 46 {
+		t.Fatalf("expected complete 54/46 quote, got %+v", match)
+	}
+}
+
+func TestApplyOddsRejectsAmbiguousOutcomeMapping(t *testing.T) {
+	match := Match{
+		Team1: Team{Name: "Alpha Gaming", Code: "AG"},
+		Team2: Team{Name: "Alpha Esports", Code: "AE"},
+	}
+	event := polymarketEvent{Slug: "lol-alpha-alpha", Markets: []polymarketMarket{{
+		GroupItemTitle: "Match Winner",
+		Outcomes:       `["Alpha","Unknown"]`,
+		OutcomePrices:  `["0.60","0.40"]`,
+	}}}
+
+	applyOdds(&match, event)
+
+	if match.HasOdds || match.Team1.PriceCents != 0 || match.Team2.PriceCents != 0 {
+		t.Fatalf("expected ambiguous quote to stay unavailable, got %+v", match)
+	}
+}
+
+func TestApplyOddsAcceptsClosedZeroHundredMarket(t *testing.T) {
+	match := Match{
+		Team1: Team{Name: "G2 Esports", Code: "G2"},
+		Team2: Team{Name: "Fnatic", Code: "FNC"},
+	}
+	event := polymarketEvent{Slug: "lol-g2-fnc", Markets: []polymarketMarket{{
+		GroupItemTitle: "Match Winner",
+		Outcomes:       `["G2 Esports","Fnatic"]`,
+		OutcomePrices:  `["1","0"]`,
+	}}}
+
+	applyOdds(&match, event)
+
+	if !match.HasOdds || match.Team1.PriceCents != 100 || match.Team2.PriceCents != 0 {
+		t.Fatalf("expected closed 100/0 quote, got %+v", match)
+	}
+}
+
+func TestApplyOddsRoundsPricesAsComplementaryPair(t *testing.T) {
+	match := Match{
+		Team1: Team{Name: "Thunder Talk Gaming", Code: "TT"},
+		Team2: Team{Name: "Bilibili Gaming", Code: "BLG"},
+	}
+	event := polymarketEvent{Slug: "lol-tt-blg", Markets: []polymarketMarket{{
+		GroupItemTitle: "Match Winner",
+		Outcomes:       `["Thunder Talk Gaming","Bilibili Gaming"]`,
+		OutcomePrices:  `["0.115","0.885"]`,
+	}}}
+
+	applyOdds(&match, event)
+
+	if !match.HasOdds || match.Team1.PriceCents != 12 || match.Team2.PriceCents != 88 {
+		t.Fatalf("expected complementary 12/88 cent quote, got %+v", match)
+	}
+	if match.Team1.ProbBps+match.Team2.ProbBps != 10000 {
+		t.Fatalf("expected probabilities to total 10000 bps, got %+v", match)
+	}
+}
+
+func TestApplyOddsRejectsInvalidPrices(t *testing.T) {
+	match := Match{Team1: Team{Name: "G2 Esports", Code: "G2"}, Team2: Team{Name: "Fnatic", Code: "FNC"}}
+	event := polymarketEvent{Markets: []polymarketMarket{{
+		GroupItemTitle: "Match Winner",
+		Outcomes:       `["G2 Esports","Fnatic"]`,
+		OutcomePrices:  `["1.2","-0.2"]`,
+	}}}
+
+	applyOdds(&match, event)
+
+	if match.HasOdds {
+		t.Fatalf("expected invalid quote to be rejected, got %+v", match)
+	}
+}
+
+func TestApplyOddsRejectsIncoherentProbabilityPair(t *testing.T) {
+	match := Match{Team1: Team{Name: "G2 Esports", Code: "G2"}, Team2: Team{Name: "Fnatic", Code: "FNC"}}
+	event := polymarketEvent{Markets: []polymarketMarket{{
+		GroupItemTitle: "Match Winner",
+		Outcomes:       `["G2 Esports","Fnatic"]`,
+		OutcomePrices:  `["0.80","0.80"]`,
+	}}}
+
+	applyOdds(&match, event)
+
+	if match.HasOdds {
+		t.Fatalf("expected incoherent probability pair to be rejected, got %+v", match)
+	}
+}
+
 func TestTeamsPersistAndServeLocalLogos(t *testing.T) {
 	store := &teamTestStore{}
 	service := NewService("test-key", "https://lolesports.test", "", time.Second, time.Minute, store)

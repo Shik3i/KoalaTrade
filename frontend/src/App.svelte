@@ -89,6 +89,10 @@
   const tr = (key: string, vars?: Record<string, string | number>) => get(t)(key, vars);
 
   const ORDER_FEE_BPS = 8;
+
+  function orderFeeCents(grossCents: number) {
+    return Math.max(0, Math.floor((grossCents * ORDER_FEE_BPS) / 10_000));
+  }
   const QUANTITY_STEP = 0.0001;
   const chartRanges: ChartRange[] = ['1H', '1D', '1W', '1M', '1Y'];
   const quantityPresets = [0.25, 0.5, 0.75, 1] as const;
@@ -335,7 +339,7 @@
   $: selectedPosition = positionList.find((position) => position.assetId === selectedMarket.assetId);
   $: selectedPositionQuantity = selectedPosition?.quantity ?? 0;
   $: estimatedOrderValue = Math.round(normalizedOrderQuantity * effectivePriceCents);
-  $: estimatedOrderFee = Math.max(0, Math.round((estimatedOrderValue * ORDER_FEE_BPS) / 10_000));
+  $: estimatedOrderFee = orderFeeCents(estimatedOrderValue);
   $: estimatedOrderTotal = orderSide === 'buy' ? estimatedOrderValue + estimatedOrderFee : Math.max(0, estimatedOrderValue - estimatedOrderFee);
   $: maxBuyQuantity = effectivePriceCents > 0 ? roundQuantity(summary.cashCents / (effectivePriceCents * (1 + ORDER_FEE_BPS / 10_000))) : 0;
   $: maxSellQuantity = roundQuantity(selectedPositionQuantity);
@@ -797,7 +801,7 @@
 
     const other = team.code === match.team1.code ? match.team2 : match.team1;
     const grossCents = Math.round(contracts * team.priceCents);
-    const feeCents = Math.max(0, Math.round((grossCents * ORDER_FEE_BPS) / 10_000));
+    const feeCents = orderFeeCents(grossCents);
     try {
       const next = applyTrade(portfolio, {
         id: crypto.randomUUID(),
@@ -849,7 +853,7 @@
     }
 
     const grossCents = Math.round(quantity * position.lastPriceCents);
-    const feeCents = Math.max(0, Math.round((grossCents * ORDER_FEE_BPS) / 10_000));
+    const feeCents = orderFeeCents(grossCents);
     try {
       const next = applyTrade(portfolio, {
         id: crypto.randomUUID(),
@@ -1164,7 +1168,7 @@
         continue;
       }
       const grossCents = Math.round(order.quantity * price);
-      const feeCents = Math.max(0, Math.round((grossCents * ORDER_FEE_BPS) / 10_000));
+      const feeCents = orderFeeCents(grossCents);
       try {
         working = applyTrade(working, {
           id: crypto.randomUUID(),

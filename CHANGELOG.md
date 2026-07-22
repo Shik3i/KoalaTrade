@@ -6,6 +6,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-07-22
+
+### Fixed
+
+- eSports moneyline quotes are now accepted only when both outcomes form one unambiguous two-team pair. A uniquely identified outcome assigns the remaining price to the opposing team; ambiguous, malformed, or incoherent pairs stay unavailable instead of exposing a fake `0%` side.
+- Paired Polymarket values are normalized into complementary probabilities and integer-cent paper prices, so both displayed chances and executable prices total exactly `100%` / `$1.00`.
+- The two-colour probability bar now uses valid SVG fills and renders visibly instead of appearing black.
+- eSports order cards no longer calculate a misleading team-1 "stake" before a team is selected. The confirmation now shows price per contract, quantity, fee, total cost, maximum payout, and possible profit, starting from one contract.
+- Client-side fee previews and offline fills now use the same integer rounding as the server, preventing one-cent discrepancies.
+
 ## [0.4.1] - 2026-07-18
 
 ### Security
@@ -129,7 +139,8 @@ First MVP release. Published as Docker images to GHCR.
 - Market history endpoint now URL-decodes the asset id (colon in `crypto:btc`).
 - Docker release workflow lowercases the image owner so GHCR pushes succeed.
 
-[Unreleased]: https://github.com/Shik3i/KoalaTrade/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/Shik3i/KoalaTrade/compare/v0.7.5...HEAD
+[0.7.5]: https://github.com/Shik3i/KoalaTrade/compare/v0.7.4...v0.7.5
 [0.1.2]: https://github.com/Shik3i/KoalaTrade/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Shik3i/KoalaTrade/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Shik3i/KoalaTrade/releases/tag/v0.1.0
