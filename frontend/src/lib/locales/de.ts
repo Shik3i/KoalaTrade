@@ -598,5 +598,28 @@ export const de = {
     errLoginFailed: 'Login fehlgeschlagen',
     errGeneric: 'Fehler',
     errSlugTest: 'Slug-Test fehlgeschlagen'
+  },
+  footer: {
+    privacy: 'Datenschutz',
+    imprint: 'Impressum / Legal',
+    tagline: 'Privacy-first Paper-Trading Desk',
+    disclaimer: 'KoalaTrade dient ausschließlich zu Übungs- und Bildungszwecken.',
+    openPrivacyTitle: 'Datenschutzerklärung anzeigen',
+    openImprintTitle: 'Impressum auf koalastuff.net/legal in neuem Tab öffnen'
+  },
+  privacy: {
+    title: 'Datenschutzerklärung',
+    eyebrow: 'Privatsphäre & Transparenz',
+    principleTitle: 'Datenschutz-Grundsatz',
+    principleBody: 'KoalaTrade verarbeitet keine personenbezogenen Daten ohne deine explizite Einwilligung. Die Anwendung läuft local-first in deinem Browser und verzichtet vollständig auf externe CDNs, Analytics und Tracking-Pixel.',
+    localStorageTitle: 'Lokale Speicherung (IndexedDB & LocalStorage)',
+    localStorageDesc: 'Alle Trades, Watchlisten, Einstellungen und Präferenzen verbleiben lokal in deinem Browser.',
+    serverTitle: 'Serverseitiger Schutz & Proxying',
+    serverDesc: 'Markt- und eSports-Daten werden vom Server abgerufen. Externe Anbieter wie CoinGecko oder Polymarket erhalten zu keinem Zeitpunkt deine Client-IP oder deine Watchlist-Daten.',
+    cookiesTitle: 'Cookies & Session-Tokens',
+    cookiesDesc: 'Für unangemeldete Nutzer werden keine Cookies gesetzt. Bei optionaler Registrierung nutzen wir ein sicheres, HMAC-signiertes HttpOnly-Cookie zur Session-Verwaltung.',
+    rightsTitle: 'Deine Rechte & Datenkontrolle',
+    rightsDesc: 'Du kannst im Profil jederzeit einen vollen JSON-Export deiner Daten herunterladen oder deine Portfolio- und Accountdaten unwiderruflich löschen.',
+    imprintLink: 'Rechtliche Angaben & Impressum unter koalastuff.net/legal'
   }
 } as const;

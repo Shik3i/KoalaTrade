@@ -6,6 +6,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.7] - 2026-07-23
+
+### Added
+
+- Added Privacy Policy (`docs/privacy.md`) tailored to KoalaTrade's local-first storage, opt-in sync, PBKDF2/HttpOnly session auth, and server-side API proxying.
+- Added interactive Privacy Policy modal to the web interface with German and English translations.
+- Added Legal Notice / Imprint link in the site footer pointing to `https://koalastuff.net/legal`.
+
 ## [0.7.6] - 2026-07-22
 
 ### Added
@@ -157,7 +165,8 @@ First MVP release. Published as Docker images to GHCR.
 - Market history endpoint now URL-decodes the asset id (colon in `crypto:btc`).
 - Docker release workflow lowercases the image owner so GHCR pushes succeed.
 
-[Unreleased]: https://github.com/Shik3i/KoalaTrade/compare/v0.7.6...HEAD
+[Unreleased]: https://github.com/Shik3i/KoalaTrade/compare/v0.7.7...HEAD
+[0.7.7]: https://github.com/Shik3i/KoalaTrade/compare/v0.7.6...v0.7.7
 [0.7.6]: https://github.com/Shik3i/KoalaTrade/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/Shik3i/KoalaTrade/compare/v0.7.4...v0.7.5
 [0.1.2]: https://github.com/Shik3i/KoalaTrade/compare/v0.1.1...v0.1.2

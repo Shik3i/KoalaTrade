@@ -599,5 +599,28 @@ export const en = {
     errLoginFailed: 'Login failed',
     errGeneric: 'Error',
     errSlugTest: 'Slug test failed'
+  },
+  footer: {
+    privacy: 'Privacy Policy',
+    imprint: 'Legal Notice / Imprint',
+    tagline: 'Privacy-first paper-trading desk',
+    disclaimer: 'KoalaTrade is strictly for education and practice. All markets are traded using virtual funds.',
+    openPrivacyTitle: 'View privacy policy',
+    openImprintTitle: 'Open legal notice on koalastuff.net/legal in a new tab'
+  },
+  privacy: {
+    title: 'Privacy Policy',
+    eyebrow: 'Privacy & Transparency',
+    principleTitle: 'Core Privacy Principle',
+    principleBody: 'KoalaTrade collects no personal data without your explicit consent. The app operates local-first inside your browser and is completely free of external CDNs, analytics, and tracking pixels.',
+    localStorageTitle: 'Local Storage (IndexedDB & LocalStorage)',
+    localStorageDesc: 'All trades, watchlists, preferences, and positions stay locally in your browser.',
+    serverTitle: 'Server-Side Protection & Proxying',
+    serverDesc: 'Market and eSports data are proxied by our backend. External providers like CoinGecko or Polymarket never receive your client IP or watchlist data.',
+    cookiesTitle: 'Cookies & Session Tokens',
+    cookiesDesc: 'No cookies are stored for unauthenticated visitors. Optional account logins use a secure, HMAC-signed HttpOnly session cookie.',
+    rightsTitle: 'Your Rights & Data Ownership',
+    rightsDesc: 'You can download a full JSON export of your data at any time from your profile or delete your portfolio and account data permanently.',
+    imprintLink: 'Legal Notice & Imprint available at koalastuff.net/legal'
   }
 } as const;

@@ -4,10 +4,12 @@
     ArrowLeft,
     Award,
     CandlestickChart,
+    ExternalLink,
     LineChart,
     Keyboard,
     RotateCcw,
     Search,
+    ShieldCheck,
     Sparkles,
     TrendingUp,
     Trophy,
@@ -160,6 +162,7 @@
   let quoteTimer: ReturnType<typeof setInterval> | undefined;
   let showShortcuts = false;
   let showResetConfirm = false;
+  let showPrivacyModal = false;
   let showOnboardingBanner = false;
   let showTour = false;
   const ONBOARDING_KEY = 'koala-onboarded';
@@ -1431,6 +1434,24 @@
         <span>{$t('landing.band3Body')}</span>
       </article>
     </section>
+
+    <footer class="site-footer">
+      <div class="footer-left">
+        <span class="footer-brand">KoalaTrade</span>
+        <span class="footer-sep">·</span>
+        <span class="footer-tagline">{$t('footer.tagline')}</span>
+      </div>
+      <div class="footer-right">
+        <button type="button" class="footer-btn" title={$t('footer.openPrivacyTitle')} on:click={() => (showPrivacyModal = true)}>
+          <ShieldCheck size={14} />
+          <span>{$t('footer.privacy')}</span>
+        </button>
+        <a href="https://koalastuff.net/legal" target="_blank" rel="noopener noreferrer" class="footer-link" title={$t('footer.openImprintTitle')}>
+          <ExternalLink size={14} />
+          <span>{$t('footer.imprint')}</span>
+        </a>
+      </div>
+    </footer>
   </main>
 {:else}
   <div class="app-shell">
@@ -1911,6 +1932,24 @@
         <span class="status-spacer">{syncMessage}</span>
       </div>
     {/if}
+
+    <footer class="app-footer">
+      <div class="footer-left">
+        <span class="footer-brand">KoalaTrade</span>
+        <span class="footer-sep">·</span>
+        <span class="footer-tagline">{$t('footer.tagline')}</span>
+      </div>
+      <div class="footer-right">
+        <button type="button" class="footer-btn" title={$t('footer.openPrivacyTitle')} on:click={() => (showPrivacyModal = true)}>
+          <ShieldCheck size={14} />
+          <span>{$t('footer.privacy')}</span>
+        </button>
+        <a href="https://koalastuff.net/legal" target="_blank" rel="noopener noreferrer" class="footer-link" title={$t('footer.openImprintTitle')}>
+          <ExternalLink size={14} />
+          <span>{$t('footer.imprint')}</span>
+        </a>
+      </div>
+    </footer>
   </main>
   </div>
 
@@ -1959,6 +1998,56 @@
           <li><UserCircle2 size={16} /><span>{$t('tour.point4')}</span></li>
         </ul>
         <button class="primary-button" type="button" title={$t('tour.startTitle')} on:click={dismissOnboarding}>{$t('tour.start')}</button>
+      </div>
+    </div>
+  {/if}
+
+  {#if showPrivacyModal}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="shortcuts-overlay" on:keydown={trapFocus}>
+      <button class="shortcuts-backdrop" type="button" aria-label={$t('common.close')} title={$t('common.close')} on:click={() => (showPrivacyModal = false)}></button>
+      <div class="shortcuts-card privacy-card" role="dialog" aria-label={$t('privacy.title')} aria-modal="true">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">{$t('privacy.eyebrow')}</p>
+            <h2>{$t('privacy.title')}</h2>
+          </div>
+          <ShieldCheck size={20} />
+        </div>
+        <div class="privacy-modal-body">
+          <section class="privacy-section">
+            <h3><ShieldCheck size={16} /> {$t('privacy.principleTitle')}</h3>
+            <p>{$t('privacy.principleBody')}</p>
+          </section>
+
+          <section class="privacy-section">
+            <h3><WalletCards size={16} /> {$t('privacy.localStorageTitle')}</h3>
+            <p>{$t('privacy.localStorageDesc')}</p>
+          </section>
+
+          <section class="privacy-section">
+            <h3><Activity size={16} /> {$t('privacy.serverTitle')}</h3>
+            <p>{$t('privacy.serverDesc')}</p>
+          </section>
+
+          <section class="privacy-section">
+            <h3><UserCircle2 size={16} /> {$t('privacy.cookiesTitle')}</h3>
+            <p>{$t('privacy.cookiesDesc')}</p>
+          </section>
+
+          <section class="privacy-section">
+            <h3><Sparkles size={16} /> {$t('privacy.rightsTitle')}</h3>
+            <p>{$t('privacy.rightsDesc')}</p>
+          </section>
+
+          <div class="privacy-imprint-box">
+            <a href="https://koalastuff.net/legal" target="_blank" rel="noopener noreferrer" class="imprint-link">
+              <ExternalLink size={15} />
+              <span>{$t('privacy.imprintLink')}</span>
+            </a>
+          </div>
+        </div>
+        <button class="primary-button" type="button" title={$t('common.close')} on:click={() => (showPrivacyModal = false)}>{$t('common.close')}</button>
       </div>
     </div>
   {/if}

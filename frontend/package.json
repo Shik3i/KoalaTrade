@@ -1,7 +1,7 @@
 {
   "name": "koalatrade-frontend",
   "private": true,
-  "version": "0.3.1",
+  "version": "0.7.7",
   "type": "module",
   "engines": {
     "node": ">=24"

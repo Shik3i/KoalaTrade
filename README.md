@@ -114,6 +114,7 @@ All configuration is via environment variables — see [`.env.example`](.env.exa
 - [docs/deployment.md](docs/deployment.md) — Docker/GHCR deployment with Caddy
 - [docs/esports.md](docs/esports.md) — eSports markets, Polymarket odds, team mappings, admin
 - [docs/market-data.md](docs/market-data.md) — market-data providers & caching
+- [docs/privacy.md](docs/privacy.md) — privacy policy & data processing principles
 - [docs/sync.md](docs/sync.md) — portfolio sync model
 - [ROADMAP.md](ROADMAP.md) · [CHANGELOG.md](CHANGELOG.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md)
 
