@@ -62,7 +62,7 @@
   $: openBets = positions.filter((position) => position.assetId.startsWith('event:lol:'));
 
   $: filteredMatches = matches.filter((match) => {
-    if (match.team1.code === 'TBD' || match.team2.code === 'TBD') return false;
+    if (!match?.team1?.code || !match?.team2?.code || match.team1.code === 'TBD' || match.team2.code === 'TBD') return false;
     const isFavorite = favoriteTeams.includes(match.team1.code) || favoriteTeams.includes(match.team2.code);
     if (showOnlyFavorites) return isFavorite;
     if (showAllLeagues) return true;
@@ -99,7 +99,7 @@
 
   function pendingTeam(match: EsportsMatch): EsportsTeam | null {
     if (!pending || pending.matchId !== match.id) return null;
-    return pending.teamCode === match.team1.code ? match.team1 : match.team2;
+    return pending.teamCode === match?.team1?.code ? match.team1 : match.team2;
   }
 
   // Step 2: confirm with the freshly refreshed price.

@@ -6,6 +6,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.8] - 2026-07-23
+
+### Fixed
+
+- Added safe optional chaining for eSports team code access (`match?.team1?.code`, `match?.team2?.code`) to prevent render errors on malformed payloads.
+- Replaced global window stashing for `visibilitychange` event listener in `App.svelte` with component-scoped closure cleanup.
+
 ## [0.7.7] - 2026-07-23
 
 ### Added
@@ -165,7 +172,8 @@ First MVP release. Published as Docker images to GHCR.
 - Market history endpoint now URL-decodes the asset id (colon in `crypto:btc`).
 - Docker release workflow lowercases the image owner so GHCR pushes succeed.
 
-[Unreleased]: https://github.com/Shik3i/KoalaTrade/compare/v0.7.7...HEAD
+[Unreleased]: https://github.com/Shik3i/KoalaTrade/compare/v0.7.8...HEAD
+[0.7.8]: https://github.com/Shik3i/KoalaTrade/compare/v0.7.7...v0.7.8
 [0.7.7]: https://github.com/Shik3i/KoalaTrade/compare/v0.7.6...v0.7.7
 [0.7.6]: https://github.com/Shik3i/KoalaTrade/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/Shik3i/KoalaTrade/compare/v0.7.4...v0.7.5

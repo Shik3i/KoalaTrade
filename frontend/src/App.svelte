@@ -160,6 +160,7 @@
   let authBusy = false;
   let clientId = '';
   let quoteTimer: ReturnType<typeof setInterval> | undefined;
+  let removeVisibilityListener: (() => void) | undefined;
   let showShortcuts = false;
   let showResetConfirm = false;
   let showPrivacyModal = false;
@@ -294,10 +295,7 @@
       }
     };
     document.addEventListener('visibilitychange', onVisibility);
-
-    // Stash for cleanup in onDestroy (avoid window type pollution).
-    const CLEANUP_KEY = '__koala_vis_cleanup';
-    (window as any)[CLEANUP_KEY] = () => document.removeEventListener('visibilitychange', onVisibility);
+    removeVisibilityListener = () => document.removeEventListener('visibilitychange', onVisibility);
   });
 
   function dismissOnboarding() {
@@ -312,8 +310,7 @@
 
   onDestroy(() => {
     if (quoteTimer) clearInterval(quoteTimer);
-    const cleanup = (window as any).__koala_vis_cleanup;
-    if (typeof cleanup === 'function') cleanup();
+    if (removeVisibilityListener) removeVisibilityListener();
     window.removeEventListener('popstate', handlePopState);
   });
 
