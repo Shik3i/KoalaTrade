@@ -19,6 +19,8 @@
     "svelte": "^5.56.6"
   },
   "devDependencies": {
+    "@emnapi/core": "1.11.3",
+    "@emnapi/runtime": "1.11.3",
     "@sveltejs/vite-plugin-svelte": "^7.2.0",
     "@tsconfig/svelte": "^5.0.4",
     "@types/node": "^26.1.1",
