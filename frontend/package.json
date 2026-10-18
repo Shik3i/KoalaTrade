@@ -15,7 +15,7 @@
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
     "@fontsource/outfit": "^5.2.8",
-    "@lucide/svelte": "^1.25.0",
+    "@lucide/svelte": "^1.57.0",
     "svelte": "^5.56.6"
   },
   "devDependencies": {
@@ -23,7 +23,7 @@
     "@emnapi/runtime": "1.11.3",
     "@sveltejs/vite-plugin-svelte": "^7.2.0",
     "@tsconfig/svelte": "^5.0.4",
-    "@types/node": "^26.1.1",
+    "@types/node": "^26.6.5",
     "svelte-check": "^4.7.3",
     "typescript": "^6.0.3",
     "vite": "^8.1.5"
